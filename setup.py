@@ -15,9 +15,11 @@ setuptools.setup(
     ],
     python_requires=">=3.9",
     install_requires=[
+        "datasets",
         "easy-tpp",
         "hydra-core>=1.1.2",
         "numpy>=1.23",
+        "pyarrow>=14.0.0"
         "pyspark>=3",
         "pytorch-lifestream",
         "scikit-learn>=1.3.2",
