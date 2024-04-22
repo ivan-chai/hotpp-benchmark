@@ -15,7 +15,7 @@ SPLITS = {
 
 
 def parse_args():
-    parser = argparse.ArgumentParser("Convert pkl dataset to a parquet dataset.")
+    parser = argparse.ArgumentParser("Download, prepare and dump dataset to a parquet file.")
     parser.add_argument("root", help="Dataset root")
     return parser.parse_args()
 
