@@ -31,6 +31,10 @@ class CrossEntropyLoss(torch.nn.Module):
         super().__init__()
         self.input_dim = num_classes
 
+    @property
+    def num_classes(self):
+        return self.input_dim
+
     def forward(self, predictions, targets, mask):
         """Compute cross-entropy loss between predictions and targets.
 
@@ -45,6 +49,9 @@ class CrossEntropyLoss(torch.nn.Module):
         assert losses.ndim == 2
         return losses[mask].mean()
 
+    def get_proba(self, predictions):
+        return torch.nn.functional.softmax(predictions, -1)  # (B, L, C).
+
 
 class NextItemLoss(torch.nn.Module):
     """Hybrid loss for next item prediction.
@@ -58,22 +65,39 @@ class NextItemLoss(torch.nn.Module):
         self._order = list(sorted(losses))
 
     @property
+    def loss_names(self):
+        return self._order
+
+    @property
     def input_dim(self):
         return sum([loss.input_dim for loss in self._losses.values()])
 
+    def __getitem__(self, key):
+        return self._losses[key]
+
     def forward(self, predictions, targets):
-        shifted_lengths = (targets.seq_lens - 1).clip(min=0)  # (B).
-        mask = torch.arange(targets.seq_feature_shape[1] - 1, device=targets.device)[None] < shifted_lengths[:, None]  # (B, L).
-        input_offset = 0
+        """Compute loss between predictions and targets.
+
+        Args:
+            predictions: Predicted values with shape (B, L, C).
+            targets: Target values with shape (B, L), shifted w.r.t. predictions.
+        """
+        predictions = self.split_predictions(predictions)
+        mask = targets.seq_len_mask.bool()
         losses = []
-        for name in self._order:
-            loss = self._losses[name]
-            output = predictions.payload[:, :, input_offset:input_offset + loss.input_dim]
+        for name, output in predictions.items():
             target = targets.payload[name]
-            # Shift target.
-            output = output[:, :-1]
-            target = target[:, 1:]
-            losses.append(loss(output, target, mask))
-            input_offset += loss.input_dim
-        assert input_offset == self.input_dim
+            losses.append(self._losses[name](output, target, mask))
         return torch.stack(losses).sum()
+
+    def split_predictions(self, predictions):
+        """Convert parameters tensor to the dictionary with parameters for each loss."""
+        offset = 0
+        result = {}
+        for name in self.loss_names:
+            loss = self._losses[name]
+            result[name] = predictions.payload[:, :, offset:offset + loss.input_dim]
+            offset += loss.input_dim
+        if offset != self.input_dim:
+            raise ValueError("Predictions tensor has inconsistent size.")
+        return result

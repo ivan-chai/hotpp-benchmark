@@ -15,13 +15,15 @@ class NextItemModule(pl.LightningModule):
             optimizer init partial. Network parameters are missed.
         lr_scheduler_partial:
             scheduler init partial. Optimizer are missed.
-        metric: Metric for logging.
+        labels_name: The name of the labels field.
+        metric_partial: Metric for logging.
     """
     def __init__(self, seq_encoder, loss,
                  head_partial=None,
                  optimizer_partial=None,
                  lr_scheduler_partial=None,
-                 metric=None):
+                 labels_name="labels",
+                 metric_partial=None):
 
         super().__init__()
         # self.save_hyperparameters()
@@ -29,7 +31,13 @@ class NextItemModule(pl.LightningModule):
         self._loss = loss
         self._seq_encoder = seq_encoder
         self._seq_encoder.is_reduce_sequence = False
-        self._metric = metric
+        self._labels_name = labels_name
+        if metric_partial is not None:
+            self._metric = metric_partial(
+                num_classes=self._loss[labels_name].num_classes
+            )
+        else:
+            self._metric = None
         self._optimizer_partial = optimizer_partial
         self._lr_scheduler_partial = lr_scheduler_partial
 
@@ -69,7 +77,11 @@ class NextItemModule(pl.LightningModule):
         loss = self._loss(prediction, target)
         self.log("dev/loss", loss, batch_size=len(target))
         if self._metric is not None:
-            self._metric.update(prediction, target)
+            labels_parameters = self._loss.split_predictions(prediction)[self._labels_name]
+            labels_probs = self._loss[self._labels_name].get_proba(labels_parameters)  # (B, L, C).
+            self._metric.update(labels_probs=labels_probs,
+                                targets=target.payload[self._labels_name],
+                                mask=target.seq_len_mask.bool())
 
     def on_validation_epoch_end(self):
         if self._metric is not None:
@@ -91,4 +103,9 @@ class NextItemModule(pl.LightningModule):
 
     def shared_step(self, x, _):
         prediction = self.forward(x)  # (B, L, D).
-        return prediction, x
+        # Shift predictions w.r.t. targets.
+        prediction = PaddedBatch(prediction.payload[:, :-1],
+                                 prediction.seq_lens.clip(max=max(0, prediction.payload.shape[1] - 1)))
+        target = PaddedBatch({k: x.payload[k][:, 1:] for k in self._loss.loss_names},
+                             (x.seq_lens - 1).clip(min=0))
+        return prediction, target

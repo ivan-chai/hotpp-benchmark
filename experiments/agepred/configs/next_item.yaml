@@ -64,3 +64,6 @@ module:
     _target_: torch.optim.lr_scheduler.StepLR
     step_size: 5
     gamma: 0.8
+  metric_partial:
+    _target_: esp_horizon.modules.next_item.NextItemMetric
+    _partial_: true
