@@ -17,6 +17,8 @@ def get_nested_value(value):
 
 
 def cast_features(value):
+    if isinstance(value, torch.Tensor):
+        return value
     if isinstance(value, dict):
         return {k: cast_features(v) for k, v in value.items()}
     if isinstance(value, list):
@@ -30,7 +32,7 @@ def cast_features(value):
     raise NotImplementedError(f"Can't parse data type: {type(value)}.")
 
 
-class ESPDataset(torch.utils.data.Dataset):
+class ESPDataset(torch.utils.data.IterableDataset):
     """Generate subsequences from parquet file.
 
     Dataset can contain target labels. Global targets are assigned to each ID and
@@ -46,9 +48,10 @@ class ESPDataset(torch.utils.data.Dataset):
                  time_name="timestamps",
                  global_target_name="global_target",
                  local_targets_name="local_targets",
-                 local_targets_indices_name="local_targets_indices"):
+                 local_targets_indices_name="local_targets_indices",
+                 **kwargs):
         super().__init__()
-        self.dataset = PTLSParquetDataset([path])
+        self.dataset = ParquetDataset([path], **kwargs)
         self.min_length = min_length
         self.max_length = max_length
         self.id_name = id_name
@@ -71,22 +74,22 @@ class ESPDataset(torch.utils.data.Dataset):
             ndim = value.ndim
         return ndim > int(batch)
 
-    def __len__(self):
-        """Get the number of IDs in the dataset."""
-        return len(self.dataset)
-
-    def __getitem__(self, index):
-        features = self.dataset[index]
+    def process(self, features):
         if self.min_length > 0:
             # Select subsequences.
             length = len(features[self.time_name])
+            min_length = min(length, self.min_length)
             max_length = min(length, self.max_length) if self.max_length is not None else length
-            out_length = random.randint(self.min_length, max_length)
+            out_length = random.randint(min_length, max_length)
             offset = random.randint(0, length - out_length)
             features = {k: (v[offset:offset + out_length] if self.is_seq_feature(k, v) else v)
                         for k, v in features.items()}
             assert len(features[self.time_name]) == out_length
         return cast_features(features)  # Tensors.
+
+    def __iter__(self):
+        for features in self.dataset:
+            yield self.process(features)
 
     def collate_fn(self, batch):
         by_name = defaultdict(list)
@@ -115,10 +118,10 @@ class ESPDataset(torch.utils.data.Dataset):
 
         # Extract targets and make PaddedBatch.
         targets = {}
-        if self.local_target_name in features:
+        if self.local_targets_name in features:
             targets["local"] = PaddedBatch({"indices": features.pop(self.local_targets_indices_name),
-                                                            "targets": features.pop(self.local_targets_name)},
-                                                           local_lengths)
+                                            "targets": features.pop(self.local_targets_name)},
+                                           local_lengths)
         if self.global_target_name in features:
             targets["global"] = features.pop(self.global_target_name)
         features = PaddedBatch(features, lengths)

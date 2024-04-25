@@ -1,6 +1,11 @@
 Download and prepare dataset:
 ```
-spark-submit <spark-options> scripts/make-dataset.py <data-root>
+spark-submit <spark-options> scripts/make-dataset.py
+```
+
+Run training:
+```
+python3 -m esp_horizon.train --config-dir configs --config-name <model>
 ```
 
 ### Useful spark options

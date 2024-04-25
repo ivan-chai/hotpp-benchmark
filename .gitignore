@@ -1,3 +1,8 @@
+# ESP
+experiments/**/data/
+lightning_logs/
+experiments/**/outputs/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

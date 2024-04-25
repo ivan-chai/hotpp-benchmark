@@ -22,7 +22,7 @@ TEST_SIZE = 0.1
 
 def parse_args():
     parser = argparse.ArgumentParser("Download, prepare and dump dataset to a parquet file.")
-    parser.add_argument("root", help="Dataset root")
+    parser.add_argument("root", help="Dataset root", default="data")
     return parser.parse_args()
 
 

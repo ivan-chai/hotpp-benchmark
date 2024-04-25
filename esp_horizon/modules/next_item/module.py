@@ -1,0 +1,94 @@
+import pytorch_lightning as pl
+import torch
+
+from ptls.data_load import PaddedBatch
+
+
+class NextItemModule(pl.LightningModule):
+    """Train next token prediction.
+
+    Parameters
+        seq_encoder: Backbone model.
+        loss: Training loss
+        head_partial: FC head model class which accepts input and output dimensions.
+        optimizer_partial:
+            optimizer init partial. Network parameters are missed.
+        lr_scheduler_partial:
+            scheduler init partial. Optimizer are missed.
+        metric: Metric for logging.
+    """
+    def __init__(self, seq_encoder, loss,
+                 head_partial=None,
+                 optimizer_partial=None,
+                 lr_scheduler_partial=None,
+                 metric=None):
+
+        super().__init__()
+        # self.save_hyperparameters()
+
+        self._loss = loss
+        self._seq_encoder = seq_encoder
+        self._seq_encoder.is_reduce_sequence = False
+        self._metric = metric
+        self._optimizer_partial = optimizer_partial
+        self._lr_scheduler_partial = lr_scheduler_partial
+
+        if head_partial is not None:
+            embedding_dim = self._seq_encoder.embedding_size
+            output_dim = loss.input_dim
+            self._head = head_partial(embedding_dim, output_dim)
+        else:
+            self._head = None
+
+    def apply_head(self, encoder_output):
+        payload, seq_lens  = encoder_output.payload, encoder_output.seq_lens
+        if self._head is not None:
+            payload = self._head(payload)
+        return PaddedBatch(payload, seq_lens)
+
+    def forward(self, x):
+        encoder_output = self._seq_encoder(x)
+        prediction = self.apply_head(encoder_output)
+        return prediction
+
+    def training_step(self, batch, _):
+        prediction, target = self.shared_step(*batch)
+        loss = self._loss(prediction, target)
+
+        # Log statistics.
+        self.log("train/loss", loss, prog_bar=True)
+        x = batch
+        if type(x) is tuple:
+            x = x[0]
+        if isinstance(x, PaddedBatch):
+            self.log("sequence_length", x.seq_lens.float().mean(), prog_bar=True)
+        return loss
+
+    def validation_step(self, batch, _):
+        prediction, target = self.shared_step(*batch)
+        loss = self._loss(prediction, target)
+        self.log("dev/loss", loss, batch_size=len(target))
+        if self._metric is not None:
+            self._metric.update(prediction, target)
+
+    def on_validation_epoch_end(self):
+        if self._metric is not None:
+            metrics = self._metric.compute()
+            for k, v in metrics.items():
+                self.log(f"dev/{k}", v, prog_bar=True)
+            self._metric.reset()
+
+    def configure_optimizers(self):
+        optimizer = self._optimizer_partial(self.parameters())
+        scheduler = self._lr_scheduler_partial(optimizer)
+
+        if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+            scheduler = {
+                "scheduler": scheduler,
+                "monitor": "dev/loss",
+            }
+        return [optimizer], [scheduler]
+
+    def shared_step(self, x, _):
+        prediction = self.forward(x)  # (B, L, D).
+        return prediction, x
