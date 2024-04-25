@@ -1,0 +1,68 @@
+defaults:
+  - dataset/unsupervised
+  - _self_
+
+seed_everything: 42
+#logger:
+#  _target_: pytorch_lightning.loggers.WandbLogger
+#  project: esp-agepred
+logger:
+  _target_: pytorch_lightning.loggers.TensorBoardLogger
+  name: next-item
+  save_dir: lightning_logs
+model_path: checkpoints/next_item.ckpt
+
+data_module: ${dataset}
+
+trainer:
+  accelerator: cuda
+  devices: 1
+  max_epochs: 30
+  enable_checkpointing: true
+  deterministic: true
+  precision: 16-mixed
+  gradient_clip_val: 1  # Increases training stability.
+
+module:
+  _target_: esp_horizon.modules.NextItemModule
+  seq_encoder:
+    _target_: ptls.nn.RnnSeqEncoder
+    trx_encoder:
+      _target_: ptls.nn.TrxEncoder
+      embeddings_noise: 0.003
+      embeddings:
+        timestamps:
+          in: 800
+          out: 31
+        labels:
+          in: 250
+          out: 256
+    type: gru
+    hidden_size: 512
+    #reducer: avg
+  head_partial:
+    _target_: esp_horizon.nn.Head
+    _partial_: true
+    hidden_dims: [512, 256]
+    use_batch_norm: true
+  loss:
+    _target_: esp_horizon.modules.next_item.NextItemLoss
+    losses:
+      timestamps:
+        _target_: esp_horizon.modules.next_item.TimeMAELoss
+      labels:
+        _target_: esp_horizon.modules.next_item.CrossEntropyLoss
+        num_classes: 206
+  optimizer_partial:
+    _partial_: true
+    _target_: torch.optim.Adam
+    lr: 0.001
+    weight_decay: 0.0
+  lr_scheduler_partial:
+    _partial_: true
+    _target_: torch.optim.lr_scheduler.StepLR
+    step_size: 5
+    gamma: 0.8
+  metric_partial:
+    _target_: esp_horizon.modules.next_item.NextItemMetric
+    _partial_: true
