@@ -15,14 +15,14 @@ class NextItemModule(pl.LightningModule):
             optimizer init partial. Network parameters are missed.
         lr_scheduler_partial:
             scheduler init partial. Optimizer are missed.
-        labels_name: The name of the labels field.
+        labels_field: The name of the labels field.
         metric_partial: Metric for logging.
     """
     def __init__(self, seq_encoder, loss,
                  head_partial=None,
                  optimizer_partial=None,
                  lr_scheduler_partial=None,
-                 labels_name="labels",
+                 labels_field="labels",
                  metric_partial=None):
 
         super().__init__()
@@ -31,10 +31,10 @@ class NextItemModule(pl.LightningModule):
         self._loss = loss
         self._seq_encoder = seq_encoder
         self._seq_encoder.is_reduce_sequence = False
-        self._labels_name = labels_name
+        self._labels_field = labels_field
         if metric_partial is not None:
             self._metric = metric_partial(
-                num_classes=self._loss[labels_name].num_classes
+                num_classes=self._loss[labels_field].num_classes
             )
         else:
             self._metric = None
@@ -56,12 +56,12 @@ class NextItemModule(pl.LightningModule):
 
     def forward(self, x):
         encoder_output = self._seq_encoder(x)
-        prediction = self.apply_head(encoder_output)
-        return prediction
+        predictions = self.apply_head(encoder_output)
+        return predictions
 
     def training_step(self, batch, _):
-        prediction, target = self.shared_step(*batch)
-        loss = self._loss(prediction, target)
+        predictions, targets = self.shared_step(*batch)
+        loss = self._loss(predictions, targets)
 
         # Log statistics.
         self.log("train/loss", loss, prog_bar=True)
@@ -73,15 +73,15 @@ class NextItemModule(pl.LightningModule):
         return loss
 
     def validation_step(self, batch, _):
-        prediction, target = self.shared_step(*batch)
-        loss = self._loss(prediction, target)
-        self.log("dev/loss", loss, batch_size=len(target))
+        predictions, targets = self.shared_step(*batch)
+        loss = self._loss(predictions, targets)
+        self.log("dev/loss", loss, batch_size=len(targets))
         if self._metric is not None:
-            labels_parameters = self._loss.split_predictions(prediction)[self._labels_name]
-            labels_probs = self._loss[self._labels_name].get_proba(labels_parameters)  # (B, L, C).
+            labels_parameters = self._loss.split_predictions(predictions)[self._labels_field]
+            labels_probs = self._loss[self._labels_field].get_proba(labels_parameters)  # (B, L, C).
             self._metric.update(labels_probs=labels_probs,
-                                targets=target.payload[self._labels_name],
-                                mask=target.seq_len_mask.bool())
+                                targets=targets.payload[self._labels_field],
+                                mask=targets.seq_len_mask.bool())
 
     def on_validation_epoch_end(self):
         if self._metric is not None:
@@ -102,10 +102,10 @@ class NextItemModule(pl.LightningModule):
         return [optimizer], [scheduler]
 
     def shared_step(self, x, _):
-        prediction = self.forward(x)  # (B, L, D).
+        predictions = self.forward(x)  # (B, L, D).
         # Shift predictions w.r.t. targets.
-        prediction = PaddedBatch(prediction.payload[:, :-1],
-                                 prediction.seq_lens.clip(max=max(0, prediction.payload.shape[1] - 1)))
-        target = PaddedBatch({k: x.payload[k][:, 1:] for k in self._loss.loss_names},
-                             (x.seq_lens - 1).clip(min=0))
-        return prediction, target
+        predictions = PaddedBatch(predictions.payload[:, :-1],
+                                  predictions.seq_lens.clip(max=max(0, predictions.payload.shape[1] - 1)))
+        targets = PaddedBatch({k: x.payload[k][:, 1:] for k in self._loss.loss_names},
+                              (x.seq_lens - 1).clip(min=0))
+        return predictions, targets

@@ -10,8 +10,7 @@ logger:
   _target_: pytorch_lightning.loggers.TensorBoardLogger
   name: next-item
   save_dir: lightning_logs
-model_path: checkpoints/det.ckpt
-embed_file_name: det_embeddings
+model_path: checkpoints/next_item.ckpt
 
 data_module: ${dataset}
 
