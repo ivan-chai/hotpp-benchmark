@@ -58,23 +58,15 @@ def main(conf):
     trainer = pl.Trainer(**trainer_params, **trainer_params_additional)
     trainer.fit(model, dm)
 
+    if model_selection is not None:
+        model.load_from_checkpoint(checkpoint_callback.best_model_path)
+        logging.info(f"Loaded the best model from '{checkpoint_callback.best_model_path}'")
+
     if "model_path" in conf:
-        if selection_mode is not None:
-            # from shutil import copyfile
-            # copyfile(checkpoint_callback.best_model_path, conf.model_path)
-            model.load_from_checkpoint(checkpoint_callback.best_model_path)
-            torch.save(model.seq_encoder, conf.model_path)
-            logging.info(f"Best model stored in '{checkpoint_callback.best_model_path}' "
-                         f"and copied to '{conf.model_path}'")
-        else:
-            torch.save(model.seq_encoder, conf.model_path)
-            logger.info(f"Model weights saved to '{conf.model_path}'")
-    if "model_path" in conf:
-        if selection_mode is not None:
-            logging.info(f"Best full model stored in '{checkpoint_callback.best_model_path}'.")
-            model.load_from_checkpoint(checkpoint_callback.best_model_path)
         torch.save(model.state_dict(), conf.model_path)
         logger.info(f"Model weights saved to '{conf.model_path}'")
+
+    trainer.test(model, dm)
 
 
 if __name__ == "__main__":

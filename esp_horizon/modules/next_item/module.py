@@ -90,6 +90,22 @@ class NextItemModule(pl.LightningModule):
                 self.log(f"dev/{k}", v, prog_bar=True)
             self._metric.reset()
 
+    def test_step(self, batch, _):
+        predictions, targets = self.shared_step(*batch)
+        if self._metric is not None:
+            labels_parameters = self._loss.split_predictions(predictions)[self._labels_field]
+            labels_probs = self._loss[self._labels_field].get_proba(labels_parameters)  # (B, L, C).
+            self._metric.update(labels_probs=labels_probs,
+                                targets=targets.payload[self._labels_field],
+                                mask=targets.seq_len_mask.bool())
+
+    def on_test_epoch_end(self):
+        if self._metric is not None:
+            metrics = self._metric.compute()
+            for k, v in metrics.items():
+                self.log(f"test/{k}", v, prog_bar=True)
+            self._metric.reset()
+
     def configure_optimizers(self):
         optimizer = self._optimizer_partial(self.parameters())
         scheduler = self._lr_scheduler_partial(optimizer)
