@@ -21,7 +21,7 @@ setuptools.setup(
         "numpy>=1.23",
         "pyarrow>=14.0.0",
         "pyspark>=3",
-        "pytorch-lifestream",
+        "pytorch-lifestream>=0.6.0",
         "pytorch-lightning",
         "scikit-learn>=1.3.2",
         "scipy>=1.11",
