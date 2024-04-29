@@ -62,9 +62,9 @@ def main(conf):
     trainer = get_trainer(conf)
     trainer.fit(model, dm)
 
-    checkpoint_callback = trainer.checkpoint_callback()
+    checkpoint_callback = trainer.checkpoint_callback
     if checkpoint_callback is not None:
-        model.load_from_checkpoint(checkpoint_callback.best_model_path)
+        model.load_state_dict(torch.load(checkpoint_callback.best_model_path)["state_dict"])
         logging.info(f"Loaded the best model from '{checkpoint_callback.best_model_path}'")
 
     if "model_path" in conf:

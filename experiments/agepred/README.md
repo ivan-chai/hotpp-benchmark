@@ -10,7 +10,7 @@ python3 -m esp_horizon.train --config-dir configs --config-name <model>
 
 Evaluate downstream:
 ```
-python3 -m esp_horizon.eval_downstream --config-dir configs --config-name downstream +model_config=<model>
+python3 -m esp_horizon.eval_downstream --config-dir configs --config-name downstream +model_config=<model> [++num_workers=<workers>]
 ```
 
 ### Useful spark options

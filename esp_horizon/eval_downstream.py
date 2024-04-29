@@ -1,9 +1,9 @@
-import multiprocessing
 import numpy as np
 import os
 import pandas as pd
 import pickle as pkl
 import pytorch_lightning as pl
+import sys
 import tempfile
 from contextlib import contextmanager
 
@@ -24,7 +24,7 @@ def maybe_temporary_directory(root=None):
             os.mkdir(root)
         yield root
     else:
-        with TemporaryDirectory() as root:
+        with tempfile.TemporaryDirectory() as root:
             yield root
 
 
@@ -111,8 +111,7 @@ def extract_embeddings(config):
 def eval_embeddings(conf):
     OmegaConf.set_struct(conf, False)
     conf.workers = conf.get("workers", 1)
-    default_cpu_count = max(int(round(multiprocessing.cpu_count() * 0.5)), 1)
-    conf.total_cpu_count = conf.get("total_cpu_count", default_cpu_count)
+    conf.total_cpu_count = conf.get("total_cpu_count", conf.num_workers)
 
     task = ReportCollect(
         conf=Config.get_conf(conf),
@@ -134,6 +133,8 @@ def main(conf):
         conf.environment.work_dir = root
         conf.features.embeddings.read_params.file_name = embeddings_path
         conf.report_file = os.path.join("results", conf.model_config + ".txt")
+        if os.path.exists(conf.report_file):
+            os.remove(conf.report_file)
         eval_embeddings(conf)
 
 
