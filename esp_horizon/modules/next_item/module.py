@@ -124,8 +124,7 @@ class NextItemModule(pl.LightningModule):
     def shared_step(self, x, _):
         predictions = self.forward(x)  # (B, L, D).
         # Shift predictions w.r.t. targets.
-        predictions = PaddedBatch(predictions.payload[:, :-1],
-                                  predictions.seq_lens.clip(max=max(0, predictions.payload.shape[1] - 1)))
-        targets = PaddedBatch({k: x.payload[k][:, 1:] for k in self._loss.loss_names},
-                              (x.seq_lens - 1).clip(min=0))
+        lengths = (x.seq_lens - 1).clip(min=0)
+        predictions = PaddedBatch(predictions.payload[:, :-1], lengths)
+        targets = PaddedBatch({k: x.payload[k][:, 1:] for k in self._loss.loss_names}, lengths)
         return predictions, targets

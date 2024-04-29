@@ -51,8 +51,8 @@ class ESPDataModule(PtlsDataModule):
             valid_num_workers=dev_num_workers or train_num_workers,
             valid_drop_last=False,
             test_data=test_data,
-            test_batch_size=test_batch_size or valid_batch_size or train_batch_size,
-            test_num_workers=test_num_workers or valid_num_workers or train_num_workers,
+            test_batch_size=test_batch_size or dev_batch_size or train_batch_size,
+            test_num_workers=test_num_workers or dev_num_workers or train_num_workers,
             test_drop_last=False
         )
 

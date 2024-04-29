@@ -102,10 +102,10 @@ def extract_embeddings(config):
         raise RuntimeError("Duplicate ids")
 
     # Convert to embeddings_validation format.
-    feature_names = [f"emb_{i:04}" for i in range(embeddings.shape[1])]
-    embeddings = pd.DataFrame(embeddings, columns=feature_names)
-    ids = pd.DataFrame({"id": ids})
-    return pd.concat([ids, embeddings], axis=1)
+    columns = {"id": ids}
+    for i in range(embeddings.shape[1]):
+        columns[f"emb_{i:04}"] = embeddings[:, i]
+    return pd.DataFrame(columns)
 
 
 def eval_embeddings(conf):
