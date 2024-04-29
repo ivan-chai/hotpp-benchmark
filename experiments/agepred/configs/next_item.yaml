@@ -35,7 +35,7 @@ module:
           in: 800
           out: 31
         labels:
-          in: 250
+          in: 204
           out: 256
     type: gru
     hidden_size: 512
