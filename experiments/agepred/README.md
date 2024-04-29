@@ -3,9 +3,14 @@ Download and prepare dataset:
 spark-submit <spark-options> scripts/make-dataset.py
 ```
 
-Run training:
+Run training and evalutaion on sequences:
 ```
 python3 -m esp_horizon.train --config-dir configs --config-name <model>
+```
+
+Evaluate downstream:
+```
+python3 -m esp_horizon.eval_downstream --config-dir configs --config-name downstream +model_config=<model>
 ```
 
 ### Useful spark options

@@ -55,3 +55,19 @@ class ESPDataModule(PtlsDataModule):
             test_num_workers=test_num_workers or valid_num_workers or train_num_workers,
             test_drop_last=False
         )
+
+        self.train_data = train_data
+        self.dev_data = dev_data
+        self.test_data = test_data
+
+        train_id_field = train_data.id_field if train_data is not None else None
+        dev_id_field = dev_data.id_field if dev_data is not None else None
+        test_id_field = test_data.id_field if test_data is not None else None
+        id_field = train_id_field or dev_id_field or test_id_field
+        if ((train_id_field and (train_id_field != id_field)) or
+            (dev_id_field and (dev_id_field != id_field)) or
+            (test_id_field and (test_id_field != id_field))):
+            raise ValueError("Different id fields in data splits.")
+        if id_field is None:
+            raise ValueError("No datasets provided.")
+        self.id_field = id_field

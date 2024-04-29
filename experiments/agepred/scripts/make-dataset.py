@@ -22,7 +22,7 @@ TEST_SIZE = 0.1
 
 def parse_args():
     parser = argparse.ArgumentParser("Download, prepare and dump dataset to a parquet file.")
-    parser.add_argument("root", help="Dataset root", default="data")
+    parser.add_argument("--root", help="Dataset root", default="data")
     return parser.parse_args()
 
 
@@ -56,7 +56,7 @@ def get_targets(cache_dir):
     key = next(iter(dataset.keys()))
     dataset = dataset2spark(dataset[key], "targets", cache_dir)
     dataset = dataset.selectExpr("client_id as id",
-                                 "bins as target")
+                                 "bins as global_target")
     return dataset
 
 
@@ -109,6 +109,10 @@ def main(args):
 
     print("Split")
     train, dev, test = train_dev_test_split(transactions, targets)
+
+    print("Dump downstream indices")
+    targets.toPandas().set_index("id").to_csv(os.path.join(args.root, "global_target.csv"))
+    test.select("id").toPandas().set_index("id").to_csv(os.path.join(args.root, "test_ids.csv"))
 
     train_path = os.path.join(args.root, "train.parquet")
     dev_path = os.path.join(args.root, "dev.parquet")

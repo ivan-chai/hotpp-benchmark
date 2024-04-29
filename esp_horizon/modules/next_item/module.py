@@ -59,6 +59,10 @@ class NextItemModule(pl.LightningModule):
         predictions = self.apply_head(encoder_output)
         return predictions
 
+    def get_embeddings(self, x):
+        """Get embedding for each position."""
+        return self._seq_encoder(x)  # (B, L, D).
+
     def training_step(self, batch, _):
         predictions, targets = self.shared_step(*batch)
         loss = self._loss(predictions, targets)

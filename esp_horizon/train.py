@@ -13,14 +13,7 @@ from esp_horizon.utils.config import as_flat_config
 logger = logging.getLogger(__name__)
 
 
-@hydra.main(version_base="1.2", config_path=None)
-def main(conf):
-    if "seed_everything" in conf:
-        pl.seed_everything(conf.seed_everything)
-
-    model = hydra.utils.instantiate(conf.module)
-    dm = hydra.utils.instantiate(conf.data_module)
-
+def get_trainer(conf):
     trainer_params = conf.trainer
     trainer_params_additional = {}
     model_selection = trainer_params.get("model_selection", None)
@@ -55,10 +48,22 @@ def main(conf):
 
     if len(trainer_params_callbacks) > 0:
         trainer_params_additional["callbacks"] = trainer_params_callbacks
-    trainer = pl.Trainer(**trainer_params, **trainer_params_additional)
+    return pl.Trainer(**trainer_params, **trainer_params_additional)
+
+
+@hydra.main(version_base="1.2", config_path=None)
+def main(conf):
+    if "seed_everything" in conf:
+        pl.seed_everything(conf.seed_everything)
+
+    model = hydra.utils.instantiate(conf.module)
+    dm = hydra.utils.instantiate(conf.data_module)
+
+    trainer = get_trainer(conf)
     trainer.fit(model, dm)
 
-    if model_selection is not None:
+    checkpoint_callback = trainer.checkpoint_callback()
+    if checkpoint_callback is not None:
         model.load_from_checkpoint(checkpoint_callback.best_model_path)
         logging.info(f"Loaded the best model from '{checkpoint_callback.best_model_path}'")
 
