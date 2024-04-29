@@ -4,7 +4,7 @@ import numpy as np
 from collections import defaultdict
 from numbers import Number
 
-from ptls.data_load import PaddedBatch
+from .padded_batch import PaddedBatch
 from ptls.data_load.datasets import ParquetDataset
 
 
@@ -121,8 +121,11 @@ class ESPDataset(torch.utils.data.IterableDataset):
         if self.local_targets_field in features:
             targets["local"] = PaddedBatch({"indices": features.pop(self.local_targets_indices_field),
                                             "targets": features.pop(self.local_targets_field)},
-                                           local_lengths)
+                                           local_lengths,
+                                           seq_names={"indices", "targets"})
         if self.global_target_field in features:
             targets["global"] = features.pop(self.global_target_field)
-        features = PaddedBatch(features, lengths)
+        features = PaddedBatch(features, lengths,
+                               seq_names={k for k, v in features.items()
+                                          if self.is_seq_feature(k, v, batch=True)})
         return features, targets

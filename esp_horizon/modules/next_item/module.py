@@ -1,7 +1,7 @@
 import pytorch_lightning as pl
 import torch
 
-from ptls.data_load import PaddedBatch
+from esp_horizon.data import PaddedBatch
 
 
 class NextItemModule(pl.LightningModule):
@@ -52,7 +52,7 @@ class NextItemModule(pl.LightningModule):
         payload, seq_lens  = encoder_output.payload, encoder_output.seq_lens
         if self._head is not None:
             payload = self._head(payload)
-        return PaddedBatch(payload, seq_lens)
+        return PaddedBatch(payload, seq_lens, set(payload))
 
     def forward(self, x):
         encoder_output = self._seq_encoder(x)
