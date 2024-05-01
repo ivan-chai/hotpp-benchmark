@@ -38,6 +38,7 @@ class InferenceModule(pl.LightningModule):
     def forward(self, batch):
         data, _ = batch  # Ignore labels.
         embeddings = self.model.get_embeddings(data)  # (B, L, D).
+        assert embeddings.payload.ndim == 3
         if self.reducer == "mean":
             embeddings = self.reduce_mean(embeddings)
         elif self.reducer == "last":
@@ -49,7 +50,7 @@ class InferenceModule(pl.LightningModule):
 
     def reduce_mean(self, x):
         x, masks, lengths = x.payload, x.seq_len_mask.bool(), x.seq_lens  # (B, L, D), (B, L), (B).
-        x = x.masked_fill(masks.unsqueeze(2), 0)
+        x = x.masked_fill(~masks.unsqueeze(2), 0)
         sums = x.sum(1)  # (B, D).
         embeddings = sums / lengths.unsqueeze(1)  # (B, D).
         return embeddings
