@@ -5,7 +5,7 @@ from collections import defaultdict
 from numbers import Number
 
 from ptls.data_load import PaddedBatch
-from ptls.data_load.datasets import ParquetDataset
+from ptls.data_load.datasets import ParquetDataset, parquet_file_scan
 
 
 def get_nested_value(value):
@@ -51,7 +51,7 @@ class ESPDataset(torch.utils.data.IterableDataset):
                  local_targets_indices_field="local_targets_indices",
                  **kwargs):
         super().__init__()
-        self.dataset = ParquetDataset([path], **kwargs)
+        self.dataset = ParquetDataset(parquet_file_scan(path), **kwargs)
         self.min_length = min_length
         self.max_length = max_length
         self.id_field = id_field

@@ -16,8 +16,15 @@ class TimeMAELoss(torch.nn.Module):
         """
         if targets.ndim != 2:
             raise ValueError(f"Expected targets with shape (B, L), got {targets.shape}.")
-        delta = targets[:, 1:] - targets[:, :-1]  # (B, L - 1).
+        # An input sequence contains predictions shifted w.r.t. targets:
+        # prediction: 1, 2, 3, ...
+        # target: 2, 3, 4, ...
+        #
+        # After a time delta computation, the model have to predict an offset to the next event:
+        # new_prediction: 2, 3, ...
+        # delta_target: 3 - 2, 4 - 3, ...
         predictions = predictions[:, 1:].squeeze(2)  #  (B, L - 1).
+        delta = targets[:, 1:] - targets[:, :-1]  # (B, L - 1).
         mask = mask[:, 1:]  # (B, L - 1).
         losses = (predictions - delta).abs()  # (B, L - 1).
         assert losses.ndim == 2
@@ -84,11 +91,11 @@ class NextItemLoss(torch.nn.Module):
         """
         predictions = self.split_predictions(predictions)
         mask = targets.seq_len_mask.bool()
-        losses = []
+        losses = {}
         for name, output in predictions.items():
             target = targets.payload[name]
-            losses.append(self._losses[name](output, target, mask))
-        return torch.stack(losses).sum()
+            losses[name] = self._losses[name](output, target, mask)
+        return sum(losses.values())
 
     def split_predictions(self, predictions):
         """Convert parameters tensor to the dictionary with parameters for each loss."""
