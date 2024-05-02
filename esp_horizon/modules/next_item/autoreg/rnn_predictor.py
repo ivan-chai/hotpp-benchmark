@@ -18,23 +18,26 @@ class RNNSequencePredictor(BaseSequencePredictor):
     """Autoregressive sequence predictor.
 
     Args:
-      max_steps: The maximum number of generated items.
+        max_steps: The maximum number of generated items.
 
     Inputs:
-      batch: Batch of inputs.
-      indices: Output prediction indices for each element of the batch (list of lists).
+        batch: Batch of inputs with shape (B, T).
+        indices: Output prediction indices for each element of the batch with shape (B, I).
 
     Outputs:
-      Predicted sequences as a list of PaddedBatches each with shape (I, T), where I is the number of indices.
+        Predicted sequences as a batch with the shape (B, I, N), where I is the number of indices and N is the number of steps.
     """
 
     def __init__(self, model: BaseRNNAdapter, max_steps):
         super().__init__(max_steps)
         self.model = model
 
-    def forward(self, batch: PaddedBatch, indices: PaddedBatch) -> List[PaddedBatch]:
+    def forward(self, batch: PaddedBatch, indices: PaddedBatch) -> PaddedBatch:
         if batch.left:
             raise NotImplementedError("Left-padded batches are not implemented.")
+
+        batch_size, index_size = indices.shape
+
         batch = self.model.prepare_features(batch)
         initial_states, initial_features = self._get_initial_states(batch, indices)
 
@@ -45,22 +48,18 @@ class RNNSequencePredictor(BaseSequencePredictor):
         initial_states = PaddedBatch(initial_states, lengths)
         initial_features = PaddedBatch({k: (v[mask].unsqueeze(1) if k in initial_features.seq_names else v)
                                         for k, v in initial_features.payload.items()},
-                                       lengths, initial_features.seq_names)  # (B * I, 1, D).
+                                       lengths, initial_features.seq_names)  # (B * I, 1).
 
         # Predict.
-        sequences = self._generate(initial_states, initial_features)  # (B * I, T, D).
-        sequences = self.model.revert_features(sequences)  # (B * I, T, D).
-
-        # Split batches
-        results = []
-        start = 0
-        for l in indices.seq_lens:
-            results.append(PaddedBatch({k: v[start:start + l] for k, v in sequences.payload.items()},
-                                       sequences.seq_lens[start:start + l],
-                                       sequences.seq_names))
-            start += l
-        assert start == len(sequences)
-        return results
+        sequences = self._generate(initial_states, initial_features)  # (B * I, T).
+        sequences = self.model.revert_features(sequences)  # (B * I, T).
+        mask = indices.seq_len_mask.unsqueeze(2).repeat(1, 1, self.max_steps)  # (B, I, T).
+        sequences = PaddedBatch({k: (torch.zeros(batch_size, index_size, self.max_steps,
+                                                 device=batch.device, dtype=v.dtype).masked_scatter_(mask, v)  # (B, I, N).
+                                     if k in sequences.seq_names else v)
+                                 for k, v in sequences.payload.items()},
+                                indices.seq_lens, sequences.seq_names)
+        return sequences
 
     def _get_initial_states(self, batch, indices):
         indices, seq_lens = indices.payload, indices.seq_lens
@@ -88,7 +87,7 @@ class RNNSequencePredictor(BaseSequencePredictor):
         for _ in range(self.max_steps):
             lengths = features.seq_lens
             predictions, states = self.model(features, states)
-            time_deltas, features = self.model.output_to_next_input(features, predictions)
+            _, features = self.model.output_to_next_input(features, predictions)
             for k in seq_names:
                 outputs[k].append(predictions.get(k, features[k]))
                 if k in features:

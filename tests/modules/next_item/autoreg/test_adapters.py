@@ -218,14 +218,12 @@ class TestAdapters(TestCase):
         for predictor in [rnn_predictor_modes]:
             results = predictor(batch, indices)
 
-            self.assertEqual(len(results), 2)
-            r1, r2 = results
-            self.assertEqual(r1.seq_lens.tolist(), [2, 2])
-            self.assertEqual(r2.seq_lens.tolist(), [2])
-            self.assertEqual(r1.payload["timestamps"].tolist(), gt_times[0])
-            self.assertEqual(r1.payload["labels"].tolist(), gt_labels[0])
-            self.assertEqual(r2.payload["timestamps"].tolist(), gt_times[1])
-            self.assertEqual(r2.payload["labels"].tolist(), gt_labels[1])
+            self.assertEqual(results.shape, (2, 2))
+            self.assertEqual(results.seq_lens.tolist(), [2, 1])
+            self.assertEqual(results.payload["timestamps"][0].tolist(), gt_times[0])
+            self.assertEqual(results.payload["labels"][0].tolist(), gt_labels[0])
+            self.assertEqual(results.payload["timestamps"][1, :1].tolist(), gt_times[1])
+            self.assertEqual(results.payload["labels"][1, :1].tolist(), gt_labels[1])
 
 
 if __name__ == "__main__":

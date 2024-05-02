@@ -90,7 +90,8 @@ class BaseAdapter(ABC, torch.nn.Module):
         # Replace model time (can be delta or rounded) with global time.
         times = batch.payload.pop("_times")
         if self.time_int:
-            batch.payload[self.time_field] = times.round_().long()
+            times = times.round_().long()
+        batch.payload[self.time_field] = times
 
         return batch
 
