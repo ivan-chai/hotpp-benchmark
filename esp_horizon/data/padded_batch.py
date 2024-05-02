@@ -24,7 +24,10 @@ class PaddedBatch:
         if isinstance(payload, dict):
             if seq_names is None:
                 raise ValueError("Sequential features names must be provided.")
+            seq_names = set(seq_names).intersection(payload)
         else:
+            if seq_names is not None:
+                raise ValueError("Tensor batch can't have seq_names.")
             if payload.ndim < 2:
                 raise ValueError("Expected a tensor with shape (B, L, *).")
         if flip_padding:
@@ -45,8 +48,11 @@ class PaddedBatch:
                 payload = _gather_and_pad(payload, indices, mask)
         self._payload = payload
         self._lengths = lengths
-        self._seq_names = set(seq_names)
+        self._seq_names = seq_names
         self._left = left
+
+    def clone(self):
+        return PaddedBatch(self._payload, self._lengths, self.seq_names, self._left)
 
     @property
     def is_left(self):
@@ -66,10 +72,10 @@ class PaddedBatch:
 
     @property
     def device(self):
-        return self._length.device
+        return self._lengths.device
 
     def __len__(self):
-        return len(self._length)
+        return len(self._lengths)
 
     def to(self, *args, **kwargs):
         lengths = self._lengths.to(*args, **kwargs)

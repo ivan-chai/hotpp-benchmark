@@ -52,7 +52,7 @@ class NextItemModule(pl.LightningModule):
         payload, seq_lens  = encoder_output.payload, encoder_output.seq_lens
         if self._head is not None:
             payload = self._head(payload)
-        return PaddedBatch(payload, seq_lens, set(payload))
+        return PaddedBatch(payload, seq_lens)
 
     def forward(self, x):
         encoder_output = self._seq_encoder(x)
@@ -62,6 +62,10 @@ class NextItemModule(pl.LightningModule):
     def get_embeddings(self, x):
         """Get embedding for each position."""
         return self._seq_encoder(x)  # (B, L, D).
+
+    def get_modes(self, encoder_output):
+        head_output = self.apply_head(encoder_output)
+        return self._loss.get_modes(head_output)  # (B, L).
 
     def training_step(self, batch, _):
         predictions, targets = self.shared_step(*batch)
@@ -126,5 +130,6 @@ class NextItemModule(pl.LightningModule):
         # Shift predictions w.r.t. targets.
         lengths = (x.seq_lens - 1).clip(min=0)
         predictions = PaddedBatch(predictions.payload[:, :-1], lengths)
-        targets = PaddedBatch({k: x.payload[k][:, 1:] for k in self._loss.loss_names}, lengths)
+        targets = PaddedBatch({k: x.payload[k][:, 1:] for k in self._loss.loss_names},
+                              lengths, x.seq_names)
         return predictions, targets

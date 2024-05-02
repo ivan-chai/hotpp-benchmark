@@ -1,4 +1,5 @@
 import torch
+from esp_horizon.data import PaddedBatch
 
 
 class TimeMAELoss(torch.nn.Module):
@@ -30,6 +31,9 @@ class TimeMAELoss(torch.nn.Module):
         assert losses.ndim == 2
         return losses[mask].mean()
 
+    def get_modes(self, predictions):
+        return predictions
+
 
 class CrossEntropyLoss(torch.nn.Module):
     target_dim = 1
@@ -58,6 +62,9 @@ class CrossEntropyLoss(torch.nn.Module):
 
     def get_proba(self, predictions):
         return torch.nn.functional.softmax(predictions, -1)  # (B, L, C).
+
+    def get_modes(self, predictions):
+        return predictions.argmax(-1)
 
 
 class NextItemLoss(torch.nn.Module):
@@ -96,6 +103,15 @@ class NextItemLoss(torch.nn.Module):
             target = targets.payload[name]
             losses[name] = self._losses[name](output, target, mask)
         return sum(losses.values())
+
+    def get_modes(self, predictions):
+        seq_lens = predictions.seq_lens
+        predictions = self.split_predictions(predictions)
+        result = {}
+        for name, prediction in predictions.items():
+            result[name] = PaddedBatch(self._losses[name].get_modes(prediction).squeeze(2),  # (B, L).
+                                       seq_lens)
+        return result
 
     def split_predictions(self, predictions):
         """Convert parameters tensor to the dictionary with parameters for each loss."""
