@@ -1,11 +1,14 @@
+import os
 import random
 import torch
 import numpy as np
 from collections import defaultdict
 from numbers import Number
+from pyarrow.parquet import ParquetFile
+from random import Random
 
-from ptls.data_load import PaddedBatch
-from ptls.data_load.datasets import ParquetDataset, parquet_file_scan
+from ptls.data_load import PaddedBatch, read_pyarrow_file
+from ptls.data_load.datasets import parquet_file_scan
 
 
 def get_nested_value(value):
@@ -32,6 +35,11 @@ def cast_features(value):
     raise NotImplementedError(f"Can't parse data type: {type(value)}.")
 
 
+def get_parquet_length(path):
+    with ParquetFile(path) as fp:
+        return fp.metadata.num_rows
+
+
 class ESPDataset(torch.utils.data.IterableDataset):
     """Generate subsequences from parquet file.
 
@@ -48,10 +56,10 @@ class ESPDataset(torch.utils.data.IterableDataset):
                  time_field="timestamps",
                  global_target_field="global_target",
                  local_targets_field="local_targets",
-                 local_targets_indices_field="local_targets_indices",
-                 **kwargs):
+                 local_targets_indices_field="local_targets_indices"):
         super().__init__()
-        self.dataset = ParquetDataset(parquet_file_scan(path), **kwargs)
+        self.filenames = list(sorted(parquet_file_scan(path)))
+        self.total_length = sum(map(get_parquet_length, self.filenames))
         self.min_length = min_length
         self.max_length = max_length
         self.id_field = id_field
@@ -75,6 +83,10 @@ class ESPDataset(torch.utils.data.IterableDataset):
         return ndim > int(batch)
 
     def process(self, features):
+        if self.id_field not in features:
+            raise ValueError("Need ID feature")
+        if self.time_field not in features:
+            raise ValueError("Need timestamps feature")
         if self.min_length > 0:
             # Select subsequences.
             length = len(features[self.time_field])
@@ -87,9 +99,14 @@ class ESPDataset(torch.utils.data.IterableDataset):
             assert len(features[self.time_field]) == out_length
         return cast_features(features)  # Tensors.
 
+    def __len__(self):
+        return self.total_length
+
     def __iter__(self):
-        for features in self.dataset:
-            yield self.process(features)
+        for filename in self.filenames:
+            for rec in read_pyarrow_file(filename, use_threads=True):
+                yield {k: (torch.from_numpy(v) if isinstance(v, np.ndarray) else torch.tensor(v))
+                       for k, v in rec.items()}
 
     def collate_fn(self, batch):
         by_name = defaultdict(list)
@@ -126,3 +143,58 @@ class ESPDataset(torch.utils.data.IterableDataset):
             targets["global"] = features.pop(self.global_target_field)
         features = PaddedBatch(features, lengths)
         return features, targets
+
+
+class ShuffledDistributedDataset(torch.utils.data.IterableDataset):
+    def __init__(self, dataset, num_workers=0, rank=None, world_size=None, cache_size=None, seed=0):
+        super().__init__()
+        self.dataset = dataset
+        self.num_workers = max(num_workers, 1)
+        self.rank = rank
+        self.world_size = world_size
+        self.cache_size = cache_size
+        self.seed = seed
+        self.epoch = 0
+
+    def _get_context(self):
+        dataset = self.dataset
+        rank = os.environ.get("RANK", self.rank if self.rank is not None else 0)
+        world_size = os.environ.get("WORLD_SIZE", self.world_size if self.world_size is not None else 1)
+        total_workers = world_size * self.num_workers
+        global_seed = self.seed + self.epoch
+
+        worker_info = torch.utils.data.get_worker_info()
+        if worker_info:
+            dataset = worker_info.dataset.dataset
+            if worker_info.num_workers != self.num_workers:
+                raise ValueError("Inconsistent number of workers.")
+            worker_id = rank * worker_info.num_workers + worker_info.id
+            local_seed = global_seed * total_workers + worker_info.seed
+        else:
+            local_seed = global_seed * world_size + rank
+            worker_id = None
+        return dataset, worker_id, total_workers, rank, world_size, global_seed, local_seed
+
+    def __iter__(self):
+        dataset, worker_id, total_workers, rank, world_size, global_seed, local_seed = self._get_context()
+        if (worker_id is None) and (total_workers == 1):
+            worker_id = 0
+        for i, item in enumerate(self._iter_shuffled(dataset, global_seed)):
+            if (i - worker_id) % total_workers == 0:
+                yield item
+
+    def _iter_shuffled(self, dataset, seed):
+        if self.cache_size is None:
+            yield from dataset
+        else:
+            rnd = Random(seed)
+            cache = []
+            for item in dataset:
+                cache.append(item)
+                if len(cache) >= self.cache_size:
+                    rnd.shuffle(cache)
+                    yield from cache
+                    cache = []
+            if len(cache) > 0:
+                rnd.shuffle(cache)
+                yield from cache
