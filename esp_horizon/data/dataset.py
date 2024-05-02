@@ -49,18 +49,23 @@ class ESPDataset(torch.utils.data.IterableDataset):
     local targets are assigned to particular events.
 
     Args:
-        path: Path to a parquet dataset.
+        data: Path to a parquet dataset or a list of files.
         min_length: Minimum sequence length. Use 0 to disable subsampling.
         max_length: Maximum sequence length. Disable limit if `None`.
     """
-    def __init__(self, path, min_length=0, max_length=None,
+    def __init__(self, data, min_length=0, max_length=None,
                  id_field="id",
                  time_field="timestamps",
                  global_target_field="global_target",
                  local_targets_field="local_targets",
                  local_targets_indices_field="local_targets_indices"):
         super().__init__()
-        self.filenames = list(sorted(parquet_file_scan(path)))
+        if isinstance(data, str):
+            self.filenames = list(sorted(parquet_file_scan(data)))
+        elif isinstance(data, list):
+            self.filenames = data
+        else:
+            raise ValueError(f"Unknown data type: {type(data)}")
         self.total_length = sum(map(get_parquet_length, self.filenames))
         self.min_length = min_length
         self.max_length = max_length
@@ -69,6 +74,16 @@ class ESPDataset(torch.utils.data.IterableDataset):
         self.global_target_field = global_target_field
         self.local_targets_field = local_targets_field
         self.local_targets_indices_field = local_targets_indices_field
+
+    def shuffle_files(self, rnd=None):
+        """Make a new dataset with shuffled partitions."""
+        rnd = rnd if rnd is not None else random.Random()
+        filenames = list(self.filenames)
+        rnd.shuffle(filenames)
+        return ESPDataset(filenames,
+                          min_length=self.min_length, max_length=self.max_length,
+                          id_field=self.id_field, time_field=self.time_field, global_target_field=self.global_target_field,
+                          local_targets_field=self.local_targets_field, local_targets_indices_field=self.local_targets_indices_field)
 
     def is_seq_feature(self, name, value, batch=False):
         """Check whether feature is sequential using its name and value.
@@ -194,7 +209,7 @@ class ShuffledDistributedDataset(torch.utils.data.IterableDataset):
         else:
             rnd = Random(seed)
             cache = []
-            for item in dataset:
+            for item in dataset.shuffle_files(rnd):
                 cache.append(item)
                 if len(cache) >= self.cache_size:
                     rnd.shuffle(cache)
