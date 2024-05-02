@@ -39,7 +39,6 @@ module:
           out: 256
     type: gru
     hidden_size: 512
-    #reducer: avg
   head_partial:
     _target_: esp_horizon.nn.Head
     _partial_: true
@@ -52,7 +51,7 @@ module:
         _target_: esp_horizon.modules.next_item.TimeMAELoss
       labels:
         _target_: esp_horizon.modules.next_item.CrossEntropyLoss
-        num_classes: 206
+        num_classes: 204
   optimizer_partial:
     _partial_: true
     _target_: torch.optim.Adam

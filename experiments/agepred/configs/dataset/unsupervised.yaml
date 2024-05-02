@@ -1,17 +1,12 @@
 _target_: esp_horizon.data.ESPDataModule
+batch_size: 64
+num_workers: 4
 train_path: data/train.parquet
-train_batch_size: 32
-train_num_workers: 4
 train_params:
   min_length: 1000
   max_length: 1200
-  shuffle_files: true
 dev_path: data/dev.parquet
-dev_batch_size: 32
-dev_num_workers: 4
 dev_params:
   min_length: 1000
   max_length: 1200
 test_path: data/test.parquet
-test_batch_size: 32
-test_num_workers: 4
