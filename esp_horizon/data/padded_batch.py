@@ -16,15 +16,19 @@ class PaddedBatch:
     Args:
         payload: Tensor or dictionary of tensors.
         length: Tensor of shape (B,) with lengths of sequences.
-        seq_names: A set of sequential features names when payload is a dictionary.
+        seq_names: A set of sequential features names when payload is a dictionary. By default all values are sequential.
         left: Use left-side padding.
         flip_padding: Change padding from left to right or vice versa.
     """
     def __init__(self, payload, lengths, seq_names=None, left=False, flip_padding=False):
         if isinstance(payload, dict):
             if seq_names is None:
-                raise ValueError("Sequential features names must be provided.")
-            seq_names = set(seq_names).intersection(payload)
+                seq_names = set(payload)
+            else:
+                seq_names = set(seq_names).intersection(payload)
+            for name in seq_names:
+                if payload[name].ndim < 2:
+                    raise ValueError(f"The field {name} doesn't have a time dimension.")
         else:
             if seq_names is not None:
                 raise ValueError("Tensor batch can't have seq_names.")
@@ -52,10 +56,10 @@ class PaddedBatch:
         self._left = left
 
     def clone(self):
-        return PaddedBatch(self._payload, self._lengths, self.seq_names, self._left)
+        return PaddedBatch(dict(self._payload), self._lengths, set(self.seq_names), self._left)
 
     @property
-    def is_left(self):
+    def left(self):
         return self._left
 
     @property
@@ -76,6 +80,14 @@ class PaddedBatch:
 
     def __len__(self):
         return len(self._lengths)
+
+    @property
+    def shape(self):
+        """Returns first two dimensions of the sequential features."""
+        if isinstance(self.payload, torch.Tensor):
+            return self.payload.shape[:2]
+        else:
+            return self.payload[next(iter(self.seq_names))].shape[:2]
 
     def to(self, *args, **kwargs):
         lengths = self._lengths.to(*args, **kwargs)

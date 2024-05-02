@@ -2,6 +2,7 @@ import pytorch_lightning as pl
 import torch
 
 from esp_horizon.data import PaddedBatch
+from .autoreg import NextItemRNNAdapter, RNNSequencePredictor
 
 
 class NextItemModule(pl.LightningModule):
@@ -23,7 +24,8 @@ class NextItemModule(pl.LightningModule):
                  optimizer_partial=None,
                  lr_scheduler_partial=None,
                  labels_field="labels",
-                 metric_partial=None):
+                 metric_partial=None,
+                 autoreg_adapter_partial=None):
 
         super().__init__()
         # self.save_hyperparameters()
@@ -48,6 +50,11 @@ class NextItemModule(pl.LightningModule):
         else:
             self._head = None
 
+        if autoreg_adapter_partial is not None:
+            self._autoreg_adapter = autoreg_adapter_partial(self)
+        else:
+            self._autoreg_adapter = None
+
     def apply_head(self, encoder_output):
         payload, seq_lens  = encoder_output.payload, encoder_output.seq_lens
         if self._head is not None:
@@ -66,6 +73,22 @@ class NextItemModule(pl.LightningModule):
     def get_modes(self, encoder_output):
         head_output = self.apply_head(encoder_output)
         return self._loss.get_modes(head_output)  # (B, L).
+
+    def generate_sequences(self, x, positions, n_steps):
+        """Generate future events.
+
+        Args:
+            x: Features with shape (B, L, D).
+            positions: Indices with positions to start generation from with shape (B, I).
+            n_steps: The number of steps to generate.
+
+        Returns:
+            A list of batches with generated sequences for each input sequence. Each batch has shape (I, N, D).
+        """
+        if self._autoreg_adapter is None:
+            raise RuntimeError("Need adapter for prediction.")
+        predictor = RNNSequencePredictor(self._autoreg_adapter, max_steps=n_steps)
+        return predictor(x, positions)
 
     def training_step(self, batch, _):
         predictions, targets = self.shared_step(*batch)
