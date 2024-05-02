@@ -14,6 +14,7 @@ from omegaconf import OmegaConf
 
 from embeddings_validation import ReportCollect
 from embeddings_validation.config import Config
+from .data import ShuffledDistributedDataset
 from .train import get_trainer
 
 
@@ -72,12 +73,17 @@ class InferenceDataModule(pl.LightningDataModule):
 
     def predict_dataloader(self):
         dataset = getattr(self.data, f"{self.split}_data")
+        loader_params = getattr(self.data, f"{self.split}_loader_params")
+
+        num_workers = loader_params.get("num_workers", 0)
+        dataset = ShuffledDistributedDataset(dataset,
+                                             num_workers=num_workers)
         return torch.utils.data.DataLoader(
             dataset=dataset,
-            collate_fn=dataset.collate_fn,
+            collate_fn=dataset.dataset.collate_fn,
             shuffle=False,
-            num_workers=self.data.hparams.test_num_workers,
-            batch_size=self.data.hparams.test_batch_size
+            num_workers=num_workers,
+            batch_size=loader_params.get("batch_size", 1)
         )
 
 

@@ -1,7 +1,6 @@
 import argparse
 import os
-import pyspark.pandas
-import pandas as pd
+import pyspark.sql.functions as F
 from datasets import load_dataset
 from ptls.preprocessing import PysparkDataPreprocessor
 from pyspark.sql import SparkSession
@@ -84,8 +83,8 @@ def train_dev_test_split(transactions, targets):
     return trainset.persist(), devset.persist(), testset.persist()
 
 
-def dump_parquet(df, path):
-    df.write.mode("overwrite").parquet(path)
+def dump_parquet(df, path, n_partitions):
+    df.sort(F.col("id")).repartition(n_partitions, "id").write.mode("overwrite").parquet(path)
 
 
 def main(args):
@@ -118,11 +117,11 @@ def main(args):
     dev_path = os.path.join(args.root, "dev.parquet")
     test_path = os.path.join(args.root, "test.parquet")
     print(f"Dump train with {train.count()} records to {train_path}")
-    dump_parquet(train, train_path)
+    dump_parquet(train, train_path, n_partitions=32)
     print(f"Dump dev with {dev.count()} records to {dev_path}")
-    dump_parquet(dev, dev_path)
+    dump_parquet(dev, dev_path, n_partitions=1)
     print(f"Dump test with {test.count()} records to {test_path}")
-    dump_parquet(test, test_path)
+    dump_parquet(test, test_path, n_partitions=1)
     print("OK")
 
 
