@@ -55,6 +55,7 @@ class SimpleModule(NextItemModule):
     def __init__(self):
         super(NextItemModule, self).__init__()
         self.seq_encoder = SimpleContainer()
+        self._head = None
 
     def get_modes(self, embeddings):
         return PaddedBatch({
