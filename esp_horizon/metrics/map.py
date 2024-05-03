@@ -1,6 +1,21 @@
 import torch
-from sklearn.metrics import roc_auc_score, average_precision_score
 from torch_linear_assignment import batch_linear_assignment
+
+
+def compute_map(targets, scores):
+    # Targets: (B, C).
+    # Scores: (B, C).
+    if torch.cuda.is_available():
+        targets = targets.cuda()
+        scores = scores.cuda()
+    order = scores.argsort(dim=0, descending=True)  # (B, C), (B, C).
+    targets = targets.take_along_dim(order, dim=0)  # (B, C).
+    cumsum = targets.cumsum(0)
+    recalls = cumsum / targets.sum(0)
+    precisions = cumsum / torch.arange(1, 1 + len(targets), device=targets.device)[:, None]
+    aps = ((recalls[1:] - recalls[:-1]) * precisions[1:]).sum(0)
+    aps += precisions[0] * recalls[0]
+    return aps.cpu()
 
 
 class MAPMetric:
@@ -94,9 +109,8 @@ class MAPMetric:
             max_recalls = 1 - n_unmatched_targets / total_targets.clip(min=1)
             assert (max_recalls >= 0).all() and (max_recalls <= 1).all()
             label_mask = torch.logical_and(~matched_targets.all(0), matched_targets.any(0)).numpy()  # (C).
-            aps = average_precision_score(matched_targets[:, label_mask].numpy(),
-                                          matched_scores[:, label_mask].numpy(),
-                                          average=None)  # (C').
+            aps = compute_map(matched_targets[:, label_mask],
+                              matched_scores[:, label_mask])  # (C').
             aps *= max_recalls.numpy()[label_mask]
             losses.append(aps.sum() / c)
         return {
