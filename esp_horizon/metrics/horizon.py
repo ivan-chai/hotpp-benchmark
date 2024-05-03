@@ -131,8 +131,9 @@ class HorizonMetric:
 
         valid_mask = (gather_indices < features.seq_lens[:, None, None]).all(2)  # (B, I).
         valid_mask.logical_and_(indices.seq_len_mask)
-        lengths = valid_mask.sum(1)  # (B).
+        gather_indices.clip_(max=features.shape[1] - 1)
 
+        lengths = valid_mask.sum(1)  # (B).
         sequences = PaddedBatch({k: v.take_along_dim(gather_indices.flatten(1), 1).reshape(b, i, n)  # (B, I, N).
                                  for k, v in features.payload.items()},
                                 lengths)
