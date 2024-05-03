@@ -121,8 +121,8 @@ class NextItemModule(pl.LightningModule):
 
         # Log statistics.
         for k, v in losses.items():
-            self.log(f"dev/loss_{k}", v)
-        self.log("dev/loss", loss)
+            self.log(f"dev/loss_{k}", v, batch_size=len(x))
+        self.log("dev/loss", loss, batch_size=len(x))
         if self._dev_metric is not None:
             self._update_metric(self._dev_metric, predictions, x)
 
