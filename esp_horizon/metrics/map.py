@@ -2,10 +2,17 @@ import torch
 from torch_linear_assignment import batch_linear_assignment
 
 
-def compute_map(targets, scores):
+def compute_map(targets, scores, cuda_buffer_size=10**7):
     # Targets: (B, C).
     # Scores: (B, C).
+    b, c = targets.shape
     if torch.cuda.is_available():
+        batch_size = max(cuda_buffer_size // int(b), 1) if cuda_buffer_size is not None else c
+        # Compute large tasks step-by-step.
+        if batch_size < c:
+            return torch.cat([compute_map(targets[:, start:start + batch_size],
+                                          scores[:, start:start + batch_size])
+                              for start in range(0, c, batch_size)])
         targets = targets.cuda()
         scores = scores.cuda()
     order = scores.argsort(dim=0, descending=True)  # (B, C), (B, C).
