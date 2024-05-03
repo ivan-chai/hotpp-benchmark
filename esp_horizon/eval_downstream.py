@@ -87,8 +87,7 @@ class InferenceDataModule(pl.LightningDataModule):
         )
 
 
-def extract_embeddings(config):
-    conf = hydra.compose(config_name=config)
+def extract_embeddings(conf):
     model = hydra.utils.instantiate(conf.module)
     dm = hydra.utils.instantiate(conf.data_module)
     model.load_state_dict(torch.load(conf.model_path))
@@ -132,14 +131,15 @@ def eval_embeddings(conf):
 @hydra.main(version_base=None)
 def main(conf):
     with maybe_temporary_directory(conf.get("root", None)) as root:
+        model_config = hydra.compose(config_name=conf.model_config)
         embeddings_path = os.path.join(root, "embeddings.pickle")
-        embeddings = extract_embeddings(conf.model_config)
+        embeddings = extract_embeddings(model_config)
         with open(embeddings_path, "wb") as fp:
             pkl.dump(embeddings, fp)
 
         conf.environment.work_dir = root
         conf.features.embeddings.read_params.file_name = embeddings_path
-        conf.report_file = os.path.join("results", conf.model_config + ".txt")
+        conf.report_file = model_config.get("downstream_report", os.path.join(root, "downstream_report.txt"))
         if os.path.exists(conf.report_file):
             os.remove(conf.report_file)
         eval_embeddings(conf)

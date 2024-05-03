@@ -55,7 +55,7 @@ class ESPDataset(torch.utils.data.IterableDataset):
     """
     def __init__(self, data, min_length=0, max_length=None,
                  id_field="id",
-                 time_field="timestamps",
+                 timestamps_field="timestamps",
                  global_target_field="global_target",
                  local_targets_field="local_targets",
                  local_targets_indices_field="local_targets_indices"):
@@ -70,7 +70,7 @@ class ESPDataset(torch.utils.data.IterableDataset):
         self.min_length = min_length
         self.max_length = max_length
         self.id_field = id_field
-        self.time_field = time_field
+        self.timestamps_field = timestamps_field
         self.global_target_field = global_target_field
         self.local_targets_field = local_targets_field
         self.local_targets_indices_field = local_targets_indices_field
@@ -82,7 +82,7 @@ class ESPDataset(torch.utils.data.IterableDataset):
         rnd.shuffle(filenames)
         return ESPDataset(filenames,
                           min_length=self.min_length, max_length=self.max_length,
-                          id_field=self.id_field, time_field=self.time_field, global_target_field=self.global_target_field,
+                          id_field=self.id_field, timestamps_field=self.timestamps_field, global_target_field=self.global_target_field,
                           local_targets_field=self.local_targets_field, local_targets_indices_field=self.local_targets_indices_field)
 
     def is_seq_feature(self, name, value, batch=False):
@@ -102,18 +102,18 @@ class ESPDataset(torch.utils.data.IterableDataset):
     def process(self, features):
         if self.id_field not in features:
             raise ValueError("Need ID feature")
-        if self.time_field not in features:
+        if self.timestamps_field not in features:
             raise ValueError("Need timestamps feature")
         if self.min_length > 0:
             # Select subsequences.
-            length = len(features[self.time_field])
+            length = len(features[self.timestamps_field])
             min_length = min(length, self.min_length)
             max_length = min(length, self.max_length or length)
             out_length = random.randint(min_length, max_length)
             offset = random.randint(0, length - out_length)
             features = {k: (v[offset:offset + out_length] if self.is_seq_feature(k, v) else v)
                         for k, v in features.items()}
-            assert len(features[self.time_field]) == out_length
+            assert len(features[self.timestamps_field]) == out_length
         return cast_features(features)  # Tensors.
 
     def __len__(self):
@@ -130,7 +130,7 @@ class ESPDataset(torch.utils.data.IterableDataset):
         for features in batch:
             for name, value in features.items():
                 by_name[name].append(value)
-        lengths = torch.tensor(list(map(len, by_name[self.time_field])))
+        lengths = torch.tensor(list(map(len, by_name[self.timestamps_field])))
         if self.local_targets_field in features:
             local_lengths = torch.tensor(list(map(len, by_name[self.local_targets_field])))
             if self.local_targets_indices_field not in features:

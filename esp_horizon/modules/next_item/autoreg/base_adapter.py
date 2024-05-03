@@ -5,7 +5,7 @@ import torch
 from esp_horizon.data import PaddedBatch
 
 
-class BaseAdapter(ABC, torch.nn.Module):
+class BaseAdapter(ABC):
     """Base class for ESP models adapters.
 
     Args:
@@ -32,6 +32,13 @@ class BaseAdapter(ABC, torch.nn.Module):
             inv_mapping = torch.zeros(max(new) + 1, dtype=torch.long).scatter_(0, torch.tensor(new), torch.tensor(orig))
             self.register_buffer(f"category_mapping_{i}", mapping)
             self.register_buffer(f"category_inv_mapping_{i}", inv_mapping)
+
+    @property
+    def output_seq_features(self):
+        return set()
+
+    def __call__(self, *args, **kwargs):
+        return self.forward(*args, **kwargs)
 
     def prepare_features(self, batch: PaddedBatch) -> PaddedBatch:
         """Format features for the model.

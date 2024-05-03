@@ -53,13 +53,19 @@ class RNNSequencePredictor(BaseSequencePredictor):
         # Predict.
         sequences = self._generate(initial_states, initial_features)  # (B * I, T).
         sequences = self.model.revert_features(sequences)  # (B * I, T).
-        mask = indices.seq_len_mask.unsqueeze(2).repeat(1, 1, self.max_steps)  # (B, I, T).
-        sequences = PaddedBatch({k: (torch.zeros(batch_size, index_size, self.max_steps,
-                                                 device=batch.device, dtype=v.dtype).masked_scatter_(mask, v)  # (B, I, N).
-                                     if k in sequences.seq_names else v)
-                                 for k, v in sequences.payload.items()},
-                                indices.seq_lens, sequences.seq_names)
-        return sequences
+
+        # Gather results.
+        mask = indices.seq_len_mask.bool()  # (B, I).
+        payload = {}
+        for k, v in sequences.payload.items():
+            if k not in sequences.seq_names:
+                payload[k] = v
+                continue
+            dims = [batch_size, index_size, self.max_steps] + list(v.shape[2:])
+            zeros = torch.zeros(*dims, device=batch.device, dtype=v.dtype)
+            broad_mask = mask.reshape(*(list(mask.shape) + [1] * (zeros.ndim - mask.ndim)))  # (B, I, *).
+            payload[k] = zeros.masked_scatter_(broad_mask, v)
+        return PaddedBatch(payload, indices.seq_lens, sequences.seq_names)
 
     def _get_initial_states(self, batch, indices):
         indices, seq_lens = indices.payload, indices.seq_lens
@@ -78,7 +84,7 @@ class RNNSequencePredictor(BaseSequencePredictor):
 
     def _generate(self, states, features):
         batch_size, t, dim = states.payload.shape
-        seq_names = features.seq_names
+        seq_names = set(features.seq_names) | self.model.output_seq_features
         assert t == 1
         states = states.payload.squeeze(1)  # (B, D).
         outputs = defaultdict(list)
@@ -88,14 +94,13 @@ class RNNSequencePredictor(BaseSequencePredictor):
             lengths = features.seq_lens
             predictions, states = self.model(features, states)
             _, features = self.model.output_to_next_input(features, predictions)
-            for k in seq_names:
-                outputs[k].append(predictions.get(k, features[k]))
-                if k in features:
-                    features[k] = features[k].unsqueeze(1)  # (B, T).
-            features = PaddedBatch(features, torch.ones_like(lengths), seq_names)
+            for k in seq_names & set(features):
+                outputs[k].append(features[k])
+                features[k] = features[k].unsqueeze(1)  # (B, 1).
+            features = PaddedBatch(features, torch.ones_like(lengths), seq_names)  # (B, 1).
         for k in list(outputs):
             if isinstance(outputs[k], list):
                 outputs[k] = torch.stack(outputs[k], dim=1)  # (B, T, D).
         lengths = torch.full([batch_size], self.max_steps, device=states.device)  # (B).
-        outputs = PaddedBatch(dict(outputs), lengths, features.seq_names)
+        outputs = PaddedBatch(dict(outputs), lengths, seq_names)
         return outputs

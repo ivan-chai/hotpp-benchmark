@@ -33,7 +33,7 @@ class PaddedBatch:
             if seq_names is not None:
                 raise ValueError("Tensor batch can't have seq_names.")
             if payload.ndim < 2:
-                raise ValueError("Expected a tensor with shape (B, L, *).")
+                raise ValueError(f"Expected a tensor with shape (B, L, *), got {payload.shape}.")
         if flip_padding:
             seq_feature = payload if isinstance(payload, torch.Tensor) else payload[next(iter(seq_names))]
             l = seq_feature.shape[1]

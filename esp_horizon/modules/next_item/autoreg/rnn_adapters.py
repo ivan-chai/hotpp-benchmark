@@ -46,6 +46,10 @@ class NextItemRNNAdapter(BaseRNNAdapter):
         self.context_step = context_step
         self.dump_category_logits = dump_category_logits or {}
 
+    @property
+    def output_seq_features(self):
+        return super().output_seq_features | set(self.dump_category_logits.values())
+
     def eval_states(self, x: PaddedBatch) -> PaddedBatch:
         """Apply encoder to the batch of features and produce batch of input hidden states for each iteration.
 
@@ -85,10 +89,11 @@ class NextItemRNNAdapter(BaseRNNAdapter):
         last = (embeddings.seq_lens - 1).unsqueeze(1).unsqueeze(1)  # (B, 1, 1).
         embeddings = PaddedBatch(embeddings.payload.take_along_dim(last, 1),
                                  torch.ones_like(embeddings.seq_lens))  # (B, 1, D).
+        head_outputs = self.model.apply_head(embeddings)
         new_states = embeddings.payload.squeeze(1)  # (B, D).
         assert new_states.ndim == 2
         if self.inference_mode == "mode":
-            features = self.model.get_modes(embeddings)
+            features = self.model.get_modes(head_outputs)
         else:
             raise ValueError(f"Unknown inference mode: {self.inference_mode}")
 
@@ -104,8 +109,8 @@ class NextItemRNNAdapter(BaseRNNAdapter):
             outputs[k] = v
 
         if self.dump_category_logits:
-            head_outputs = self.model.apply_head(embeddings).payload  # (B, 1, P).
+            logits = self.model.get_logits(head_outputs)
             for field, logits_field in self.dump_category_logits.items():
-                outputs[logits_field] = head_outputs[field].squeeze(1)  # (B, C).
+                outputs[logits_field] = logits.payload[field].squeeze(1)  # (B, C).
 
         return outputs, new_states

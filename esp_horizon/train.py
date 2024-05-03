@@ -1,4 +1,6 @@
 import logging
+import datetime
+import yaml
 
 import hydra
 import pytorch_lightning as pl
@@ -51,6 +53,16 @@ def get_trainer(conf):
     return pl.Trainer(**trainer_params, **trainer_params_additional)
 
 
+def dump_report(metrics, path):
+    if len(metrics) != 1:
+        raise NotImplementedError("Multiple test dataloaders")
+    metrics = metrics[0]
+    result = dict(metrics)
+    result["date"] = f"{datetime.datetime.now():%Y-%m-%d %H:%M:%S}"
+    with open(path, "w") as fp:
+        yaml.safe_dump(result, fp)
+
+
 @hydra.main(version_base="1.2", config_path=None)
 def main(conf):
     if "seed_everything" in conf:
@@ -71,7 +83,9 @@ def main(conf):
         torch.save(model.state_dict(), conf.model_path)
         logger.info(f"Model weights saved to '{conf.model_path}'")
 
-    trainer.test(model, dm)
+    metrics = trainer.test(model, dm)
+    if "report" in conf:
+        dump_report(metrics, conf["report"])
 
 
 if __name__ == "__main__":

@@ -27,7 +27,7 @@ setuptools.setup(
         "pytorch-lightning",
         "scikit-learn>=1.3.2",
         "scipy>=1.11",
-        "torchmetrics",
+        "torch-linear-assignment @ git+https://github.com/ivan-chai/torch-linear-assignment.git#egg=torch-linear-assignment",
         "tqdm",
     ],
 )
