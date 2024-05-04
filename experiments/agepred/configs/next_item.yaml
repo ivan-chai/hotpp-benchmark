@@ -1,13 +1,12 @@
 defaults:
+  - module/head_partial: head_512_256
   - dataset/unsupervised
   - _self_
 
 seed_everything: 42
-#logger:
-#  _target_: pytorch_lightning.loggers.WandbLogger
-#  project: esp-agepred
 logger:
-  _target_: pytorch_lightning.loggers.TensorBoardLogger
+  _target_: pytorch_lightning.loggers.WandbLogger
+  project: esp-agepred
   name: next-item
   save_dir: lightning_logs
 model_path: checkpoints/next_item.ckpt
@@ -45,7 +44,6 @@ module:
   head_partial:
     _target_: esp_horizon.nn.Head
     _partial_: true
-    hidden_dims: [512, 256]
     use_batch_norm: true
   autoreg_adapter_partial:
     _target_: esp_horizon.modules.next_item.autoreg.NextItemRNNAdapter
