@@ -119,7 +119,7 @@ class MAPMetric:
             aps = compute_map(matched_targets[:, label_mask],
                               matched_scores[:, label_mask])  # (C').
             aps *= max_recalls.numpy()[label_mask]
-            losses.append(aps.sum() / c)
+            losses.append(aps.sum().item() / c)
         return {
             "detection-mAP": sum(losses) / len(losses)
         }

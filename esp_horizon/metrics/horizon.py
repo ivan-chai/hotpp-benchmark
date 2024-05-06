@@ -40,14 +40,14 @@ class HorizonMetric:
         if self.map is not None:
             self.map.reset()
 
-    def select_horizon_indices(self, lengths):
+    def select_horizon_indices(self, seq_lens):
         """Select indices for horizon metrics evaluation."""
         step = self.horizon_evaluation_step
-        l = lengths.max().item()
+        l = seq_lens.max().item()
         # Skip first `step` events.
-        indices = torch.arange(step, l, step, device=lengths.device)  # (I).
-        indices_lens = (indices[None] < lengths[:, None]).sum(1)  # (B).
-        return PaddedBatch(indices[None].repeat(len(lengths), 1), indices_lens)  # (B, I).
+        indices = torch.arange(step, l, step, device=seq_lens.device)  # (I).
+        indices_lens = (indices[None] < seq_lens[:, None]).sum(1)  # (B).
+        return PaddedBatch(indices[None].repeat(len(seq_lens), 1), indices_lens)  # (B, I).
 
     def update_next_item(self, seq_lens, timestamps, labels, predicted_timestamps, predicted_labels_logits):
         """Update next-item metrics with new observations.
@@ -63,7 +63,7 @@ class HorizonMetric:
         """
         # Targets are features shifted w.r.t. prediction.
         mask = PaddedBatch(timestamps, seq_lens).seq_len_mask
-        self.next_item.update(mask=mask[:, 1:],
+        self.next_item.update(target_mask=mask[:, 1:],
                               target_labels=labels[:, 1:],
                               predicted_labels_logits=predicted_labels_logits[:, :-1])
 
