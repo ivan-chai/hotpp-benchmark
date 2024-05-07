@@ -31,7 +31,7 @@ class TimeMAELoss(torch.nn.Module):
         assert losses.ndim == 2
         return losses[mask].mean()
 
-    def get_modes(self, predictions):
+    def predict_modes(self, predictions):
         return predictions  # (B, L, 1).
 
 
@@ -60,13 +60,10 @@ class CrossEntropyLoss(torch.nn.Module):
         assert losses.ndim == 2
         return losses[mask].mean()
 
-    def get_log_proba(self, predictions):
-        return torch.nn.functional.log_softmax(predictions, -1)  # (B, L, C).
+    def predict_logits(self, predictions):
+        return predictions  # (B, L, C).
 
-    def get_proba(self, predictions):
-        return torch.nn.functional.softmax(predictions, -1)  # (B, L, C).
-
-    def get_modes(self, predictions):
+    def predict_modes(self, predictions):
         return predictions.argmax(-1).unsqueeze(2)  # (B, L, 1).
 
 
@@ -82,15 +79,8 @@ class NextItemLoss(torch.nn.Module):
         self._order = list(sorted(losses))
 
     @property
-    def loss_names(self):
-        return self._order
-
-    @property
     def input_dim(self):
         return sum([loss.input_dim for loss in self._losses.values()])
-
-    def __getitem__(self, key):
-        return self._losses[key]
 
     def forward(self, predictions, targets):
         """Compute loss between predictions and targets.
@@ -108,7 +98,7 @@ class NextItemLoss(torch.nn.Module):
                               lengths, targets.seq_names)
 
         # Compute losses.
-        predictions = self.split_predictions(predictions)
+        predictions = self._split_predictions(predictions)
         mask = targets.seq_len_mask.bool()
         losses = {}
         for name, output in predictions.items():
@@ -116,30 +106,29 @@ class NextItemLoss(torch.nn.Module):
             losses[name] = self._losses[name](output, target, mask)
         return losses
 
-    def get_modes(self, predictions):
+    def predict(self, predictions, fields=None):
         seq_lens = predictions.seq_lens
-        predictions = self.split_predictions(predictions)
+        predictions = self._split_predictions(predictions)
         result = {}
-        for name, prediction in predictions.items():
-            result[name] = self._losses[name].get_modes(prediction).squeeze(2)  # (B, L).
+        for name in (fields or self._losses):
+            result[name] = self._losses[name].predict_modes(predictions[name]).squeeze(2)  # (B, L).
         return PaddedBatch(result, seq_lens)
 
-    def get_logits(self, predictions):
+    def predict_category_logits(self, predictions, fields=None):
+        if fields is None:
+            fields = [name for name, loss in self._losses.items() if hasattr(loss, "predict_logits")]
         seq_lens = predictions.seq_lens
-        predictions = self.split_predictions(predictions)
+        predictions = self._split_predictions(predictions)
         result = {}
-        for name, prediction in predictions.items():
-            try:
-                result[name] = self._losses[name].get_log_proba(prediction).squeeze(2)  # (B, L, D).
-            except AttributeError:
-                continue
+        for name in fields:
+            result[name] = self._losses[name].predict_logits(predictions[name])  # (B, L, C).
         return PaddedBatch(result, seq_lens)
 
-    def split_predictions(self, predictions):
+    def _split_predictions(self, predictions):
         """Convert parameters tensor to the dictionary with parameters for each loss."""
         offset = 0
         result = {}
-        for name in self.loss_names:
+        for name in self._order:
             loss = self._losses[name]
             result[name] = predictions.payload[:, :, offset:offset + loss.input_dim]
             offset += loss.input_dim

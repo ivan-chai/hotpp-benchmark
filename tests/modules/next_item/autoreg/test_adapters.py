@@ -57,7 +57,7 @@ class SimpleModule(NextItemModule):
         self.seq_encoder = SimpleContainer()
         self._head = None
 
-    def get_modes(self, embeddings):
+    def predict(self, embeddings):
         return PaddedBatch({
             "timestamps": embeddings.payload[:, :, 0].long(),
             "labels": embeddings.payload[:, :, 1].long()

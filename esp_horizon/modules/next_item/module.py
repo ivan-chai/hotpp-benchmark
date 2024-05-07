@@ -6,10 +6,18 @@ from .autoreg import NextItemRNNAdapter, RNNSequencePredictor
 
 
 class NextItemModule(pl.LightningModule):
-    """Train next token prediction.
+    """Train for the next token prediction.
+
+    The model is composed of the following modules:
+    1. input encoder, responsible for input-to-vector conversion,
+    2. sequential encoder, which captures time dependencies,
+    3. fc head for embeddings projection (optional),
+    4. loss, which estimates likelihood and predictions.
+
+    Input encoder and sequential encoder are combined within SeqEncoder from Pytorch Lifestream.
 
     Parameters
-        seq_encoder: Backbone model.
+        seq_encoder: Backbone model, which includes input encoder and sequential encoder.
         loss: Training loss
         head_partial: FC head model class which accepts input and output dimensions.
         optimizer_partial:
@@ -64,26 +72,28 @@ class NextItemModule(pl.LightningModule):
     def seq_encoder(self):
         return self._seq_encoder
 
-    def apply_head(self, encoder_output):
-        payload, seq_lens  = encoder_output.payload, encoder_output.seq_lens
+    def embed(self, x):
+        """Compute embedding at each position."""
+        return self._seq_encoder(x)  # (B, L, D).
+
+    def apply_head(self, embeddings):
+        payload, seq_lens  = embeddings.payload, embeddings.seq_lens
         if self._head is not None:
             payload = self._head(payload)
         return PaddedBatch(payload, seq_lens)
 
     def forward(self, x):
-        encoder_output = self._seq_encoder(x)
-        predictions = self.apply_head(encoder_output)
-        return predictions
+        embeddings = self.embed(x)
+        outputs = self.apply_head(embeddings)
+        return outputs
 
-    def get_embeddings(self, x):
-        """Get embedding for each position."""
-        return self._seq_encoder(x)  # (B, L, D).
+    def predict(self, outputs, fields=None):
+        """Predict events from head outputs."""
+        return self._loss.predict(outputs, fields=fields)  # (B, L).
 
-    def get_modes(self, predictions):
-        return self._loss.get_modes(predictions)  # (B, L).
-
-    def get_logits(self, predictions):
-        return self._loss.get_logits(predictions)  # (B, L).
+    def predict_category_logits(self, outputs, fields=None):
+        """Predict categorical fields logits from head outputs."""
+        return self._loss.predict_category_logits(outputs, fields=fields)  # (B, L, C).
 
     def generate_sequences(self, x, indices):
         """Generate future events.
@@ -167,21 +177,21 @@ class NextItemModule(pl.LightningModule):
     def _get_targets(self, x):
         """Shift targets w.r.t. predictions."""
         lengths = (x.seq_lens - 1).clip(min=0)
-        targets = PaddedBatch({k: x.payload[k][:, 1:] for k in self._loss.loss_names},
+        targets = PaddedBatch({k: (v[:, 1:] if k in x.seq_names else v)
+                               for k, v in x.payload.items()},
                               lengths, x.seq_names)
         return targets
 
-    def _update_metric(self, metric, predictions, features):
-        lengths = torch.minimum(predictions.seq_lens, features.seq_lens)
-        parameters = self._loss.split_predictions(predictions)  # (B, L, P).
-        predicted_timestamps = self._loss[self._timestamps_field].get_modes(parameters[self._timestamps_field])  # (B, L).
-        predicted_labels_logits = self._loss[self._labels_field].get_log_proba(parameters[self._labels_field])  # (B, L, C).
+    def _update_metric(self, metric, outputs, features):
+        lengths = torch.minimum(outputs.seq_lens, features.seq_lens)
+        predicted_timestamps = self.predict(outputs, fields=[self._timestamps_field]).payload[self._timestamps_field]  # (B, L).
+        predicted_logits = self.predict_category_logits(outputs, fields=[self._labels_field]).payload[self._labels_field]  # (B, L, C).
 
         metric.update_next_item(lengths,
                                 features.payload[self._timestamps_field],
                                 features.payload[self._labels_field],
                                 predicted_timestamps,
-                                predicted_labels_logits)
+                                predicted_logits)
 
         if metric.horizon_prediction:
             indices = metric.select_horizon_indices(features.seq_lens)
