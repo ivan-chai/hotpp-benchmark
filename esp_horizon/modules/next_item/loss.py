@@ -2,6 +2,23 @@ import torch
 from esp_horizon.data import PaddedBatch
 
 
+def time_to_delta(predictions, targets, mask):
+    """Convert parameters to time delta prediction."""
+    if targets.ndim != 2:
+        raise ValueError(f"Expected targets with shape (B, L), got {targets.shape}.")
+    # An input sequence contains predictions shifted w.r.t. targets:
+    # prediction: 1, 2, 3, ...
+    # target: 2, 3, 4, ...
+    #
+    # After a time delta computation, the model have to predict an offset to the next event:
+    # new_prediction: 2, 3, ...
+    # delta_target: 3 - 2, 4 - 3, ...
+    predictions = predictions[:, 1:]  #  (B, L - 1).
+    delta = targets[:, 1:] - targets[:, :-1]  # (B, L - 1).
+    mask = torch.logical_and(mask[:, 1:], mask[:, :-1])  # (B, L - 1).
+    return predictions, delta, mask
+
+
 class TimeMAELoss(torch.nn.Module):
     """MAE for delta T prediction."""
     input_dim = 1
@@ -15,24 +32,62 @@ class TimeMAELoss(torch.nn.Module):
             targets: Target values with shape (B, L), shifted w.r.t. predictions.
             mask: Sequence lengths mask with shape (B, L).
         """
-        if targets.ndim != 2:
-            raise ValueError(f"Expected targets with shape (B, L), got {targets.shape}.")
-        # An input sequence contains predictions shifted w.r.t. targets:
-        # prediction: 1, 2, 3, ...
-        # target: 2, 3, 4, ...
-        #
-        # After a time delta computation, the model have to predict an offset to the next event:
-        # new_prediction: 2, 3, ...
-        # delta_target: 3 - 2, 4 - 3, ...
-        predictions = predictions[:, 1:].squeeze(2)  #  (B, L - 1).
-        delta = targets[:, 1:] - targets[:, :-1]  # (B, L - 1).
-        mask = mask[:, 1:]  # (B, L - 1).
-        losses = (predictions - delta).abs()  # (B, L - 1).
+        assert predictions.shape[2] == 1
+        predictions = predictions.squeeze(2)
+        predictions, deltas, mask = time_to_delta(predictions, targets, mask)
+        losses = (predictions - deltas).abs()  # (B, L - 1).
         assert losses.ndim == 2
         return losses[mask].mean()
 
     def predict_modes(self, predictions):
         return predictions  # (B, L, 1).
+
+
+class TimeRMTPPLoss(torch.nn.Module):
+    """Temporal Point Process loss from RMTPP.
+
+    See the original paper for details:
+
+    Du, Nan, et al. "Recurrent marked temporal point processes:
+    Embedding event history to vector." Proceedings of the 22nd ACM
+    SIGKDD international conference on knowledge discovery and data
+    mining. 2016.
+
+    """
+    input_dim = 1
+    target_dim = 1
+
+    def __init__(self, eps=1e-6):
+        super().__init__()
+        self.eps = eps
+        # TODO: use predicted influence.
+        # TODO: per-label parameter?
+        self.current_influence = torch.nn.Parameter(torch.ones([]))
+
+    def _log_intensity(self, biases, deltas):
+        return self.current_influence * deltas + biases
+
+    def forward(self, predictions, targets, mask):
+        assert predictions.shape[2] == 1
+        predictions = predictions.squeeze(2)
+        biases, deltas, mask = time_to_delta(predictions, targets, mask)  # (B, L).
+
+        log_intencities = self._log_intensity(biases, deltas)  # (B, L).
+        log_densities = log_intencities - (log_intencities.exp() - biases.exp()) / self.current_influence  # (B, L).
+        losses = -log_densities  # (B, L).
+        assert losses.ndim == 2
+        return losses[mask].mean()
+
+    def predict_modes(self, predictions):
+        assert predictions.shape[2] == 1
+        biases = predictions.squeeze(2)  # (B, L).
+        if self.current_influence < self.eps:
+            modes = torch.zeros_like(biases)
+        else:
+            modes = (self.current_influence.log() - biases) / self.current_influence
+        return modes.unsqueeze(2)  # (B, L, 1).
+    # TODO: Predict means.
+    # TODO: Sample.
 
 
 class CrossEntropyLoss(torch.nn.Module):

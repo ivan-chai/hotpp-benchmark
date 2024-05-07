@@ -174,6 +174,9 @@ class NextItemModule(pl.LightningModule):
             }
         return [optimizer], [scheduler]
 
+    def on_before_optimizer_step(self, optimizer, optimizer_idx):
+        self.log("grad_norm", self._get_grad_norm())
+
     def _get_targets(self, x):
         """Shift targets w.r.t. predictions."""
         lengths = (x.seq_lens - 1).clip(min=0)
@@ -203,3 +206,17 @@ class NextItemModule(pl.LightningModule):
                                   indices.seq_lens,
                                   sequences.payload[self._timestamps_field],
                                   sequences.payload[self._labels_logits_field])
+
+    @torch.no_grad()
+    def _get_grad_norm(self):
+        total_norm = 0.0
+        for name, p in self.named_parameters():
+            if not p.requires_grad:
+                continue
+            if p.grad is None:
+                warnings.warn(f"No grad for {name}")
+                continue
+            param_norm = p.grad.data.norm(2)
+            total_norm += param_norm.item() ** 2
+        total_norm = total_norm ** (1. / 2)
+        return total_norm
