@@ -174,8 +174,8 @@ class NextItemModule(pl.LightningModule):
             }
         return [optimizer], [scheduler]
 
-    def on_before_optimizer_step(self, optimizer, optimizer_idx):
-        self.log("grad_norm", self._get_grad_norm())
+    def on_before_optimizer_step(self, optimizer=None, optimizer_idx=None):
+        self.log("grad_norm", self._get_grad_norm(), prog_bar=True)
 
     def _get_targets(self, x):
         """Shift targets w.r.t. predictions."""

@@ -58,6 +58,8 @@ module:
     losses:
       timestamps:
         _target_: esp_horizon.modules.next_item.TimeRMTPPLoss
+        init_influence: -0.1
+        max_delta: 7
       labels:
         _target_: esp_horizon.modules.next_item.CrossEntropyLoss
         num_classes: 204

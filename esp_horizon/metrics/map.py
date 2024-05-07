@@ -6,6 +6,8 @@ def compute_map(targets, scores, cuda_buffer_size=10**7):
     # Targets: (B, C).
     # Scores: (B, C).
     b, c = targets.shape
+    if b == 0:
+        return torch.zeros_like(scores)
     if torch.cuda.is_available():
         batch_size = max(cuda_buffer_size // int(b), 1) if cuda_buffer_size is not None else c
         # Compute large tasks step-by-step.

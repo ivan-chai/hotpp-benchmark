@@ -57,12 +57,13 @@ class TimeRMTPPLoss(torch.nn.Module):
     input_dim = 1
     target_dim = 1
 
-    def __init__(self, eps=1e-6):
+    def __init__(self, init_influence=1, eps=1e-6, max_delta=None):
         super().__init__()
         self.eps = eps
+        self.max_delta = max_delta
         # TODO: use predicted influence.
         # TODO: per-label parameter?
-        self.current_influence = torch.nn.Parameter(torch.ones([]))
+        self.current_influence = torch.nn.Parameter(torch.full([], init_influence, dtype=torch.float))
 
     def _log_intensity(self, biases, deltas):
         return self.current_influence * deltas + biases
@@ -71,6 +72,7 @@ class TimeRMTPPLoss(torch.nn.Module):
         assert predictions.shape[2] == 1
         predictions = predictions.squeeze(2)
         biases, deltas, mask = time_to_delta(predictions, targets, mask)  # (B, L).
+        deltas = deltas.clip(min=0, max=self.max_delta)
 
         log_intencities = self._log_intensity(biases, deltas)  # (B, L).
         log_densities = log_intencities - (log_intencities.exp() - biases.exp()) / self.current_influence  # (B, L).
@@ -130,7 +132,7 @@ class NextItemLoss(torch.nn.Module):
     """
     def __init__(self, losses):
         super().__init__()
-        self._losses = losses
+        self._losses = torch.nn.ModuleDict(losses)
         self._order = list(sorted(losses))
 
     @property
