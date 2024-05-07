@@ -13,7 +13,7 @@ Evaluate downstream:
 python3 -m esp_horizon.eval_downstream --config-dir configs --config-name downstream +model_config=<model> [++num_workers=<workers>]
 ```
 
-### Useful spark options
+### Useful Spark options
 Set memory limit:
 ```
 spark-submit --driver-memory 6g
