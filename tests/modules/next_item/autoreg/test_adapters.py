@@ -4,7 +4,7 @@ from unittest import TestCase, main
 import torch
 
 from esp_horizon.data import PaddedBatch
-from esp_horizon.modules import NextItemModule
+from esp_horizon.modules import BaseModule, NextItemModule
 from ptls.nn.seq_encoder import RnnEncoder
 from ptls.nn.seq_encoder.containers import SeqEncoderContainer
 from esp_horizon.modules.next_item.autoreg import RNNSequencePredictor, NextItemRNNAdapter, BaseAdapter
@@ -53,7 +53,7 @@ class SimpleContainer(SeqEncoderContainer):
 
 class SimpleModule(NextItemModule):
     def __init__(self):
-        super(NextItemModule, self).__init__()
+        super(BaseModule, self).__init__()
         self.seq_encoder = SimpleContainer()
         self._head = None
 

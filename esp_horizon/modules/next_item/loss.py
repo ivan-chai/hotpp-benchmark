@@ -307,7 +307,7 @@ class NextItemLoss(torch.nn.Module):
                 metrics[f"{name}-{k}"] = v
         return losses, metrics
 
-    def predict(self, predictions, fields=None):
+    def predict_next(self, predictions, fields=None):
         seq_lens = predictions.seq_lens
         predictions = self._split_predictions(predictions)
         result = {}
@@ -320,7 +320,7 @@ class NextItemLoss(torch.nn.Module):
                 raise ValueError(f"Unknown prediction type: {self._prediction}.")
         return PaddedBatch(result, seq_lens)
 
-    def predict_category_logits(self, predictions, fields=None):
+    def predict_next_category_logits(self, predictions, fields=None):
         if fields is None:
             fields = [name for name, loss in self._losses.items() if hasattr(loss, "predict_logits")]
         seq_lens = predictions.seq_lens
