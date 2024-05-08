@@ -1,0 +1,90 @@
+defaults:
+  - module/head_partial: head_512_256
+  - dataset/unsupervised
+  - _self_
+
+seed_everything: 42
+logger:
+  _target_: pytorch_lightning.loggers.WandbLogger
+  project: esp-agepred
+  name: rmtpp
+  save_dir: lightning_logs
+model_path: checkpoints/rmtpp.ckpt
+report: results/rmtpp.yaml
+downstream_report: results/downsteam_rmtpp.txt
+
+data_module: ${dataset}
+
+trainer:
+  accelerator: cuda
+  devices: 1
+  max_epochs: 30
+  enable_checkpointing: true
+  deterministic: true
+  precision: 16-mixed
+  gradient_clip_val: 1  # Increases training stability.
+  check_val_every_n_epoch: 3
+
+module:
+  _target_: esp_horizon.modules.NextItemModule
+  seq_encoder:
+    _target_: ptls.nn.RnnSeqEncoder
+    trx_encoder:
+      _target_: ptls.nn.TrxEncoder
+      embeddings_noise: 0.003
+      embeddings:
+        timestamps:
+          in: 800
+          out: 31
+        labels:
+          in: 204
+          out: 256
+    type: gru
+    hidden_size: 512
+  head_partial:
+    _target_: esp_horizon.nn.Head
+    _partial_: true
+    use_batch_norm: true
+  autoreg_adapter_partial:
+    _target_: esp_horizon.modules.next_item.autoreg.NextItemRNNAdapter
+    _partial_: true
+    time_int: true
+    time_input_delta: false
+    max_context: 1200
+    context_step: 200
+  autoreg_max_steps: 24
+  loss:
+    _target_: esp_horizon.modules.next_item.NextItemLoss
+    losses:
+      timestamps:
+        _target_: esp_horizon.modules.next_item.TimeRMTPPLoss
+        init_influence: -0.1
+        max_intensity: 4
+        grad_scale: 0.05
+        max_delta: 8  # horizon + 1.
+        expectation_steps: 100
+      labels:
+        _target_: esp_horizon.modules.next_item.CrossEntropyLoss
+        num_classes: 204
+  optimizer_partial:
+    _partial_: true
+    _target_: torch.optim.Adam
+    lr: 0.001
+    weight_decay: 0.0
+  lr_scheduler_partial:
+    _partial_: true
+    _target_: torch.optim.lr_scheduler.StepLR
+    step_size: 5
+    gamma: 0.8
+  dev_metric:
+    _target_: esp_horizon.metrics.HorizonMetric
+    horizon: 7
+    horizon_evaluation_step: 64
+    map_thresholds: [1, 3, 7]
+    max_target_length: 24
+  test_metric:
+    _target_: esp_horizon.metrics.HorizonMetric
+    horizon: 7
+    horizon_evaluation_step: 64
+    map_thresholds: [1, 3, 7]
+    max_target_length: 24

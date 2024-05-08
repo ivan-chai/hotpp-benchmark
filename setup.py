@@ -16,7 +16,6 @@ setuptools.setup(
     python_requires=">=3.9",
     install_requires=[
         "datasets",
-        "easy-tpp",
         "hydra-core>=1.1.2",
         "lightgbm",
         "numpy>=1.23",

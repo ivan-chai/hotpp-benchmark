@@ -16,14 +16,13 @@ class NextItemRNNAdapter(BaseRNNAdapter):
     """Adapter based on MLE module.
 
     Args:
-      inference_mode: The type of inference. Use `mode` for a fixed prediction.
       max_context: Maximum RNN context for long sequences.
       context_step: Window step when max_context is provided.
       dump_category_logits: A mapping from category field names to output logits field names.
     """
     def __init__(self, model, time_field="timestamps", time_int=False,
                  time_input_delta=True, time_output_delta=True,
-                 category_mapping=None, inference_mode="mode",
+                 category_mapping=None,
                  max_context=None, context_step=None,
                  dump_category_logits=None):
         try:
@@ -41,7 +40,6 @@ class NextItemRNNAdapter(BaseRNNAdapter):
         super().__init__(model, time_field, time_int,
                          time_input_delta, time_output_delta,
                          category_mapping)
-        self.inference_mode = inference_mode
         self.max_context = max_context
         self.context_step = context_step
         self.dump_category_logits = dump_category_logits or {}
@@ -85,17 +83,14 @@ class NextItemRNNAdapter(BaseRNNAdapter):
             raise NotImplementedError("Left-padded batches are not implemented.")
         trx_embeddings = self.model.seq_encoder.trx_encoder(x)
         embeddings = self.model.seq_encoder.seq_encoder(trx_embeddings,
-                                                        states.unsqueeze(0) if states is not None else None)
+                                                        states.unsqueeze(0) if states is not None else None)  # PTLS expects (1, B, D).
         last = (embeddings.seq_lens - 1).unsqueeze(1).unsqueeze(1)  # (B, 1, 1).
         embeddings = PaddedBatch(embeddings.payload.take_along_dim(last, 1),
                                  torch.ones_like(embeddings.seq_lens))  # (B, 1, D).
         head_outputs = self.model.apply_head(embeddings)
         new_states = embeddings.payload.squeeze(1)  # (B, D).
         assert new_states.ndim == 2
-        if self.inference_mode == "mode":
-            features = self.model.get_modes(head_outputs)
-        else:
-            raise ValueError(f"Unknown inference mode: {self.inference_mode}")
+        features = self.model.predict(head_outputs)
 
         outputs = {}
         for k, v in features.payload.items():
@@ -109,7 +104,7 @@ class NextItemRNNAdapter(BaseRNNAdapter):
             outputs[k] = v
 
         if self.dump_category_logits:
-            logits = self.model.get_logits(head_outputs)
+            logits = self.model.predict_category_logits(head_outputs)
             for field, logits_field in self.dump_category_logits.items():
                 outputs[logits_field] = logits.payload[field].squeeze(1)  # (B, C).
 

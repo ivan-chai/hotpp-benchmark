@@ -83,10 +83,12 @@ class RNNSequencePredictor(BaseSequencePredictor):
         return initial_states, initial_features
 
     def _generate(self, states, features):
+        # states: (B, 1, D).
+        # features: (B, 1).
         batch_size, t, dim = states.payload.shape
-        seq_names = set(features.seq_names) | self.model.output_seq_features
         assert t == 1
         states = states.payload.squeeze(1)  # (B, D).
+        seq_names = set(features.seq_names) | self.model.output_seq_features
         outputs = defaultdict(list)
         outputs.update({k: v for k, v in features.payload.items()
                         if k not in seq_names})
