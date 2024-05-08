@@ -113,12 +113,14 @@ class NextItemModule(pl.LightningModule):
     def training_step(self, batch, _):
         x, _ = batch
         predictions = self.forward(x)  # (B, L, D).
-        losses = self._loss(predictions, self._get_targets(x))
+        losses, metrics = self._loss(predictions, self._get_targets(x))
         loss = sum(losses.values())
 
         # Log statistics.
         for k, v in losses.items():
             self.log(f"train/loss_{k}", v)
+        for k, v in metrics.items():
+            self.log(f"train/{k}", v)
         self.log("train/loss", loss, prog_bar=True)
         self.log("sequence_length", x.seq_lens.float().mean(), prog_bar=True)
         return loss
@@ -126,12 +128,14 @@ class NextItemModule(pl.LightningModule):
     def validation_step(self, batch, _):
         x, _ = batch
         predictions = self.forward(x)  # (B, L, D).
-        losses = self._loss(predictions, self._get_targets(x))
+        losses, metrics = self._loss(predictions, self._get_targets(x))
         loss = sum(losses.values())
 
         # Log statistics.
         for k, v in losses.items():
             self.log(f"dev/loss_{k}", v, batch_size=len(x))
+        for k, v in metrics.items():
+            self.log(f"dev/{k}", v, batch_size=len(x))
         self.log("dev/loss", loss, batch_size=len(x))
         if self._dev_metric is not None:
             self._update_metric(self._dev_metric, predictions, x)
@@ -146,12 +150,14 @@ class NextItemModule(pl.LightningModule):
     def test_step(self, batch, _):
         x, _ = batch
         predictions = self.forward(x)  # (B, L, D).
-        losses = self._loss(predictions, self._get_targets(x))
+        losses, metrics = self._loss(predictions, self._get_targets(x))
         loss = sum(losses.values())
 
         # Log statistics.
         for k, v in losses.items():
             self.log(f"test/loss_{k}", v)
+        for k, v in metrics.items():
+            self.log(f"test/{k}", v)
         self.log("test/loss", loss)
         if self._test_metric is not None:
             self._update_metric(self._test_metric, predictions, x)

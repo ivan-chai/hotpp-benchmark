@@ -25,7 +25,7 @@ class TestNextItemLoss(TestCase):
             [2, 2, 3],
             [5, 5, 7]
         ]).double()
-        result = loss(biases.unsqueeze(2), times, mask).item()
+        result = loss(biases.unsqueeze(2), times, mask)[0].item()
         # After delta:
         # mask:
         # [[1, 1]

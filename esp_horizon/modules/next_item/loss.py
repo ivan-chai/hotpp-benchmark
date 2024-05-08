@@ -31,13 +31,16 @@ class TimeMAELoss(torch.nn.Module):
             predictions: Predicted values with shape (B, L, 1).
             targets: Target values with shape (B, L), shifted w.r.t. predictions.
             mask: Sequence lengths mask with shape (B, L).
+
+        Returns:
+            Loss and metrics.
         """
         assert predictions.shape[2] == 1
         predictions = predictions.squeeze(2)
         predictions, deltas, mask = time_to_delta(predictions, targets, mask)
         losses = (predictions - deltas).abs()  # (B, L - 1).
         assert losses.ndim == 2
-        return losses[mask].mean()
+        return losses[mask].mean(), {}
 
     def predict_modes(self, predictions):
         return predictions  # (B, L, 1).
@@ -69,6 +72,16 @@ class TimeRMTPPLoss(torch.nn.Module):
         return self.current_influence * deltas + biases
 
     def forward(self, predictions, targets, mask):
+        """Compute RMTPP loss between predictions and targets.
+
+        Args:
+            predictions: Predicted values with shape (B, L, 1).
+            targets: Target values with shape (B, L), shifted w.r.t. predictions.
+            mask: Sequence lengths mask with shape (B, L).
+
+        Returns:
+            Loss and metrics.
+        """
         assert predictions.shape[2] == 1
         predictions = predictions.squeeze(2)
         biases, deltas, mask = time_to_delta(predictions, targets, mask)  # (B, L).
@@ -78,7 +91,7 @@ class TimeRMTPPLoss(torch.nn.Module):
         log_densities = log_intencities - (log_intencities.exp() - biases.exp()) / self.current_influence  # (B, L).
         losses = -log_densities  # (B, L).
         assert losses.ndim == 2
-        return losses[mask].mean()
+        return losses[mask].mean(), {"current_influence": self.current_influence.item()}
 
     def predict_modes(self, predictions):
         assert predictions.shape[2] == 1
@@ -110,12 +123,15 @@ class CrossEntropyLoss(torch.nn.Module):
             predictions: Predicted values with shape (B, L, C).
             targets: Target values with shape (B, L), shifted w.r.t. predictions.
             mask: Sequence lengths mask with shape (B, L).
+
+        Returns:
+            Loss and metrics.
         """
         if targets.ndim != 2:
             raise ValueError(f"Expected targets with shape (B, L), got {targets.shape}.")
         losses = torch.nn.functional.cross_entropy(predictions.permute(0, 2, 1), targets.long(), reduction="none")  # (B, T).
         assert losses.ndim == 2
-        return losses[mask].mean()
+        return losses[mask].mean(), {}
 
     def predict_logits(self, predictions):
         return predictions  # (B, L, C).
@@ -145,6 +161,9 @@ class NextItemLoss(torch.nn.Module):
         Args:
             predictions: Predicted values with shape (B, L, C).
             targets: Target values with shape (B, L), shifted w.r.t. predictions.
+
+        Returns:
+            Losses dict and metrics dict.
         """
         # Align lengths.
         l = min(predictions.shape[1], targets.shape[1])
@@ -158,10 +177,14 @@ class NextItemLoss(torch.nn.Module):
         predictions = self._split_predictions(predictions)
         mask = targets.seq_len_mask.bool()
         losses = {}
+        metrics = {}
         for name, output in predictions.items():
             target = targets.payload[name]
-            losses[name] = self._losses[name](output, target, mask)
-        return losses
+            loss, loss_metrics = self._losses[name](output, target, mask)
+            losses[name] = loss
+            for k, v in loss_metrics.items():
+                metrics[f"{name}-{k}"] = v
+        return losses, metrics
 
     def predict(self, predictions, fields=None):
         seq_lens = predictions.seq_lens
