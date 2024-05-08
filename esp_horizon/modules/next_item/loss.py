@@ -273,19 +273,27 @@ class NextItemLoss(torch.nn.Module):
         self._prediction = prediction
 
     @property
+    def fields(self):
+        return self._order
+
+    @property
     def input_dim(self):
         return sum([loss.input_dim for loss in self._losses.values()])
 
-    def forward(self, predictions, targets):
+    def forward(self, predictions, targets, shifted=False):
         """Compute loss between predictions and targets.
 
         Args:
             predictions: Predicted values with shape (B, L, C).
-            targets: Target values with shape (B, L), shifted w.r.t. predictions.
+            targets: Target values with shape (B, L).
+            shifted: Whether targets are already aligned with predictions or shifted by 1.
 
         Returns:
             Losses dict and metrics dict.
         """
+        if not shifted:
+            targets = self._shift_targets(targets)
+
         # Align lengths.
         l = min(predictions.shape[1], targets.shape[1])
         lengths = torch.minimum(predictions.seq_lens, targets.seq_lens)
@@ -329,6 +337,15 @@ class NextItemLoss(torch.nn.Module):
         for name in fields:
             result[name] = self._losses[name].predict_logits(predictions[name])  # (B, L, C).
         return PaddedBatch(result, seq_lens)
+
+    @staticmethod
+    def _shift_targets(x):
+        """Shift targets w.r.t. predictions."""
+        lengths = (x.seq_lens - 1).clip(min=0)
+        targets = PaddedBatch({k: (v[:, 1:] if k in x.seq_names else v)
+                               for k, v in x.payload.items()},
+                              lengths, x.seq_names)
+        return targets
 
     def _split_predictions(self, predictions):
         """Convert parameters tensor to the dictionary with parameters for each loss."""

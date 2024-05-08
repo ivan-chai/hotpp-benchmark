@@ -23,7 +23,8 @@ class NextItemModule(BaseModule):
         lr_scheduler_partial:
             scheduler init partial. Optimizer are missed.
         labels_field: The name of the labels field.
-        metric_partial: Metric for logging.
+        dev_metric: Dev set metric.
+        test_metric: Test set metric.
         autoreg_max_step: The maximum number of future predictions.
         autoreg_adapter_partial: An autoregressive adapter constructor (see `autoreg` submodule).
     """
@@ -68,21 +69,9 @@ class NextItemModule(BaseModule):
             indices: Indices with positions to start generation from with shape (B, I).
 
         Returns:
-            A list of batches with generated sequences for each input sequence. Each batch has shape (I, N, D).
+            Predicted sequences with shape (B, I, N, D).
         """
         if self._autoreg_adapter is None:
             raise RuntimeError("Need autoregressive adapter for prediction.")
         predictor = RNNSequencePredictor(self._autoreg_adapter, max_steps=self._autoreg_max_steps)
         return predictor(x, indices)
-
-    def compute_loss(self, x, predictions):
-        losses, metrics = self._loss(predictions, self._get_targets(x))
-        return losses, metrics
-
-    def _get_targets(self, x):
-        """Shift targets w.r.t. predictions."""
-        lengths = (x.seq_lens - 1).clip(min=0)
-        targets = PaddedBatch({k: (v[:, 1:] if k in x.seq_names else v)
-                               for k, v in x.payload.items()},
-                              lengths, x.seq_names)
-        return targets

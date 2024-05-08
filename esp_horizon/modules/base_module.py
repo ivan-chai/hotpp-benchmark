@@ -25,7 +25,8 @@ class BaseModule(pl.LightningModule):
         lr_scheduler_partial:
             scheduler init partial. Optimizer are missed.
         labels_field: The name of the labels field.
-        metric_partial: Metric for logging.
+        dev_metric: Dev set metric.
+        test_metric: Test set metric.
     """
     def __init__(self, seq_encoder, loss,
                  timestamps_field="timestamps",
@@ -92,11 +93,10 @@ class BaseModule(pl.LightningModule):
             indices: Indices with positions to start generation from with shape (B, I).
 
         Returns:
-            A list of batches with generated sequences for each input sequence. Each batch has shape (I, N, D).
+            Predicted sequences with shape (B, I, N, D).
         """
         pass
 
-    @abstractmethod
     def compute_loss(self, x, predictions):
         """Compute loss for the batch.
 
@@ -107,7 +107,8 @@ class BaseModule(pl.LightningModule):
         Returns:
             A dict of losses and a dict of metrics.
         """
-        pass
+        losses, metrics = self._loss(predictions, x)
+        return losses, metrics
 
     def training_step(self, batch, _):
         x, _ = batch
