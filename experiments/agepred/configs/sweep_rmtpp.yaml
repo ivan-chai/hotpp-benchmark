@@ -1,0 +1,56 @@
+project: esp-sweep-agepred
+run_cap: 100
+name: rmtpp
+command:
+  - ${env}
+  - python3
+  - -m
+  - esp_horizon.train
+  - --config-dir
+  - configs
+  - --config-name
+  - rmtpp
+  - ~seed_everything
+  - ~model_path
+  - ~report
+  - ~downstream_report
+  - ${args_no_hyphens}
+method: bayes
+metric:
+  name: dev/detection-mAP
+  goal: maximize
+early_terminate:
+  type: hyperband
+  min_iter: 3
+parameters:
+  module.seq_encoder.hidden_size:
+    min: 128
+    max: 2048
+  module/head_partial:
+    values: [head_no, head_128, head_256, head_512, head_256_128, head_512_256, head_256_512_256]
+  module.seq_encoder.trx_encoder.embeddings.timestamps.out:
+    min: 4
+    max: 128
+  module.seq_encoder.trx_encoder.embeddings.labels.out:
+    min: 4
+    max: 128
+  module.optimizer_partial.lr:
+    distribution: log_uniform_values
+    min: 0.00001
+    max: 0.01
+  module.lr_scheduler_partial.gamma:
+    min: 0.1
+    max: 1.0
+  module.loss.losses.timestamps.init_influence:
+    min: -1.0
+    max: -0.01
+  module.loss.losses.timestamps.max_intensity:
+    min: 1
+    max: 7
+  module.loss.losses.timestamps.grad_scale:
+    distribution: log_uniform_values
+    min: 0.01
+    max: 1.0
+  module.loss.losses.timestamps.max_delta:
+    min: 1
+    max: 8
