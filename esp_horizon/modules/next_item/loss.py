@@ -1,3 +1,4 @@
+from abc import ABC, abstractmethod
 import torch
 from esp_horizon.data import PaddedBatch
 
@@ -19,12 +20,51 @@ def time_to_delta(predictions, targets, mask):
     return predictions, delta, mask
 
 
-class TimeMAELoss(torch.nn.Module):
+class ScaleGradient(torch.autograd.Function):
+    """Scale gradient."""
+
+    @staticmethod
+    def forward(ctx, src, weight):
+        ctx._weight = weight
+        return src
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        return grad_output * ctx._weight, None
+
+
+class BaseLoss(ABC, torch.nn.Module):
+    def __init__(self, grad_scale=None):
+        super().__init__()
+        self.grad_scale = grad_scale
+
+    def forward(self, predictions, targets, mask):
+        """Compute loss between predictions and targets.
+
+        Args:
+            predictions: Predicted values with shape (B, L, 1).
+            targets: Target values with shape (B, L), shifted w.r.t. predictions.
+            mask: Sequence lengths mask with shape (B, L).
+
+        Returns:
+            Loss and metrics.
+        """
+        loss, metrics = self.compute_loss(predictions, targets, mask)
+        if self.grad_scale is not None:
+            loss = ScaleGradient.apply(loss, self.grad_scale)
+        return loss, metrics
+
+    @abstractmethod
+    def compute_loss(predictions, targets, mask):
+        pass
+
+
+class TimeMAELoss(BaseLoss):
     """MAE for delta T prediction."""
     input_dim = 1
     target_dim = 1
 
-    def forward(self, predictions, targets, mask):
+    def compute_loss(self, predictions, targets, mask):
         """Compute MAE loss between predictions and targets.
 
         Args:
@@ -46,7 +86,7 @@ class TimeMAELoss(torch.nn.Module):
         return predictions  # (B, L, 1).
 
 
-class TimeRMTPPLoss(torch.nn.Module):
+class TimeRMTPPLoss(BaseLoss):
     """Temporal Point Process loss from RMTPP.
 
     See the original paper for details:
@@ -60,8 +100,8 @@ class TimeRMTPPLoss(torch.nn.Module):
     input_dim = 1
     target_dim = 1
 
-    def __init__(self, init_influence=1, eps=1e-6, max_delta=None):
-        super().__init__()
+    def __init__(self, init_influence=1, eps=1e-6, max_delta=None, grad_scale=None):
+        super().__init__(grad_scale=grad_scale)
         self.eps = eps
         self.max_delta = max_delta
         # TODO: use predicted influence.
@@ -71,7 +111,7 @@ class TimeRMTPPLoss(torch.nn.Module):
     def _log_intensity(self, biases, deltas):
         return self.current_influence * deltas + biases
 
-    def forward(self, predictions, targets, mask):
+    def compute_loss(self, predictions, targets, mask):
         """Compute RMTPP loss between predictions and targets.
 
         Args:
@@ -91,7 +131,14 @@ class TimeRMTPPLoss(torch.nn.Module):
         log_densities = log_intencities - (log_intencities.exp() - biases.exp()) / self.current_influence  # (B, L).
         losses = -log_densities  # (B, L).
         assert losses.ndim == 2
-        return losses[mask].mean(), {"current_influence": self.current_influence.item()}
+        loss = losses[mask].mean()
+
+        with torch.no_grad():
+            metrics = {
+                "current_influence": self.current_influence.item(),
+                "bias-mean": biases[mask].mean().item()
+            }
+        return loss, metrics
 
     def predict_modes(self, predictions):
         assert predictions.shape[2] == 1
@@ -105,18 +152,18 @@ class TimeRMTPPLoss(torch.nn.Module):
     # TODO: Sample.
 
 
-class CrossEntropyLoss(torch.nn.Module):
+class CrossEntropyLoss(BaseLoss):
     target_dim = 1
 
-    def __init__(self, num_classes):
-        super().__init__()
+    def __init__(self, num_classes, grad_scale=None):
+        super().__init__(grad_scale=grad_scale)
         self.input_dim = num_classes
 
     @property
     def num_classes(self):
         return self.input_dim
 
-    def forward(self, predictions, targets, mask):
+    def compute_loss(self, predictions, targets, mask):
         """Compute cross-entropy loss between predictions and targets.
 
         Args:
