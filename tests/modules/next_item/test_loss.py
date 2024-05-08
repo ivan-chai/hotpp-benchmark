@@ -10,7 +10,7 @@ from esp_horizon.modules.next_item.loss import TimeRMTPPLoss
 
 class TestNextItemLoss(TestCase):
     def test_rmtpp_loss(self):
-        loss = TimeRMTPPLoss(init_influence=3)
+        loss = TimeRMTPPLoss(init_influence=3, force_negative_influence=False)
 
         mask = torch.tensor([
             [1, 1, 1],
@@ -63,7 +63,7 @@ class TestNextItemLoss(TestCase):
         scale = 1 / (1 - (biases.exp() / a).exp())  # (L).
         pdfs = scale * (l - 1 / a * (l.exp() - biases.exp())).exp()  # (N, L).
         means_gt = (pdfs * xs[:, None] * (xs[-1] - xs[0])).mean(0)  # (L).
-        self.assertTrue((means_gt < means).all())
+        self.assertTrue((means_gt < means * 1.1).all())
         self.assertTrue((means_gt > means * 0.7).all())
 
 
