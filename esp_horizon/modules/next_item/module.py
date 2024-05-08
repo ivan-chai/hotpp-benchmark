@@ -1,6 +1,6 @@
 from esp_horizon.data import PaddedBatch
 from ..base_module import BaseModule
-from .autoreg import NextItemRNNAdapter, RNNSequencePredictor
+from .autoreg import RNNSequencePredictor
 
 
 class NextItemModule(BaseModule):

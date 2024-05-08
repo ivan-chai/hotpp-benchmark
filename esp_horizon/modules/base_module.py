@@ -77,7 +77,10 @@ class BaseModule(pl.LightningModule):
         return outputs
 
     def predict_next(self, outputs, fields=None):
-        """Predict events from head outputs."""
+        """Predict events from head outputs.
+
+        NOTE: Predicted time is relative to the last event.
+        """
         return self._loss.predict_next(outputs, fields=fields)  # (B, L).
 
     def predict_next_category_logits(self, outputs, fields=None):
@@ -185,7 +188,10 @@ class BaseModule(pl.LightningModule):
 
     def _update_metric(self, metric, outputs, features):
         lengths = torch.minimum(outputs.seq_lens, features.seq_lens)
+        # Time is predicted as delta. Convert it to real time.
         predicted_timestamps = self.predict_next(outputs, fields=[self._timestamps_field]).payload[self._timestamps_field]  # (B, L).
+        predicted_timestamps += features.payload[self._timestamps_field]
+        # Get labels logits.
         predicted_logits = self.predict_next_category_logits(outputs, fields=[self._labels_field]).payload[self._labels_field]  # (B, L, C).
 
         metric.update_next_item(lengths,

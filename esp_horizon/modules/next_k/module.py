@@ -40,6 +40,8 @@ class NextKModule(BaseModule):
         outputs = PaddedBatch(outputs.payload.take_along_dim(indices.payload.unsqueeze(2), 1),
                               indices.seq_lens)  # (B, I, D).
         sequences = self._loss.predict_next_k(outputs, dump_category_logits={self._labels_field: self._labels_logits_field})  # (B, I, N)
+
+        # Deltas to times.
         init_times = x.payload[self._timestamps_field].take_along_dim(indices.payload, 1)  # (B, I).
         sequences.payload[self._timestamps_field] += init_times.unsqueeze(2)  # (B, I, N).
         return sequences
