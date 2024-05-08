@@ -68,11 +68,14 @@ def main(conf):
     if "seed_everything" in conf:
         pl.seed_everything(conf.seed_everything)
 
+    OmegaConf.set_struct(conf, False)
+    resume_from_checkpoint = conf.trainer.pop("resume_from_checkpoint", None)
+
     model = hydra.utils.instantiate(conf.module)
     dm = hydra.utils.instantiate(conf.data_module)
 
     trainer = get_trainer(conf)
-    trainer.fit(model, dm)
+    trainer.fit(model, dm, ckpt_path=resume_from_checkpoint)
 
     checkpoint_callback = trainer.checkpoint_callback
     if checkpoint_callback is not None:
