@@ -1,3 +1,4 @@
+import math
 from abc import ABC, abstractmethod
 import torch
 from esp_horizon.data import PaddedBatch
@@ -100,16 +101,19 @@ class TimeRMTPPLoss(BaseLoss):
     input_dim = 1
     target_dim = 1
 
-    def __init__(self, init_influence=1, eps=1e-6, max_delta=None, grad_scale=None):
+    def __init__(self, init_influence=1, eps=1e-6, max_intensity=None, grad_scale=None):
         super().__init__(grad_scale=grad_scale)
         self.eps = eps
-        self.max_delta = max_delta
+        self.max_intensity = max_intensity
         # TODO: use predicted influence.
         # TODO: per-label parameter?
         self.current_influence = torch.nn.Parameter(torch.full([], init_influence, dtype=torch.float))
 
     def _log_intensity(self, biases, deltas):
-        return self.current_influence * deltas + biases
+        log_intencities = self.current_influence * deltas + biases
+        if self.max_intensity is not None:
+            log_intencities = log_intencities.clip(max=math.log(self.max_intensity))
+        return log_intencities
 
     def compute_loss(self, predictions, targets, mask):
         """Compute RMTPP loss between predictions and targets.
@@ -125,7 +129,6 @@ class TimeRMTPPLoss(BaseLoss):
         assert predictions.shape[2] == 1
         predictions = predictions.squeeze(2)
         biases, deltas, mask = time_to_delta(predictions, targets, mask)  # (B, L).
-        deltas = deltas.clip(min=0, max=self.max_delta)
 
         log_intencities = self._log_intensity(biases, deltas)  # (B, L).
         log_densities = log_intencities - (log_intencities.exp() - biases.exp()) / self.current_influence  # (B, L).
