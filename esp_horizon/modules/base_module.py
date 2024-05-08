@@ -18,7 +18,7 @@ class BaseModule(pl.LightningModule):
 
     Parameters
         seq_encoder: Backbone model, which includes input encoder and sequential encoder.
-        loss: Training loss
+        loss: Training loss.
         head_partial: FC head model class which accepts input and output dimensions.
         optimizer_partial:
             optimizer init partial. Network parameters are missed.
@@ -88,7 +88,7 @@ class BaseModule(pl.LightningModule):
         """Generate future events.
 
         Args:
-            x: Features with shape (B, L, D).
+            x: Features with shape (B, L).
             indices: Indices with positions to start generation from with shape (B, I).
 
         Returns:
