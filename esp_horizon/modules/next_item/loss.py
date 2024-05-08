@@ -86,6 +86,9 @@ class TimeMAELoss(BaseLoss):
     def predict_modes(self, predictions):
         return predictions  # (B, L, 1).
 
+    def predict_means(self, predictions):
+        return predictions  # (B, L, 1).
+
 
 class TimeRMTPPLoss(BaseLoss):
     """Temporal Point Process loss from RMTPP.
@@ -97,17 +100,39 @@ class TimeRMTPPLoss(BaseLoss):
     SIGKDD international conference on knowledge discovery and data
     mining. 2016.
 
+
+    Args:
+        init_influence: Initial value of the influence parameter.
+        max_intensity: Intensity threshold for preventing explosion.
+        force_negative_influence: Force current_influence is always negative.
+        max_delta: Maximum time offset in sampling.
+        expectation_steps: The maximum sample size used for means prediction.
+        grad_scale: Gradient scale to balance loss functions.
+        eps: Small value used for influence thresholding in modes prediction.
+
     """
     input_dim = 1
     target_dim = 1
 
-    def __init__(self, init_influence=1, eps=1e-6, max_intensity=None, grad_scale=None):
+    def __init__(self, init_influence=1, max_intensity=None, force_negative_influence=True,
+                 max_delta=None, expectation_steps=None,
+                 grad_scale=None, eps=1e-6):
         super().__init__(grad_scale=grad_scale)
         self.eps = eps
         self.max_intensity = max_intensity
+        self.force_negative_influence = force_negative_influence
+        self.max_delta = max_delta
+        self.expectation_steps = expectation_steps
         # TODO: use predicted influence.
         # TODO: per-label parameter?
-        self.current_influence = torch.nn.Parameter(torch.full([], init_influence, dtype=torch.float))
+        self._hidden_current_influence = torch.nn.Parameter(torch.full([], init_influence, dtype=torch.float))
+
+    @property
+    def current_influence(self):
+        value = self._hidden_current_influence
+        if self.force_negative_influence:
+            value = -value.abs()
+        return value
 
     def _log_intensity(self, biases, deltas):
         log_intencities = self.current_influence * deltas + biases
@@ -151,8 +176,48 @@ class TimeRMTPPLoss(BaseLoss):
         else:
             modes = (self.current_influence.log() - biases) / self.current_influence
         return modes.unsqueeze(2)  # (B, L, 1).
-    # TODO: Predict means.
-    # TODO: Sample.
+
+    def predict_means(self, predictions):
+        if self.expectation_steps is None:
+            raise ValueError("Need maximum expectation steps for mean estimation.")
+        assert predictions.shape[2] == 1
+        biases = predictions.squeeze(2)  # (B, L).
+        b, l = biases.shape
+        sample, mask = self._sample(biases.reshape(b * l), self.expectation_steps)  # (BL, N), (BL, N).
+        empty = ~mask.any(1)  # (BL).
+        if empty.any():
+            sample[empty, 0] = self.max_delta
+            mask[empty, 0] = True
+        expectations = (sample * mask).sum(1) / mask.sum(1)  # (BL).
+        return expectations.reshape(b, l, 1)
+
+    def _sample(self, biases, max_steps):
+        """Apply thinning algorithm.
+
+        Args:
+            biases: The biases tensor with shape (B).
+            max_steps: The maximum number of steps in thinning algorithm.
+
+        Returns:
+            Samples tensor with shape (B, N) and acceptance tensor with shape (B, N).
+        """
+        if self.max_delta is None:
+            raise ValueError("Need maximum time delta for sampling.")
+        if self.current_influence > 0:
+            raise RuntimeError("Can't sample with positive current influence.")
+        bs, = biases.shape
+
+        samples = torch.zeros(max_steps + 1, bs, dtype=biases.dtype, device=biases.device)  # (N, B).
+        rejected = torch.ones(max_steps + 1, bs, dtype=torch.bool, device=biases.device)  # (N, B).
+        for i in range(1, max_steps + 1):
+            upper = (self.current_influence * samples[i - 1] + biases).exp()  # (B).
+            tau = -torch.rand_like(upper).log() / upper  # (B).
+            samples[i] = samples[i - 1] * rejected[i - 1] + tau
+            rejected[i] = torch.rand_like(upper) * upper >= (self.current_influence * samples[i] + biases).exp()
+            mask = samples[i] > self.max_delta
+            samples[i, mask] = 0
+            rejected[i, mask] = 1
+        return samples[1:].T, (~rejected[1:]).T
 
 
 class CrossEntropyLoss(BaseLoss):
@@ -189,17 +254,23 @@ class CrossEntropyLoss(BaseLoss):
     def predict_modes(self, predictions):
         return predictions.argmax(-1).unsqueeze(2)  # (B, L, 1).
 
+    def predict_means(self, predictions):
+        # There is no mean for a categorical distribution. Return modes.
+        return predictions.argmax(-1).unsqueeze(2)  # (B, L, 1).
+
 
 class NextItemLoss(torch.nn.Module):
     """Hybrid loss for next item prediction.
 
     Args:
         losses: Mapping from the feature name to the loss function.
+        prediction: The type of prediction (either `mean` or `mode`).
     """
-    def __init__(self, losses):
+    def __init__(self, losses, prediction="mean"):
         super().__init__()
         self._losses = torch.nn.ModuleDict(losses)
         self._order = list(sorted(losses))
+        self._prediction = prediction
 
     @property
     def input_dim(self):
@@ -241,7 +312,12 @@ class NextItemLoss(torch.nn.Module):
         predictions = self._split_predictions(predictions)
         result = {}
         for name in (fields or self._losses):
-            result[name] = self._losses[name].predict_modes(predictions[name]).squeeze(2)  # (B, L).
+            if self._prediction == "mode":
+                result[name] = self._losses[name].predict_modes(predictions[name]).squeeze(2)  # (B, L).
+            elif self._prediction == "mean":
+                result[name] = self._losses[name].predict_means(predictions[name]).squeeze(2)  # (B, L).
+            else:
+                raise ValueError(f"Unknown prediction type: {self._prediction}.")
         return PaddedBatch(result, seq_lens)
 
     def predict_category_logits(self, predictions, fields=None):

@@ -10,8 +10,7 @@ from esp_horizon.modules.next_item.loss import TimeRMTPPLoss
 
 class TestNextItemLoss(TestCase):
     def test_rmtpp_loss(self):
-        loss = TimeRMTPPLoss()
-        loss.current_influence.data.fill_(3)
+        loss = TimeRMTPPLoss(init_influence=3)
 
         mask = torch.tensor([
             [1, 1, 1],
@@ -50,6 +49,22 @@ class TestNextItemLoss(TestCase):
             [(math.log(3) - 1) / 3, (math.log(3) - 2) / 3, (math.log(3) - 0) / 3],
         ], dtype=torch.double)
         self.assertTrue(modes.allclose(modes_gt))
+
+    def test_rmtpp_thinning(self):
+        a = -0.1
+        loss = TimeRMTPPLoss(init_influence=a,
+                             max_delta=1000,
+                             expectation_steps=10000)
+        biases = torch.linspace(-2, 2, 11)  # (L).
+        means = loss.predict_means(biases[None, :, None].double()).squeeze(2).squeeze(0)  # (L).
+
+        xs = torch.linspace(0, 100, 100000)  # (N).
+        l = a * xs[:, None] + biases  # (N, L).
+        scale = 1 / (1 - (biases.exp() / a).exp())  # (L).
+        pdfs = scale * (l - 1 / a * (l.exp() - biases.exp())).exp()  # (N, L).
+        means_gt = (pdfs * xs[:, None] * (xs[-1] - xs[0])).mean(0)  # (L).
+        self.assertTrue((means_gt < means).all())
+        self.assertTrue((means_gt > means * 0.7).all())
 
 
 if __name__ == "__main__":
