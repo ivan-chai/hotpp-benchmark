@@ -69,7 +69,7 @@ class NextItemModule(BaseModule):
             indices: Indices with positions to start generation from with shape (B, I).
 
         Returns:
-            Predicted sequences with shape (B, I, N, D).
+            Predicted sequences with shape (B, I, N).
         """
         if self._autoreg_adapter is None:
             raise RuntimeError("Need autoregressive adapter for prediction.")

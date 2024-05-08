@@ -4,7 +4,7 @@ import torch
 from esp_horizon.data import PaddedBatch
 
 
-def time_to_delta(predictions, targets, mask):
+def time_to_delta(predictions, targets, mask=None):
     """Convert parameters to time delta prediction."""
     if targets.ndim != 2:
         raise ValueError(f"Expected targets with shape (B, L), got {targets.shape}.")
@@ -17,7 +17,7 @@ def time_to_delta(predictions, targets, mask):
     # delta_target: 3 - 2, 4 - 3, ...
     predictions = predictions[:, 1:]  #  (B, L - 1).
     delta = targets[:, 1:] - targets[:, :-1]  # (B, L - 1).
-    mask = torch.logical_and(mask[:, 1:], mask[:, :-1])  # (B, L - 1).
+    mask = torch.logical_and(mask[:, 1:], mask[:, :-1]) if mask is not None else None  # (B, L - 1).
     return predictions, delta, mask
 
 
@@ -39,7 +39,7 @@ class BaseLoss(ABC, torch.nn.Module):
         super().__init__()
         self.grad_scale = grad_scale
 
-    def forward(self, predictions, targets, mask):
+    def forward(self, predictions, targets, mask=None):
         """Compute loss between predictions and targets.
 
         Args:
@@ -56,7 +56,7 @@ class BaseLoss(ABC, torch.nn.Module):
         return loss, metrics
 
     @abstractmethod
-    def compute_loss(predictions, targets, mask):
+    def compute_loss(predictions, targets, mask=None):
         pass
 
 
@@ -65,7 +65,7 @@ class TimeMAELoss(BaseLoss):
     input_dim = 1
     target_dim = 1
 
-    def compute_loss(self, predictions, targets, mask):
+    def compute_loss(self, predictions, targets, mask=None):
         """Compute MAE loss between predictions and targets.
 
         Args:
@@ -81,7 +81,9 @@ class TimeMAELoss(BaseLoss):
         predictions, deltas, mask = time_to_delta(predictions, targets, mask)
         losses = (predictions - deltas).abs()  # (B, L - 1).
         assert losses.ndim == 2
-        return losses[mask].mean(), {}
+        if mask is not None:
+            losses = losses[mask]
+        return losses.mean(), {}
 
     def predict_modes(self, predictions):
         return predictions  # (B, L, 1).
@@ -140,7 +142,7 @@ class TimeRMTPPLoss(BaseLoss):
             log_intencities = log_intencities.clip(max=math.log(self.max_intensity))
         return log_intencities
 
-    def compute_loss(self, predictions, targets, mask):
+    def compute_loss(self, predictions, targets, mask=None):
         """Compute RMTPP loss between predictions and targets.
 
         Args:
@@ -159,37 +161,39 @@ class TimeRMTPPLoss(BaseLoss):
         log_densities = log_intencities - (log_intencities.exp() - biases.exp()) / self.current_influence  # (B, L).
         losses = -log_densities  # (B, L).
         assert losses.ndim == 2
-        loss = losses[mask].mean()
+        if mask is not None:
+            losses = losses[mask]
+        loss = losses.mean()
 
         with torch.no_grad():
             metrics = {
                 "current_influence": self.current_influence.item(),
-                "bias-mean": biases[mask].mean().item()
+                "bias-mean": (biases[mask] if mask is not None else biases).mean().item()
             }
         return loss, metrics
 
     def predict_modes(self, predictions):
-        assert predictions.shape[2] == 1
-        biases = predictions.squeeze(2)  # (B, L).
+        assert predictions.shape[-1] == 1
+        biases = predictions.squeeze(-1)  # (B, L).
         if self.current_influence < self.eps:
             modes = torch.zeros_like(biases)
         else:
             modes = (self.current_influence.log() - biases) / self.current_influence
-        return modes.unsqueeze(2)  # (B, L, 1).
+        return modes.unsqueeze(-1)  # (B, L, 1).
 
     def predict_means(self, predictions):
         if self.expectation_steps is None:
             raise ValueError("Need maximum expectation steps for mean estimation.")
-        assert predictions.shape[2] == 1
-        biases = predictions.squeeze(2)  # (B, L).
+        assert predictions.shape[-1] == 1
+        biases = predictions.squeeze(-1)  # (B, L).
         b, l = biases.shape
-        sample, mask = self._sample(biases.reshape(b * l), self.expectation_steps)  # (BL, N), (BL, N).
+        sample, mask = self._sample(biases.flatten(), self.expectation_steps)  # (BL, N), (BL, N).
         empty = ~mask.any(1)  # (BL).
         if empty.any():
             sample[empty, 0] = self.max_delta
             mask[empty, 0] = True
         expectations = (sample * mask).sum(1) / mask.sum(1)  # (BL).
-        return expectations.reshape(b, l, 1)
+        return expectations.reshape(*biases.shape).unsqueeze(-1)  # (B, L, 1).
 
     def _sample(self, biases, max_steps):
         """Apply thinning algorithm.
@@ -231,7 +235,7 @@ class CrossEntropyLoss(BaseLoss):
     def num_classes(self):
         return self.input_dim
 
-    def compute_loss(self, predictions, targets, mask):
+    def compute_loss(self, predictions, targets, mask=None):
         """Compute cross-entropy loss between predictions and targets.
 
         Args:
@@ -246,17 +250,19 @@ class CrossEntropyLoss(BaseLoss):
             raise ValueError(f"Expected targets with shape (B, L), got {targets.shape}.")
         losses = torch.nn.functional.cross_entropy(predictions.permute(0, 2, 1), targets.long(), reduction="none")  # (B, T).
         assert losses.ndim == 2
-        return losses[mask].mean(), {}
+        if mask is not None:
+            losses = losses[mask]
+        return losses.mean(), {}
 
     def predict_logits(self, predictions):
         return predictions  # (B, L, C).
 
     def predict_modes(self, predictions):
-        return predictions.argmax(-1).unsqueeze(2)  # (B, L, 1).
+        return predictions.argmax(-1).unsqueeze(-1)  # (B, L, 1).
 
     def predict_means(self, predictions):
         # There is no mean for a categorical distribution. Return modes.
-        return predictions.argmax(-1).unsqueeze(2)  # (B, L, 1).
+        return predictions.argmax(-1).unsqueeze(-1)  # (B, L, 1).
 
 
 class NextItemLoss(torch.nn.Module):
@@ -304,7 +310,7 @@ class NextItemLoss(torch.nn.Module):
 
         # Compute losses.
         predictions = self._split_predictions(predictions)
-        mask = targets.seq_len_mask.bool()
+        mask = targets.seq_len_mask.bool() if (targets.seq_lens != targets.shape[1]).any() else None
         losses = {}
         metrics = {}
         for name, output in predictions.items():
@@ -321,9 +327,9 @@ class NextItemLoss(torch.nn.Module):
         result = {}
         for name in (fields or self._losses):
             if self._prediction == "mode":
-                result[name] = self._losses[name].predict_modes(predictions[name]).squeeze(2)  # (B, L).
+                result[name] = self._losses[name].predict_modes(predictions[name]).squeeze(-1)  # (B, L).
             elif self._prediction == "mean":
-                result[name] = self._losses[name].predict_means(predictions[name]).squeeze(2)  # (B, L).
+                result[name] = self._losses[name].predict_means(predictions[name]).squeeze(-1)  # (B, L).
             else:
                 raise ValueError(f"Unknown prediction type: {self._prediction}.")
         return PaddedBatch(result, seq_lens)
@@ -353,7 +359,7 @@ class NextItemLoss(torch.nn.Module):
         result = {}
         for name in self._order:
             loss = self._losses[name]
-            result[name] = predictions.payload[:, :, offset:offset + loss.input_dim]
+            result[name] = predictions.payload[..., offset:offset + loss.input_dim]
             offset += loss.input_dim
         if offset != self.input_dim:
             raise ValueError("Predictions tensor has inconsistent size.")
