@@ -1,4 +1,5 @@
 from esp_horizon.data import PaddedBatch
+from esp_horizon.utils.torch import deterministic
 from ..base_module import BaseModule
 
 
@@ -43,5 +44,7 @@ class NextKModule(BaseModule):
 
         # Deltas to times.
         init_times = x.payload[self._timestamps_field].take_along_dim(indices.payload, 1)  # (B, I).
+        with deterministic(False):
+            sequences.payload[self._timestamps_field].cumsum_(2)
         sequences.payload[self._timestamps_field] += init_times.unsqueeze(2)  # (B, I, N).
         return sequences

@@ -1,5 +1,5 @@
-date: '2024-05-09 15:09:19'
-test/detection-mAP: 0.013606102205812931
+date: '2024-05-09 18:04:42'
+test/detection-mAP: 0.035093605518341064
 test/loss: 3.1360557079315186
 test/loss_labels: 2.4353487491607666
 test/loss_timestamps: 0.7007067203521729
