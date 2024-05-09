@@ -47,7 +47,7 @@ module:
     use_batch_norm: true
   loss:
     _target_: esp_horizon.modules.next_k.NextKLoss
-    k: 24
+    k: 8
     losses:
       timestamps:
         _target_: esp_horizon.modules.next_item.TimeMAELoss
