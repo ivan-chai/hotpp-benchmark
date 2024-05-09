@@ -1,0 +1,6 @@
+date: '2024-05-09 15:09:19'
+test/detection-mAP: 0.013606102205812931
+test/loss: 3.1360557079315186
+test/loss_labels: 2.4353487491607666
+test/loss_timestamps: 0.7007067203521729
+test/next-item-accuracy: 0.37637630105018616
