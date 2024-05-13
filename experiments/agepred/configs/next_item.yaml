@@ -33,12 +33,12 @@ module:
       _target_: ptls.nn.TrxEncoder
       embeddings_noise: 0.003
       embeddings:
-        timestamps:
-          in: 800
-          out: 31
         labels:
           in: 204
           out: 256
+      custom_embeddings:
+        timestamps:
+          _target_: esp_horizon.nn.DeltaEncoder
     type: gru
     hidden_size: 512
   head_partial:
