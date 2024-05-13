@@ -1,12 +1,12 @@
+from abc import ABC, abstractmethod
 import pytorch_lightning as pl
 import torch
 
 from esp_horizon.data import PaddedBatch
-from .autoreg import NextItemRNNAdapter, RNNSequencePredictor
 
 
-class NextItemModule(pl.LightningModule):
-    """Train for the next token prediction.
+class BaseModule(pl.LightningModule):
+    """Base module class.
 
     The model is composed of the following modules:
     1. input encoder, responsible for input-to-vector conversion,
@@ -18,14 +18,15 @@ class NextItemModule(pl.LightningModule):
 
     Parameters
         seq_encoder: Backbone model, which includes input encoder and sequential encoder.
-        loss: Training loss
+        loss: Training loss.
         head_partial: FC head model class which accepts input and output dimensions.
         optimizer_partial:
             optimizer init partial. Network parameters are missed.
         lr_scheduler_partial:
             scheduler init partial. Optimizer are missed.
         labels_field: The name of the labels field.
-        metric_partial: Metric for logging.
+        dev_metric: Dev set metric.
+        test_metric: Test set metric.
     """
     def __init__(self, seq_encoder, loss,
                  timestamps_field="timestamps",
@@ -34,9 +35,7 @@ class NextItemModule(pl.LightningModule):
                  optimizer_partial=None,
                  lr_scheduler_partial=None,
                  dev_metric=None,
-                 test_metric=None,
-                 autoreg_max_steps=None,
-                 autoreg_adapter_partial=None):
+                 test_metric=None):
 
         super().__init__()
         self._timestamps_field = timestamps_field
@@ -58,16 +57,6 @@ class NextItemModule(pl.LightningModule):
         else:
             self._head = None
 
-        if (autoreg_adapter_partial is None) ^ (autoreg_max_steps is None):
-            raise ValueError("Autoreg adapter and autoreg max steps must be provided together.")
-
-        if autoreg_adapter_partial is not None:
-            logits_field_mapping = {self._labels_field: self._labels_logits_field}
-            self._autoreg_adapter = autoreg_adapter_partial(self, dump_category_logits=logits_field_mapping)
-            self._autoreg_max_steps = autoreg_max_steps
-        else:
-            self._autoreg_adapter = None
-
     @property
     def seq_encoder(self):
         return self._seq_encoder
@@ -87,33 +76,47 @@ class NextItemModule(pl.LightningModule):
         outputs = self.apply_head(embeddings)
         return outputs
 
-    def predict(self, outputs, fields=None):
-        """Predict events from head outputs."""
-        return self._loss.predict(outputs, fields=fields)  # (B, L).
+    def predict_next(self, outputs, fields=None):
+        """Predict events from head outputs.
 
-    def predict_category_logits(self, outputs, fields=None):
+        NOTE: Predicted time is relative to the last event.
+        """
+        return self._loss.predict_next(outputs, fields=fields)  # (B, L).
+
+    def predict_next_category_logits(self, outputs, fields=None):
         """Predict categorical fields logits from head outputs."""
-        return self._loss.predict_category_logits(outputs, fields=fields)  # (B, L, C).
+        return self._loss.predict_next_category_logits(outputs, fields=fields)  # (B, L, C).
 
+    @abstractmethod
     def generate_sequences(self, x, indices):
         """Generate future events.
 
         Args:
-            x: Features with shape (B, L, D).
+            x: Features with shape (B, L).
             indices: Indices with positions to start generation from with shape (B, I).
 
         Returns:
-            A list of batches with generated sequences for each input sequence. Each batch has shape (I, N, D).
+            Predicted sequences with shape (B, I, N).
         """
-        if self._autoreg_adapter is None:
-            raise RuntimeError("Need autoregressive adapter for prediction.")
-        predictor = RNNSequencePredictor(self._autoreg_adapter, max_steps=self._autoreg_max_steps)
-        return predictor(x, indices)
+        pass
+
+    def compute_loss(self, x, predictions):
+        """Compute loss for the batch.
+
+        Args:
+            x: Input batch.
+            predictions: Head output.
+
+        Returns:
+            A dict of losses and a dict of metrics.
+        """
+        losses, metrics = self._loss(x, predictions)
+        return losses, metrics
 
     def training_step(self, batch, _):
         x, _ = batch
         predictions = self.forward(x)  # (B, L, D).
-        losses, metrics = self._loss(predictions, self._get_targets(x))
+        losses, metrics = self.compute_loss(x, predictions)
         loss = sum(losses.values())
 
         # Log statistics.
@@ -128,7 +131,7 @@ class NextItemModule(pl.LightningModule):
     def validation_step(self, batch, _):
         x, _ = batch
         predictions = self.forward(x)  # (B, L, D).
-        losses, metrics = self._loss(predictions, self._get_targets(x))
+        losses, metrics = self.compute_loss(x, predictions)
         loss = sum(losses.values())
 
         # Log statistics.
@@ -140,17 +143,10 @@ class NextItemModule(pl.LightningModule):
         if self._dev_metric is not None:
             self._update_metric(self._dev_metric, predictions, x)
 
-    def on_validation_epoch_end(self):
-        if self._dev_metric is not None:
-            metrics = self._dev_metric.compute()
-            for k, v in metrics.items():
-                self.log(f"dev/{k}", v, prog_bar=True)
-            self._dev_metric.reset()
-
     def test_step(self, batch, _):
         x, _ = batch
         predictions = self.forward(x)  # (B, L, D).
-        losses, metrics = self._loss(predictions, self._get_targets(x))
+        losses, metrics = self.compute_loss(x, predictions)
         loss = sum(losses.values())
 
         # Log statistics.
@@ -161,6 +157,13 @@ class NextItemModule(pl.LightningModule):
         self.log("test/loss", loss)
         if self._test_metric is not None:
             self._update_metric(self._test_metric, predictions, x)
+
+    def on_validation_epoch_end(self):
+        if self._dev_metric is not None:
+            metrics = self._dev_metric.compute()
+            for k, v in metrics.items():
+                self.log(f"dev/{k}", v, prog_bar=True)
+            self._dev_metric.reset()
 
     def on_test_epoch_end(self):
         if self._test_metric is not None:
@@ -183,18 +186,13 @@ class NextItemModule(pl.LightningModule):
     def on_before_optimizer_step(self, optimizer=None, optimizer_idx=None):
         self.log("grad_norm", self._get_grad_norm(), prog_bar=True)
 
-    def _get_targets(self, x):
-        """Shift targets w.r.t. predictions."""
-        lengths = (x.seq_lens - 1).clip(min=0)
-        targets = PaddedBatch({k: (v[:, 1:] if k in x.seq_names else v)
-                               for k, v in x.payload.items()},
-                              lengths, x.seq_names)
-        return targets
-
     def _update_metric(self, metric, outputs, features):
         lengths = torch.minimum(outputs.seq_lens, features.seq_lens)
-        predicted_timestamps = self.predict(outputs, fields=[self._timestamps_field]).payload[self._timestamps_field]  # (B, L).
-        predicted_logits = self.predict_category_logits(outputs, fields=[self._labels_field]).payload[self._labels_field]  # (B, L, C).
+        # Time is predicted as delta. Convert it to real time.
+        predicted_timestamps = self.predict_next(outputs, fields=[self._timestamps_field]).payload[self._timestamps_field]  # (B, L).
+        predicted_timestamps += features.payload[self._timestamps_field]
+        # Get labels logits.
+        predicted_logits = self.predict_next_category_logits(outputs, fields=[self._labels_field]).payload[self._labels_field]  # (B, L, C).
 
         metric.update_next_item(lengths,
                                 features.payload[self._timestamps_field],

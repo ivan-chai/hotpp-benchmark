@@ -46,7 +46,7 @@ module:
     _partial_: true
     use_batch_norm: true
   autoreg_adapter_partial:
-    _target_: esp_horizon.modules.next_item.autoreg.NextItemRNNAdapter
+    _target_: esp_horizon.modules.autoreg.NextItemRNNAdapter
     _partial_: true
     time_int: true
     time_input_delta: false
@@ -54,17 +54,17 @@ module:
     context_step: 200
   autoreg_max_steps: 24
   loss:
-    _target_: esp_horizon.modules.next_item.NextItemLoss
+    _target_: esp_horizon.losses.NextItemLoss
     losses:
       timestamps:
-        _target_: esp_horizon.modules.next_item.TimeRMTPPLoss
+        _target_: esp_horizon.losses.TimeRMTPPLoss
         init_influence: -0.1
         max_intensity: 4
         grad_scale: 0.05
         max_delta: 8  # horizon + 1.
         expectation_steps: 100
       labels:
-        _target_: esp_horizon.modules.next_item.CrossEntropyLoss
+        _target_: esp_horizon.losses.CrossEntropyLoss
         num_classes: 204
   optimizer_partial:
     _partial_: true

@@ -9,12 +9,12 @@ Metric: "accuracy"
 split_name              scores_valid                                                             
                                 mean  t_pm t_int_l t_int_h   std                           values
 model_name feature_name                                                                          
-lgbm       embeddings          0.618 0.006   0.612   0.624 0.005  [0.611 0.624 0.617 0.620 0.619]
+lgbm       embeddings          0.613 0.009   0.604   0.622 0.007  [0.610 0.625 0.613 0.613 0.606]
 split_name              scores_test                                                             
                                mean  t_pm t_int_l t_int_h   std                           values
 model_name feature_name                                                                         
-lgbm       embeddings         0.619 0.005   0.615   0.624 0.004  [0.624 0.621 0.618 0.619 0.614]
+lgbm       embeddings         0.611 0.008   0.604   0.619 0.006  [0.607 0.617 0.618 0.604 0.612]
 
 ------------------------------------------------------------------------------------------------------------------------
-End of report.     Current time: 2024-05-13 14:47:42
+End of report.     Current time: 2024-05-09 20:28:20
 ------------------------------------------------------------------------------------------------------------------------

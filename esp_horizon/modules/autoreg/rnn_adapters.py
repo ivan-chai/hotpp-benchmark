@@ -90,7 +90,7 @@ class NextItemRNNAdapter(BaseRNNAdapter):
         head_outputs = self.model.apply_head(embeddings)
         new_states = embeddings.payload.squeeze(1)  # (B, D).
         assert new_states.ndim == 2
-        features = self.model.predict(head_outputs)
+        features = self.model.predict_next(head_outputs)
 
         outputs = {}
         for k, v in features.payload.items():
@@ -104,7 +104,7 @@ class NextItemRNNAdapter(BaseRNNAdapter):
             outputs[k] = v
 
         if self.dump_category_logits:
-            logits = self.model.predict_category_logits(head_outputs)
+            logits = self.model.predict_next_category_logits(head_outputs)
             for field, logits_field in self.dump_category_logits.items():
                 outputs[logits_field] = logits.payload[field].squeeze(1)  # (B, C).
 

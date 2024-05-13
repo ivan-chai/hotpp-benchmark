@@ -5,7 +5,7 @@ import torch
 from torch import Tensor
 
 from esp_horizon.data import PaddedBatch
-from esp_horizon.modules.next_item.autoreg import RNNSequencePredictor, NextItemRNNAdapter, BaseAdapter, BaseRNNAdapter
+from esp_horizon.modules.autoreg import RNNSequencePredictor, NextItemRNNAdapter, BaseAdapter, BaseRNNAdapter
 
 
 class SimpleRNNAdapter(BaseRNNAdapter):

@@ -4,10 +4,10 @@ from unittest import TestCase, main
 import torch
 
 from esp_horizon.data import PaddedBatch
-from esp_horizon.modules import NextItemModule
+from esp_horizon.modules import BaseModule, NextItemModule
 from ptls.nn.seq_encoder import RnnEncoder
 from ptls.nn.seq_encoder.containers import SeqEncoderContainer
-from esp_horizon.modules.next_item.autoreg import RNNSequencePredictor, NextItemRNNAdapter, BaseAdapter
+from esp_horizon.modules.autoreg import RNNSequencePredictor, NextItemRNNAdapter, BaseAdapter
 
 
 class SimpleEncoder(torch.nn.Module):
@@ -53,11 +53,11 @@ class SimpleContainer(SeqEncoderContainer):
 
 class SimpleModule(NextItemModule):
     def __init__(self):
-        super(NextItemModule, self).__init__()
+        super(BaseModule, self).__init__()
         self.seq_encoder = SimpleContainer()
         self._head = None
 
-    def predict(self, embeddings):
+    def predict_next(self, embeddings):
         return PaddedBatch({
             "timestamps": embeddings.payload[:, :, 0].long(),
             "labels": embeddings.payload[:, :, 1].long()

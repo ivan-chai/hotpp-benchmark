@@ -7,11 +7,11 @@ seed_everything: 42
 logger:
   _target_: pytorch_lightning.loggers.WandbLogger
   project: esp-agepred
-  name: next-item
+  name: next-k
   save_dir: lightning_logs
-model_path: checkpoints/next_item.ckpt
-report: results/next_item.yaml
-downstream_report: results/downsteam_next_item.txt
+model_path: checkpoints/next_k.ckpt
+report: results/next_k.yaml
+downstream_report: results/downsteam_next_k.txt
 
 data_module: ${dataset}
 
@@ -26,7 +26,7 @@ trainer:
   check_val_every_n_epoch: 3
 
 module:
-  _target_: esp_horizon.modules.NextItemModule
+  _target_: esp_horizon.modules.NextKModule
   seq_encoder:
     _target_: ptls.nn.RnnSeqEncoder
     trx_encoder:
@@ -45,16 +45,9 @@ module:
     _target_: esp_horizon.nn.Head
     _partial_: true
     use_batch_norm: true
-  autoreg_adapter_partial:
-    _target_: esp_horizon.modules.autoreg.NextItemRNNAdapter
-    _partial_: true
-    time_int: true
-    time_input_delta: false
-    max_context: 1200
-    context_step: 200
-  autoreg_max_steps: 24
   loss:
-    _target_: esp_horizon.losses.NextItemLoss
+    _target_: esp_horizon.losses.NextKLoss
+    k: 8
     losses:
       timestamps:
         _target_: esp_horizon.losses.TimeMAELoss
