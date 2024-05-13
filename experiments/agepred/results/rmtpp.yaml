@@ -1,8 +1,8 @@
-date: '2024-05-08 17:37:24'
-test/detection-mAP: 0.06878175586462021
-test/loss: 2.888174057006836
-test/loss_labels: 2.244131088256836
-test/loss_timestamps: 0.6440431475639343
-test/next-item-accuracy: 0.38609468936920166
-test/timestamps-bias-mean: 0.5220291614532471
-test/timestamps-current_influence: -0.2153400331735611
+date: '2024-05-13 14:12:46'
+test/detection-mAP: 0.06748566031455994
+test/loss: 2.8878583908081055
+test/loss_labels: 2.243175745010376
+test/loss_timestamps: 0.644682765007019
+test/next-item-accuracy: 0.3860943019390106
+test/timestamps-bias-mean: 0.5203189849853516
+test/timestamps-current_influence: -0.21483677625656128

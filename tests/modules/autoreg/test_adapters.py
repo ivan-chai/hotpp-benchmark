@@ -7,7 +7,7 @@ from esp_horizon.data import PaddedBatch
 from esp_horizon.modules import BaseModule, NextItemModule
 from ptls.nn.seq_encoder import RnnEncoder
 from ptls.nn.seq_encoder.containers import SeqEncoderContainer
-from esp_horizon.modules.next_item.autoreg import RNNSequencePredictor, NextItemRNNAdapter, BaseAdapter
+from esp_horizon.modules.autoreg import RNNSequencePredictor, NextItemRNNAdapter, BaseAdapter
 
 
 class SimpleEncoder(torch.nn.Module):

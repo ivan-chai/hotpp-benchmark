@@ -46,13 +46,13 @@ module:
     _partial_: true
     use_batch_norm: true
   loss:
-    _target_: esp_horizon.modules.next_k.NextKLoss
+    _target_: esp_horizon.losses.NextKLoss
     k: 8
     losses:
       timestamps:
-        _target_: esp_horizon.modules.next_item.TimeMAELoss
+        _target_: esp_horizon.losses.TimeMAELoss
       labels:
-        _target_: esp_horizon.modules.next_item.CrossEntropyLoss
+        _target_: esp_horizon.losses.CrossEntropyLoss
         num_classes: 204
   optimizer_partial:
     _partial_: true

@@ -110,7 +110,7 @@ class BaseModule(pl.LightningModule):
         Returns:
             A dict of losses and a dict of metrics.
         """
-        losses, metrics = self._loss(predictions, x)
+        losses, metrics = self._loss(x, predictions)
         return losses, metrics
 
     def training_step(self, batch, _):

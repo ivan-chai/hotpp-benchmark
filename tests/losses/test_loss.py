@@ -5,7 +5,7 @@ from unittest import TestCase, main
 import torch
 from torch import Tensor
 
-from esp_horizon.modules.next_item.loss import TimeRMTPPLoss
+from esp_horizon.losses import TimeRMTPPLoss
 
 
 class TestNextItemLoss(TestCase):
@@ -17,24 +17,24 @@ class TestNextItemLoss(TestCase):
             [0, 1, 1]
         ]).bool()
         biases = torch.tensor([
-            [-1, 0, 1],
-            [1, 2, 0]
+            [0, 1, -1],
+            [2, 0,  1]
         ]).double()
         times = torch.tensor([
             [2, 2, 3],
             [5, 5, 7]
         ]).double()
-        result = loss(biases.unsqueeze(2), times, mask)[0].item()
+        result = loss(times, biases.unsqueeze(2), mask)[0].item()
         # After delta:
         # mask:
         # [[1, 1]
         #  [0, 1]]
-        # biases:
-        # [[0, 1],
-        #  [2, 0]]
         # times:
         # [[0, 1],
         #  [0, 2]]
+        # biases:
+        # [[0, 1],
+        #  [2, 0]]
 
         # Equation (12) from the original paper.
         log_f00 = 0 + 3 * 0 + 1 / 3 * math.exp(0) - 1 / 3 * math.exp(0 + 3 * 0)
@@ -45,8 +45,8 @@ class TestNextItemLoss(TestCase):
 
         modes = loss.predict_modes(biases.unsqueeze(2)).squeeze(2)
         modes_gt = torch.tensor([
-            [(math.log(3) + 1) / 3, (math.log(3) - 0) / 3, (math.log(3) - 1) / 3],
-            [(math.log(3) - 1) / 3, (math.log(3) - 2) / 3, (math.log(3) - 0) / 3],
+            [(math.log(3) - 0) / 3, (math.log(3) - 1) / 3, (math.log(3) + 1) / 3],
+            [(math.log(3) - 2) / 3, (math.log(3) - 0) / 3, (math.log(3) - 1) / 3],
         ], dtype=torch.double)
         self.assertTrue(modes.allclose(modes_gt))
 

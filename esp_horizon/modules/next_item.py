@@ -1,5 +1,5 @@
 from esp_horizon.data import PaddedBatch
-from ..base_module import BaseModule
+from .base_module import BaseModule
 from .autoreg import RNNSequencePredictor
 
 

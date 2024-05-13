@@ -1,6 +1,7 @@
 import torch
+
 from esp_horizon.data import PaddedBatch
-from ..next_item import NextItemLoss
+from .next_item import NextItemLoss
 
 
 class NextKLoss(torch.nn.Module):
@@ -30,40 +31,39 @@ class NextKLoss(torch.nn.Module):
     def input_dim(self):
         return self._k * self._next_item.input_dim
 
-    def forward(self, predictions, targets):
-        """Compute loss between predictions and targets.
+    def get_delta_type(self, field):
+        """Get time delta type."""
+        return self._next_item.get_delta_type(field)
+
+    def forward(self, inputs, predictions):
+        """Extract targets and compute loss between predictions and targets.
 
         Args:
-            predictions: Predicted values with shape (B, L, C).
-            targets: Inputs for predictions (without shift) with shape (B, L).
+            inputs: Input features with shape (B, L).
+            predictions: Predicted values with shape (B, L, P).
 
         Returns:
             Losses dict and metrics dict.
         """
-        x = targets  # Inputs.
-
         # Join targets before windowing.
-        b, l = x.shape
-        targets = torch.stack([x.payload[name] for name in self.fields], -1)  # (B, L, D).
+        b, l = inputs.shape
+        targets = torch.stack([inputs.payload[name] for name in self.fields], -1)  # (B, L, D).
 
         # Extract windows.
         targets = self.extract_windows(targets, self._k + 1)   # (B, L - k, k + 1, D).
         assert targets.shape[:3] == (b, max(l - self._k, 0), self._k + 1)
-        lengths = (x.seq_lens - self._k).clip(min=0)
-
-        # Skip input.
-        targets = targets[:, :, 1:]  # (B, L - k, k, D).
+        lengths = (inputs.seq_lens - self._k).clip(min=0)
 
         # Apply step.
         if self._loss_step > 1:
             lengths = (lengths - self._loss_step - 1).div(self._loss_step, rounding_mode="floor").clip(min=-1) + 1
-            targets = targets[:, self._loss_step::self._loss_step]  # (B, L', k, D).
+            targets = targets[:, self._loss_step::self._loss_step]  # (B, L', k + 1, D).
             predictions = PaddedBatch(predictions.payload[:, self._loss_step::self._loss_step], lengths)  # (B, L', P).
 
         # Split targets.
         assert len(self.fields) == targets.shape[-1]
-        windows = {name: targets[..., i] for i, name in enumerate(self.fields)}  # (B, L', k).
-        targets = PaddedBatch(windows, lengths, x.seq_names)  # (B, L', k).
+        windows = {name: targets[..., i] for i, name in enumerate(self.fields)}  # (B, L', k + 1).
+        targets = PaddedBatch(windows, lengths, inputs.seq_names)  # (B, L', k + 1).
 
         # Reshape predictions.
         b, l_ = predictions.shape
@@ -71,13 +71,15 @@ class NextKLoss(torch.nn.Module):
                                   predictions.seq_lens)  # (B, L', k, P).
 
         # Select by mask.
-        mask = targets.seq_len_mask.bool()
-        lengths = torch.full([mask.sum().item()], self._k)  # (V).
+        mask = targets.seq_len_mask.bool()  # (B, L').
+        lengths = torch.full([mask.sum().item()], self._k + 1)  # (V).
         targets = PaddedBatch({k: v[mask] for k, v in targets.payload.items()},
-                              lengths, targets.seq_names)  # (V, k).
-        predictions = PaddedBatch(predictions.payload[:, :mask.shape[1]][mask], lengths)  # (V, k, P).
+                              lengths, targets.seq_names)  # (V, k + 1).
+        payload = predictions.payload[:, :mask.shape[1]][mask]  # (V, k, P).
+        payload = torch.cat([payload, payload[:, -1:]], dim=1)  # (V, k + 1, P).
+        predictions = PaddedBatch(payload, lengths)  # (V, k + 1, P).
 
-        losses, metrics = self._next_item(predictions, targets, shifted=True)
+        losses, metrics = self._next_item(targets, predictions)
         return losses, metrics
 
     def predict_next(self, predictions, fields=None):
