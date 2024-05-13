@@ -4,7 +4,7 @@ from unittest import TestCase, main
 
 import torch
 
-from esp_horizon.metrics import MAPMetric, NextItemMetric, HorizonMetric
+from esp_horizon.metrics import NextItemMetric, MAPMetric, OTDMetric, HorizonMetric
 
 
 class TestMetrics(TestCase):
@@ -73,6 +73,16 @@ class TestMetrics(TestCase):
             ]
         ]).clip(min=1e-6).log()  # (1, 2, 4, 2).
 
+    def test_next_item_metric(self):
+        metric = NextItemMetric()
+        metric.update(
+            target_mask=self.mask[:, 1:],
+            target_labels=self.labels[:, 1:],
+            predicted_labels_logits=self.predicted_labels_logits[:, :-1]
+        )
+        acc_gt = 6 / 8
+        self.assertAlmostEqual(metric.compute()["next-item-accuracy"], acc_gt)
+
     def test_map_metric(self):
         metric = MAPMetric(time_delta_thresholds=[1, 2])
         metric.update(
@@ -117,20 +127,54 @@ class TestMetrics(TestCase):
         map_gt = (ap_h1_c0 + ap_h1_c1 + ap_h2_c0 + ap_h2_c1) / 4
         self.assertAlmostEqual(metric.compute()["detection-mAP"], map_gt)
 
-    def test_next_item_metric(self):
-        metric = NextItemMetric()
-        metric.update(
-            target_mask=self.mask[:, 1:],
-            target_labels=self.labels[:, 1:],
-            predicted_labels_logits=self.predicted_labels_logits[:, :-1]
-        )
-        acc_gt = 6 / 8
-        self.assertAlmostEqual(metric.compute()["next-item-accuracy"], acc_gt)
+    def test_otd_metric(self):
+        metric = OTDMetric(insert_cost=0.5, delete_cost=1)
+
+        # The first problem:
+        #
+        #     O    P    M    O
+        # C   1    1    1    1
+        # O   .1   1    1    .2
+        # P   1    .0   1    1
+        #
+        # Optimal cost: insert C + .1 + .0 + delete P + delete O = 0.5 + 0.1 + 2 = 2.6
+        #
+        # The second problem:
+        #
+        #     T    R    U    E
+        # T   .0   1    1    1
+        # O   1    1    1    1
+        # R   1    .3   1    1
+        #
+        # Optimal cost: .0 + insert O + .3 + delete U + delete E = 0.5 + 0.3 + 2 = 2.8
+        #
+        # The third problem:
+        #
+        # 0 1 1 1
+        # 1 0 1 1
+        # 1 1 0 1
+        #
+        # Optimal cost: delete = 1
+        gt_distances = torch.tensor([2.6, 2.8, 1])
+
+        costs = torch.tensor([
+            [[ 1,  1,  1,  1],
+             [.1,  1,  1, .2],
+             [ 1, .0,  1,  1]],
+            [[.0,  1,  1,  1],
+             [ 1,  1,  1,  1],
+             [ 1, .3,  1,  1]],
+            [[ 0,  1,  1,  1],
+             [ 1,  0,  1,  1],
+             [ 1,  1,  0,  1]]
+        ])  # (3, 3, 4).
+        distances = metric._get_min_distance(costs)
+        self.assertTrue(distances.allclose(gt_distances))
 
     def test_end_to_end(self):
         metric = HorizonMetric(self.horizon, horizon_evaluation_step=3,
                                map_thresholds=[1, 2],
-                               max_target_length=self.seq_target_mask.shape[1])
+                               map_target_length=self.seq_target_mask.shape[1])
         seq_lens = self.mask.sum(1)
         metric.update_next_item(seq_lens=seq_lens,
                                 timestamps=self.times,

@@ -1,0 +1,8 @@
+accelerator: cuda
+devices: 1
+max_epochs: 30
+enable_checkpointing: true
+deterministic: true
+precision: 16-mixed
+gradient_clip_val: 1  # Increases training stability.
+check_val_every_n_epoch: 3

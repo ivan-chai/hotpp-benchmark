@@ -1,8 +1,9 @@
 import torch
 
 from ..data import PaddedBatch
-from .next_item import NextItemMetric
 from .map import MAPMetric
+from .next_item import NextItemMetric
+from .otd import OTDMetric
 
 
 class HorizonMetric:
@@ -12,33 +13,49 @@ class HorizonMetric:
         horizon: Prediction horizon.
         horizon_evaluation_step: The period for horizon metrics evaluation.
         map_thresholds: The list of time delta thresholds for mAP evaluation.
-        max_target_length: The maximum target length for mAP evaluation.
+        map_target_length: The maximum target length for mAP evaluation.
             Must be large enough to include all horizon events.
+        otd_steps: The number of steps for optimal transport distance evaluation.
+        otd_insert_cost: OTD insert cost.
+        otd_delete_cost: OTD delete cost.
     """
     def __init__(self, horizon, horizon_evaluation_step=1,
-                 map_thresholds=None, max_target_length=None):
+                 map_thresholds=None, map_target_length=None,
+                 otd_steps=None, otd_insert_cost=None, otd_delete_cost=None):
         self.horizon = horizon
         self.horizon_evaluation_step = horizon_evaluation_step
 
         self.next_item = NextItemMetric()
         if map_thresholds is not None:
-            if max_target_length is None:
+            if map_target_length is None:
                 raise ValueError("Need the max target sequence length for mAP computation")
-            self.max_target_length = max_target_length
+            self.map_target_length = map_target_length
             self.map = MAPMetric(time_delta_thresholds=map_thresholds)
         else:
+            self.map_target_length = None
             self.map = None
+        if otd_steps is not None:
+            if (otd_insert_cost is None) or (otd_delete_cost is None):
+                raise ValueError("Need insertion and deletion costs for the OTD metric.")
+            self.otd_steps = otd_steps
+            self.otd = OTDMetric(insert_cost=otd_insert_cost,
+                                 delete_cost=otd_delete_cost)
+        else:
+            self.otd_steps = None
+            self.otd = None
 
         self.reset()
 
     @property
     def horizon_prediction(self):
-        return self.map is not None
+        return (self.map is not None) or (self.otd is not None)
 
     def reset(self):
         self.next_item.reset()
         if self.map is not None:
             self.map.reset()
+        if self.otd is not None:
+            self.otd.reset()
 
     def select_horizon_indices(self, seq_lens):
         """Select indices for horizon metrics evaluation."""
@@ -104,14 +121,25 @@ class HorizonMetric:
 
         # Update mAP.
         if self.map is not None:
-            # Truncate sequences to the specified horizon.
             self.map.update(
-                target_mask=targets_mask[seq_mask],  # (V, K).
-                target_times=targets.payload["timestamps"][seq_mask],  # (V, K).
-                target_labels=targets.payload["labels"][seq_mask],  # (V, K).
+                target_mask=targets_mask[seq_mask][:, :self.map_target_length],  # (V, K).
+                target_times=targets.payload["timestamps"][seq_mask][:, :self.map_target_length],  # (V, K).
+                target_labels=targets.payload["labels"][seq_mask][:, :self.map_target_length],  # (V, K).
                 predicted_mask=predictions_mask[seq_mask],  # (V, N).
                 predicted_times=predictions.payload["timestamps"][seq_mask],  # (V, N).
                 predicted_labels_logits=predictions.payload["labels_logits"][seq_mask],  # (V, N, C).
+            )
+
+        # Update OTD.
+        if self.otd is not None:
+            if predictions_mask.shape[-1] < self.otd_steps:
+                raise RuntimeError("Need more predicted events for OTD evaluation.")
+            predicted_labels = predictions.payload["labels_logits"].argmax(-1)  # (B, I, N).
+            self.otd.update(
+                target_times=targets.payload["timestamps"][seq_mask][:, :self.otd_steps],  # (V, S).
+                target_labels=targets.payload["labels"][seq_mask][:, :self.otd_steps],  # (V, S).
+                predicted_times=predictions.payload["timestamps"][seq_mask][:, :self.otd_steps],  # (V, S).
+                predicted_labels=predicted_labels[seq_mask][:, :self.otd_steps],  # (V, S).
             )
 
     def compute(self):
@@ -119,12 +147,14 @@ class HorizonMetric:
         values.update(self.next_item.compute())
         if self.map is not None:
             values.update(self.map.compute())
+        if self.otd is not None:
+            values.update(self.otd.compute())
         return values
 
     def _extract_target_sequences(self, features, indices):
         """Extract target sequence for each index."""
         b, i = indices.shape
-        n = self.max_target_length
+        n = max(self.map_target_length or 0, self.otd_steps or 0)
         # Each sequence starts from the next item.
         offsets = torch.arange(1, n + 1, device=features.device)  # (N).
         gather_indices = indices.payload.unsqueeze(2) + offsets[None, None]  # (B, I, N).
