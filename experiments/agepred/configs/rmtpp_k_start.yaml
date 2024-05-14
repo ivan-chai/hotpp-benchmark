@@ -1,0 +1,35 @@
+defaults:
+  - data_module: unsupervised
+  - module: default
+  - module/head_partial: head_512_256
+  - trainer: default
+  - _self_
+
+seed_everything: 42
+logger:
+  _target_: pytorch_lightning.loggers.WandbLogger
+  project: esp-agepred
+  name: rmtpp-k-start
+  save_dir: lightning_logs
+model_path: checkpoints/rmtpp_k_start.ckpt
+report: results/rmtpp_k_start.yaml
+downstream_report: results/downsteam_rmtpp_k_start.txt
+
+module:
+  _target_: esp_horizon.modules.NextKModule
+  loss:
+    _target_: esp_horizon.losses.NextKLoss
+    k: 8
+    losses:
+      timestamps:
+        _target_: esp_horizon.losses.TimeRMTPPLoss
+        delta: start
+        init_influence: -0.1
+        influence_dim: 8
+        max_intensity: 4
+        grad_scale: 0.05
+        max_delta: 8  # horizon + 1.
+        expectation_steps: 100
+      labels:
+        _target_: esp_horizon.losses.CrossEntropyLoss
+        num_classes: 204

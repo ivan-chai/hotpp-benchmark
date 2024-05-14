@@ -1,0 +1,29 @@
+defaults:
+  - data_module: unsupervised
+  - module: default
+  - module/head_partial: head_512_256
+  - trainer: default
+  - _self_
+
+seed_everything: 42
+logger:
+  _target_: pytorch_lightning.loggers.WandbLogger
+  project: esp-agepred
+  name: next-k-start
+  save_dir: lightning_logs
+model_path: checkpoints/next_k_start.ckpt
+report: results/next_k_start.yaml
+downstream_report: results/downsteam_next_k_start.txt
+
+module:
+  _target_: esp_horizon.modules.NextKModule
+  loss:
+    _target_: esp_horizon.losses.NextKLoss
+    k: 8
+    losses:
+      timestamps:
+        _target_: esp_horizon.losses.TimeMAELoss
+        delta: start
+      labels:
+        _target_: esp_horizon.losses.CrossEntropyLoss
+        num_classes: 204

@@ -85,16 +85,22 @@ class NextKLoss(torch.nn.Module):
     def predict_next(self, predictions, fields=None):
         # Select parameters of the first predicted event.
         b, l = predictions.shape
-        predictions = PaddedBatch(predictions.payload.reshape(b, l, self._k, self._next_item.input_dim)[:, :, 0, :],
-                                  predictions.seq_lens)  # (B, L, P).
-        return self._next_item.predict_next(predictions, fields=fields)  # (B, L).
+        lengths = predictions.seq_lens
+        predictions = PaddedBatch(predictions.payload.reshape(b * l, self._k, self._next_item.input_dim)[:, :1, :],
+                                  torch.ones_like(predictions.seq_lens))  # (BL, 1, P).
+        next_values = self._next_item.predict_next(predictions, fields=fields)  # (BL, 1).
+        return PaddedBatch({k: v.reshape(b, l) for k, v in next_values.payload.items()},
+                           lengths)  # (B, L).
 
     def predict_next_category_logits(self, predictions, fields=None):
         # Select parameters of the first predicted event.
         b, l = predictions.shape
-        predictions = PaddedBatch(predictions.payload.reshape(b, l, self._k, self._next_item.input_dim)[:, :, 0, :],
-                                  predictions.seq_lens)  # (B, L, P).
-        return self._next_item.predict_next_category_logits(predictions, fields=fields)  # (B, L).
+        lengths = predictions.seq_lens
+        predictions = PaddedBatch(predictions.payload.reshape(b * l, self._k, self._next_item.input_dim)[:, :1, :],
+                                  torch.ones_like(predictions.seq_lens))  # (BL, 1, P).
+        next_values = self._next_item.predict_next_category_logits(predictions, fields=fields)  # (BL, 1, C).
+        return PaddedBatch({k: v.reshape(b, l, -1) for k, v in next_values.payload.items()},
+                           lengths)  # (B, L, C).
 
     def predict_next_k(self, predictions, fields=None, dump_category_logits=None):
         b, l = predictions.shape
