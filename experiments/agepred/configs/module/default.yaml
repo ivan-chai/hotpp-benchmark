@@ -1,3 +1,4 @@
+encode_time_as_delta: true
 seq_encoder:
   _target_: ptls.nn.RnnSeqEncoder
   trx_encoder:
@@ -7,9 +8,8 @@ seq_encoder:
       labels:
         in: 204
         out: 256
-    custom_embeddings:
-      timestamps:
-        _target_: esp_horizon.nn.DeltaEncoder
+    numeric_values:
+      timestamps: identity
   type: gru
   hidden_size: 512
 head_partial:

@@ -64,7 +64,7 @@ class NextItemRNNAdapter(BaseRNNAdapter):
         init_state = init_state.repeat(len(x), 1, 1)  # (B, 1, D).
         # GRU outputs are also states.
         encoder = self.model.seq_encoder
-        embeddings = encoder.trx_encoder(x)
+        embeddings = encoder.trx_encoder(self.model.preprocess(x))
         next_states = apply_windows(embeddings, encoder.seq_encoder, self.max_context, self.context_step)  # (B, T, D).
         payload = torch.cat([init_state, next_states.payload[:, :-1]], dim=1)  # (B, T, D).
         return PaddedBatch(payload, next_states.seq_lens)
@@ -81,7 +81,7 @@ class NextItemRNNAdapter(BaseRNNAdapter):
         """
         if x.left:
             raise NotImplementedError("Left-padded batches are not implemented.")
-        trx_embeddings = self.model.seq_encoder.trx_encoder(x)
+        trx_embeddings = self.model.seq_encoder.trx_encoder(self.model.preprocess(x))
         embeddings = self.model.seq_encoder.seq_encoder(trx_embeddings,
                                                         states.unsqueeze(0) if states is not None else None)  # PTLS expects (1, B, D).
         last = (embeddings.seq_lens - 1).unsqueeze(1).unsqueeze(1)  # (B, 1, 1).

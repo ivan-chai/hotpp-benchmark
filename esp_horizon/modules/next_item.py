@@ -17,12 +17,14 @@ class NextItemModule(BaseModule):
     Parameters
         seq_encoder: Backbone model, which includes input encoder and sequential encoder.
         loss: Training loss.
+        timestamps_field: The name of the timestamps field.
+        labels_field: The name of the labels field.
+        encode_time_as_delta: Encode input NN time as a delta feature.
         head_partial: FC head model class which accepts input and output dimensions.
         optimizer_partial:
             optimizer init partial. Network parameters are missed.
         lr_scheduler_partial:
             scheduler init partial. Optimizer are missed.
-        labels_field: The name of the labels field.
         dev_metric: Dev set metric.
         test_metric: Test set metric.
         autoreg_max_step: The maximum number of future predictions.
@@ -31,6 +33,7 @@ class NextItemModule(BaseModule):
     def __init__(self, seq_encoder, loss,
                  timestamps_field="timestamps",
                  labels_field="labels",
+                 encode_time_as_delta=False,
                  head_partial=None,
                  optimizer_partial=None,
                  lr_scheduler_partial=None,
@@ -44,6 +47,7 @@ class NextItemModule(BaseModule):
             loss=loss,
             timestamps_field=timestamps_field,
             labels_field=labels_field,
+            encode_time_as_delta=encode_time_as_delta,
             head_partial=head_partial,
             optimizer_partial=optimizer_partial,
             lr_scheduler_partial=lr_scheduler_partial,

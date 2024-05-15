@@ -19,18 +19,21 @@ class BaseModule(pl.LightningModule):
     Parameters
         seq_encoder: Backbone model, which includes input encoder and sequential encoder.
         loss: Training loss.
+        timestamps_field: The name of the timestamps field.
+        labels_field: The name of the labels field.
+        encode_time_as_delta: Encode input NN time as a delta feature.
         head_partial: FC head model class which accepts input and output dimensions.
         optimizer_partial:
             optimizer init partial. Network parameters are missed.
         lr_scheduler_partial:
             scheduler init partial. Optimizer are missed.
-        labels_field: The name of the labels field.
         dev_metric: Dev set metric.
         test_metric: Test set metric.
     """
     def __init__(self, seq_encoder, loss,
                  timestamps_field="timestamps",
                  labels_field="labels",
+                 encode_time_as_delta=False,
                  head_partial=None,
                  optimizer_partial=None,
                  lr_scheduler_partial=None,
@@ -42,6 +45,7 @@ class BaseModule(pl.LightningModule):
         self._labels_field = labels_field
         self._labels_logits_field = f"{labels_field}_logits"
 
+        self._encode_time_as_delta = encode_time_as_delta
         self._loss = loss
         self._seq_encoder = seq_encoder
         self._seq_encoder.is_reduce_sequence = False
@@ -61,8 +65,20 @@ class BaseModule(pl.LightningModule):
     def seq_encoder(self):
         return self._seq_encoder
 
+    def preprocess(self, x):
+        """Preprocess features."""
+        if self._encode_time_as_delta:
+            field = self._timestamps_field
+            deltas = x.payload[field].to(torch.float, copy=True)
+            deltas[:, 1:] -= x.payload[field][:, :-1]
+            deltas[:, 0] = 0
+            x = x.clone()
+            x.payload[field] = deltas
+        return x
+
     def embed(self, x):
         """Compute embedding at each position."""
+        x = self.preprocess(x)
         return self._seq_encoder(x)  # (B, L, D).
 
     def apply_head(self, embeddings):

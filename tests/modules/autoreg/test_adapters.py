@@ -55,6 +55,7 @@ class SimpleModule(NextItemModule):
     def __init__(self):
         super(BaseModule, self).__init__()
         self.seq_encoder = SimpleContainer()
+        self._encode_time_as_delta = False
         self._head = None
 
     def predict_next(self, embeddings):

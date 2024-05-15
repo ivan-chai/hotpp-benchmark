@@ -76,8 +76,10 @@ class TestMetrics(TestCase):
     def test_next_item_metric(self):
         metric = NextItemMetric()
         metric.update(
-            target_mask=self.mask[:, 1:],
+            mask=self.mask[:, 1:],
+            target_timestamps=self.times[:, 1:],
             target_labels=self.labels[:, 1:],
+            predicted_timestamps=self.predicted_times[:, :-1],
             predicted_labels_logits=self.predicted_labels_logits[:, :-1]
         )
         acc_gt = 6 / 8

@@ -17,12 +17,14 @@ class NextKModule(BaseModule):
     Parameters
         seq_encoder: Backbone model, which includes input encoder and sequential encoder.
         loss: Training loss.
+        timestamps_field: The name of the timestamps field.
+        labels_field: The name of the labels field.
+        encode_time_as_delta: Encode input NN time as a delta feature.
         head_partial: FC head model class which accepts input and output dimensions.
         optimizer_partial:
             optimizer init partial. Network parameters are missed.
         lr_scheduler_partial:
             scheduler init partial. Optimizer are missed.
-        labels_field: The name of the labels field.
         dev_metric: Dev set metric.
         test_metric: Test set metric.
     """
