@@ -151,10 +151,10 @@ class BaseModule(pl.LightningModule):
 
         # Log statistics.
         for k, v in losses.items():
-            self.log(f"test/loss_{k}", v)
+            self.log(f"test/loss_{k}", v, batch_size=len(x))
         for k, v in metrics.items():
-            self.log(f"test/{k}", v)
-        self.log("test/loss", loss)
+            self.log(f"test/{k}", v, batch_size=len(x))
+        self.log("test/loss", loss, batch_size=len(x))
         if self._test_metric is not None:
             self._update_metric(self._test_metric, predictions, x)
 

@@ -1,5 +1,7 @@
-import logging
 import datetime
+import logging
+import re
+import sys
 import yaml
 
 import hydra
@@ -15,9 +17,8 @@ from esp_horizon.utils.config import as_flat_config
 logger = logging.getLogger(__name__)
 
 
-def get_trainer(conf):
+def get_trainer(conf, **trainer_params_additional):
     trainer_params = conf.trainer
-    trainer_params_additional = {}
     model_selection = trainer_params.get("model_selection", None)
 
     if "callbacks" in trainer_params:
@@ -50,17 +51,27 @@ def get_trainer(conf):
 
     if len(trainer_params_callbacks) > 0:
         trainer_params_additional["callbacks"] = trainer_params_callbacks
-    return pl.Trainer(**trainer_params, **trainer_params_additional)
+    trainer_params = dict(trainer_params)
+    trainer_params.update(trainer_params_additional)
+    return pl.Trainer(**trainer_params)
 
 
-def dump_report(metrics, path):
-    if len(metrics) != 1:
-        raise NotImplementedError("Multiple test dataloaders")
-    metrics = metrics[0]
+def dump_report(metrics, fp):
     result = dict(metrics)
     result["date"] = f"{datetime.datetime.now():%Y-%m-%d %H:%M:%S}"
-    with open(path, "w") as fp:
-        yaml.safe_dump(result, fp)
+    yaml.safe_dump(result, fp)
+
+
+def test(conf, model, dm):
+    trainer = get_trainer(conf, devices=1)
+    dev_metrics = trainer.validate(model, dm)[0]
+    test_metrics = trainer.test(model, dm)[0]
+    metrics = dict(**dev_metrics, **test_metrics)
+    if "report" in conf:
+        with open(conf["report"], "w") as fp:
+            dump_report(metrics, fp)
+    else:
+        dump_report(metrics, sys.stdout)
 
 
 @hydra.main(version_base="1.2", config_path=None)
@@ -86,9 +97,7 @@ def main(conf):
         torch.save(model.state_dict(), conf.model_path)
         logger.info(f"Model weights saved to '{conf.model_path}'")
 
-    metrics = trainer.test(model, dm)
-    if "report" in conf:
-        dump_report(metrics, conf["report"])
+    test(conf, model, dm)
 
 
 if __name__ == "__main__":
