@@ -51,4 +51,10 @@ class NextKModule(BaseModule):
         elif delta_type != "start":
             raise ValueError(f"Unknown delta type: {delta_type}.")
         sequences.payload[self._timestamps_field] += init_times.unsqueeze(2)  # (B, I, N).
+
+        # Sort sequences.
+        order = sequences.payload[self._timestamps_field].argsort(dim=2)  # (B, I, N).
+        for k in sequences.seq_names:
+            shaped_order = order.reshape(*(list(order.shape) + [1] * (sequences.payload[k].ndim - order.ndim)))  # (B, I, N, *).
+            sequences.payload[k] = sequences.payload[k].take_along_dim(shaped_order, dim=2)  # (B, I, N, *).
         return sequences
