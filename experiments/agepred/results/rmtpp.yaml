@@ -1,9 +1,17 @@
-date: '2024-05-14 12:37:38'
-test/detection-mAP: 0.05786385014653206
-test/loss: 2.9030518531799316
-test/loss_labels: 2.254889726638794
-test/loss_timestamps: 0.6481618881225586
-test/next-item-accuracy: 0.38289833068847656
-test/optimal-transport-distance: 12.447433471679688
-test/timestamps-bias-mean: 0.5267833471298218
-test/timestamps-current_influence: -0.21405039727687836
+date: '2024-05-15 12:18:47'
+dev/detection-mAP: 0.05836612358689308
+dev/loss: 2.8827176094055176
+dev/loss_labels: 2.2366602420806885
+dev/loss_timestamps: 0.6460569500923157
+dev/next-item-accuracy: 0.3855060636997223
+dev/optimal-transport-distance: 12.403796195983887
+dev/timestamps-bias-mean: 0.5387763977050781
+dev/timestamps-current_influence: -0.213875412940979
+test/detection-mAP: 0.05795411020517349
+test/loss: 2.902513027191162
+test/loss_labels: 2.254297971725464
+test/loss_timestamps: 0.6482148766517639
+test/next-item-accuracy: 0.3829673230648041
+test/optimal-transport-distance: 12.461210250854492
+test/timestamps-bias-mean: 0.538166880607605
+test/timestamps-current_influence: -0.2138754427433014
