@@ -82,8 +82,10 @@ class HorizonMetric:
         """
         # Targets are features shifted w.r.t. prediction.
         mask = PaddedBatch(timestamps, seq_lens).seq_len_mask
-        self.next_item.update(target_mask=mask[:, 1:],
+        self.next_item.update(mask=mask[:, 1:],  # Same as logical_and(mask[:, 1:], mask[:, :-1]).
+                              target_timestamps=timestamps[:, 1:],
                               target_labels=labels[:, 1:],
+                              predicted_timestamps=predicted_timestamps[:, :-1],
                               predicted_labels_logits=predicted_labels_logits[:, :-1])
 
     def update_horizon(self, seq_lens, timestamps, labels,

@@ -15,8 +15,7 @@ def main(conf):
     OmegaConf.set_struct(conf, False)
     conf.pop("logger")
 
-    if "seed_everything" in conf:
-        pl.seed_everything(conf.seed_everything)
+    pl.seed_everything(42)
 
     model = hydra.utils.instantiate(conf.module)
     dm = hydra.utils.instantiate(conf.data_module)
