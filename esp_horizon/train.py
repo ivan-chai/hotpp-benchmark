@@ -63,7 +63,7 @@ def dump_report(metrics, fp):
 
 
 def test(conf, model, dm):
-    trainer = get_trainer(conf, devices=1)
+    trainer = get_trainer(conf, devices=1, precision=32)
     dev_metrics = trainer.validate(model, dm)[0]
     test_metrics = trainer.test(model, dm)[0]
     metrics = dict(**dev_metrics, **test_metrics)
