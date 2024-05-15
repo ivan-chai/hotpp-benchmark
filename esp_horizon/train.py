@@ -10,7 +10,6 @@ import torch
 from omegaconf import OmegaConf
 from pytorch_lightning.callbacks import LearningRateMonitor
 from pytorch_lightning.callbacks import ModelCheckpoint
-from pytorch_lightning.loggers import TensorBoardLogger
 
 from esp_horizon.utils.config import as_flat_config
 
