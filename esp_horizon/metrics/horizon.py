@@ -51,6 +51,8 @@ class HorizonMetric:
         return (self.map is not None) or (self.otd is not None)
 
     def reset(self):
+        self._target_lengths = []
+        self._predicted_lengths = []
         self.next_item.reset()
         if self.map is not None:
             self.map.reset()
@@ -118,6 +120,8 @@ class HorizonMetric:
         # Apply horizon.
         targets_mask = self._get_horizon_mask(initial_timestamps, targets)  # (B, I, K).
         predictions_mask = self._get_horizon_mask(initial_timestamps, predictions)  # (B, I, N).
+        self._target_lengths.append(targets_mask.sum(-1).cpu().flatten())  # (BI).
+        self._predicted_lengths.append(predictions_mask.sum(-1).cpu().flatten())  # (BI).
 
         # Update mAP.
         if self.map is not None:
@@ -143,7 +147,12 @@ class HorizonMetric:
             )
 
     def compute(self):
-        values = {}
+        target_lengths = torch.cat(self._target_lengths)
+        predicted_lengths = torch.cat(self._predicted_lengths)
+        values = {
+            "mean-target-length": target_lengths.sum().item() / target_lengths.numel(),
+            "mean-predicted-length":predicted_lengths.sum().item() / predicted_lengths.numel()
+        }
         values.update(self.next_item.compute())
         if self.map is not None:
             values.update(self.map.compute())
