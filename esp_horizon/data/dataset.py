@@ -7,7 +7,7 @@ from numbers import Number
 from pyarrow.parquet import ParquetFile
 from random import Random
 
-from ptls.data_load import PaddedBatch, read_pyarrow_file
+from ptls.data_load import read_pyarrow_file
 from ptls.data_load.datasets import parquet_file_scan
 
 from .padded_batch import PaddedBatch
