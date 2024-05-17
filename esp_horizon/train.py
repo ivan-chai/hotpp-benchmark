@@ -62,6 +62,8 @@ def dump_report(metrics, fp):
 
 
 def test(conf, model, dm):
+    pl.seed_everything(42)
+
     trainer = get_trainer(conf, devices=1, precision=32)
     dev_metrics = trainer.validate(model, dm)[0]
     test_metrics = trainer.test(model, dm)[0]
@@ -71,10 +73,10 @@ def test(conf, model, dm):
             dump_report(metrics, fp)
     else:
         dump_report(metrics, sys.stdout)
+    return metrics
 
 
-@hydra.main(version_base="1.2", config_path=None)
-def main(conf):
+def train(conf):
     if "seed_everything" in conf:
         pl.seed_everything(conf.seed_everything)
 
@@ -89,14 +91,24 @@ def main(conf):
 
     checkpoint_callback = trainer.checkpoint_callback
     if checkpoint_callback is not None:
-        model.load_state_dict(torch.load(checkpoint_callback.best_model_path)["state_dict"])
-        logging.info(f"Loaded the best model from '{checkpoint_callback.best_model_path}'")
+        checkpoint_path = checkpoint_callback.best_model_path
+        if not checkpoint_path:
+            logging.warning("Empty checkpoint path")
+        else:
+            model.load_state_dict(torch.load(checkpoint_path)["state_dict"])
+            logging.info(f"Loaded the best model from '{checkpoint_callback.best_model_path}'")
 
     if "model_path" in conf:
         torch.save(model.state_dict(), conf.model_path)
         logger.info(f"Model weights saved to '{conf.model_path}'")
 
-    test(conf, model, dm)
+    metrics = test(conf, model, dm)
+    return model, metrics
+
+
+@hydra.main(version_base="1.2", config_path=None)
+def main(conf):
+    train(conf)
 
 
 if __name__ == "__main__":

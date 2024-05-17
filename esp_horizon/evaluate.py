@@ -1,7 +1,6 @@
 import logging
 
 import hydra
-import pytorch_lightning as pl
 import torch
 from omegaconf import OmegaConf
 
@@ -14,8 +13,6 @@ logger = logging.getLogger(__name__)
 def main(conf):
     OmegaConf.set_struct(conf, False)
     conf.pop("logger")
-
-    pl.seed_everything(42)
 
     model = hydra.utils.instantiate(conf.module)
     dm = hydra.utils.instantiate(conf.data_module)

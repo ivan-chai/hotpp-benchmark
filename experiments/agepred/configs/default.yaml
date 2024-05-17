@@ -1,0 +1,12 @@
+seed_everything: 42
+num_evaluation_seeds: 5
+
+logger:
+  _target_: pytorch_lightning.loggers.WandbLogger
+  project: esp-agepred
+  name: ${name}
+  save_dir: lightning_logs
+model_path: checkpoints/${name}.ckpt
+report: results/${name}.yaml
+multiseed_report: results/multiseed_${name}.txt
+downstream_report: results/downsteam_${name}.txt
