@@ -53,6 +53,8 @@ class HorizonMetric:
     def reset(self):
         self._target_lengths = []
         self._predicted_lengths = []
+        self._horizon_predicted_deltas_sums = []
+        self._horizon_n_predicted_deltas = 0
         self.next_item.reset()
         if self.map is not None:
             self.map.reset()
@@ -125,6 +127,12 @@ class HorizonMetric:
         self._target_lengths.append(targets_mask.sum(-1).cpu().flatten())  # (BI).
         self._predicted_lengths.append(predictions_mask.sum(-1).cpu().flatten())  # (BI).
 
+        # Update deltas stats.
+        predicted_timestamps = predictions.payload["timestamps"][seq_mask]  # (V, N).
+        deltas = predicted_timestamps[:, 1:] - predicted_timestamps[:, :-1]
+        self._horizon_predicted_deltas_sums.append(deltas.float().mean().cpu() * deltas.numel())
+        self._horizon_n_predicted_deltas += deltas.numel()
+
         # Update mAP.
         if self.map is not None:
             self.map.update(
@@ -132,7 +140,7 @@ class HorizonMetric:
                 target_times=targets.payload["timestamps"][seq_mask][:, :self.map_target_length],  # (V, K).
                 target_labels=targets.payload["labels"][seq_mask][:, :self.map_target_length],  # (V, K).
                 predicted_mask=predictions_mask[seq_mask],  # (V, N).
-                predicted_times=predictions.payload["timestamps"][seq_mask],  # (V, N).
+                predicted_times=predicted_timestamps,  # (V, N).
                 predicted_labels_logits=predictions.payload["labels_logits"][seq_mask],  # (V, N, C).
             )
 
@@ -153,7 +161,8 @@ class HorizonMetric:
         predicted_lengths = torch.cat(self._predicted_lengths)
         values = {
             "mean-target-length": target_lengths.sum().item() / target_lengths.numel(),
-            "mean-predicted-length":predicted_lengths.sum().item() / predicted_lengths.numel()
+            "mean-predicted-length":predicted_lengths.sum().item() / predicted_lengths.numel(),
+            "horizon-mean-time-step": torch.stack(self._horizon_predicted_deltas_sums).sum() / self._horizon_n_predicted_deltas
         }
         values.update(self.next_item.compute())
         if self.map is not None:
