@@ -10,3 +10,65 @@ model_path: checkpoints/${name}.ckpt
 report: results/${name}.yaml
 multiseed_report: results/multiseed_${name}.txt
 downstream_report: results/downsteam_${name}.txt
+
+data_module:
+  _target_: esp_horizon.data.ESPDataModule
+  batch_size: 64
+  min_length: 1000
+  max_length: 1200
+  num_workers: 4
+  train_path: data/train.parquet
+  dev_path: data/dev.parquet
+  test_path: data/test.parquet
+
+metric:
+  _target_: esp_horizon.metrics.HorizonMetric
+  horizon: 7  # One week.
+  horizon_evaluation_step: 64
+  map_thresholds: [1, 3, 7]  # Two times more than OTD cost.
+  map_target_length: 24
+  otd_steps: 5
+  otd_insert_cost: 2
+  otd_delete_cost: 2
+
+module:
+  encode_time_as_delta: true
+  seq_encoder:
+    _target_: ptls.nn.RnnSeqEncoder
+    trx_encoder:
+      _target_: ptls.nn.TrxEncoder
+      embeddings_noise: 0.003
+      embeddings:
+        labels:
+          in: 204
+          out: 256
+      numeric_values:
+        timestamps: identity
+    type: gru
+    hidden_size: 512
+  head_partial:
+    _target_: esp_horizon.nn.Head
+    _partial_: true
+    use_batch_norm: true
+  optimizer_partial:
+    _partial_: true
+    _target_: torch.optim.Adam
+    lr: 0.001
+    weight_decay: 0.0
+  lr_scheduler_partial:
+    _partial_: true
+    _target_: torch.optim.lr_scheduler.StepLR
+    step_size: 5
+    gamma: 0.8
+  dev_metric: ${metric}
+  test_metric: ${metric}
+
+trainer:
+  accelerator: cuda
+  devices: 1
+  max_epochs: 30
+  enable_checkpointing: true
+  deterministic: true
+  precision: 16-mixed
+  gradient_clip_val: 1  # Increases training stability.
+  check_val_every_n_epoch: 3

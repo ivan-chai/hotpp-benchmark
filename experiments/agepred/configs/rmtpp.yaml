@@ -1,9 +1,7 @@
 defaults:
   - default
-  - data_module: unsupervised
-  - module: default
   - module/head_partial: head_512_256
-  - trainer: default
+  - module/autoreg_adapter_partial: default
   - _self_
 
 name: rmtpp
@@ -25,9 +23,4 @@ module:
         num_classes: 204
   autoreg_adapter_partial:
     _target_: esp_horizon.modules.autoreg.NextItemRNNAdapter
-    _partial_: true
-    time_int: true
-    time_input_delta: false
-    max_context: 1200
-    context_step: 200
   autoreg_max_steps: 24

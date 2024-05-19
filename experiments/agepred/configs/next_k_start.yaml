@@ -1,9 +1,6 @@
 defaults:
   - default
-  - data_module: unsupervised
-  - module: default
   - module/head_partial: head_512_256
-  - trainer: default
   - _self_
 
 name: next_k_start
