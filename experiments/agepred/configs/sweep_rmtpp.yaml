@@ -28,9 +28,6 @@ parameters:
     max: 2048
   module/head_partial:
     values: [head_no, head_128, head_256, head_512, head_256_128, head_512_256, head_256_512_256]
-  module.seq_encoder.trx_encoder.embeddings.timestamps.out:
-    min: 4
-    max: 128
   module.seq_encoder.trx_encoder.embeddings.labels.out:
     min: 4
     max: 128

@@ -1,0 +1,21 @@
+defaults:
+  - default
+  - module/head_partial: head_256
+  - module/autoreg_adapter_partial: default
+  - _self_
+
+name: next_item
+
+module:
+  _target_: esp_horizon.modules.NextItemModule
+  loss:
+    _target_: esp_horizon.losses.NextItemLoss
+    losses:
+      timestamps:
+        _target_: esp_horizon.losses.TimeMAELoss
+      labels:
+        _target_: esp_horizon.losses.CrossEntropyLoss
+        num_classes: 3
+  autoreg_adapter_partial:
+    _target_: esp_horizon.modules.autoreg.NextItemRNNAdapter
+  autoreg_max_steps: 100
