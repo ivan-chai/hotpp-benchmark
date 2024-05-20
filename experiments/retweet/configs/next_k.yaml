@@ -1,0 +1,18 @@
+defaults:
+  - default
+  - module/head_partial: head_256
+  - _self_
+
+name: next_k
+
+module:
+  _target_: esp_horizon.modules.NextKModule
+  loss:
+    _target_: esp_horizon.losses.NextKLoss
+    k: 64
+    losses:
+      timestamps:
+        _target_: esp_horizon.losses.TimeMAELoss
+      labels:
+        _target_: esp_horizon.losses.CrossEntropyLoss
+        num_classes: 3

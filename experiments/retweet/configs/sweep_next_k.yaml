@@ -32,8 +32,8 @@ parameters:
     min: 4
     max: 128
   module.loss.k:
-    min: 5
-    max: 24
+    min: 8
+    max: 128
   module.optimizer_partial.lr:
     distribution: log_uniform_values
     min: 0.00001
