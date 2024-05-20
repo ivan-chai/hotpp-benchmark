@@ -21,22 +21,6 @@ def get_nested_value(value):
     return value
 
 
-def cast_features(value):
-    if isinstance(value, torch.Tensor):
-        return value
-    if isinstance(value, dict):
-        return {k: cast_features(v) for k, v in value.items()}
-    if isinstance(value, list):
-        example = get_nested_value(value)
-        if example is None:
-            raise ValueError("Empty feature")
-    else:
-        example = value
-    if isinstance(example, Number):
-        return torch.tensor(value)
-    raise NotImplementedError(f"Can't parse data type: {type(value)}.")
-
-
 def get_parquet_length(path):
     with ParquetFile(path) as fp:
         return fp.metadata.num_rows
@@ -104,7 +88,7 @@ class ESPDataset(torch.utils.data.IterableDataset):
             raise ValueError("Need ID feature")
         if self.timestamps_field not in features:
             raise ValueError("Need timestamps feature")
-        if self.min_length > 0:
+        if (self.min_length > 0) or (self.max_length is not None):
             # Select subsequences.
             length = len(features[self.timestamps_field])
             min_length = min(length, self.min_length)
@@ -114,7 +98,7 @@ class ESPDataset(torch.utils.data.IterableDataset):
             features = {k: (v[offset:offset + out_length] if self.is_seq_feature(k, v) else v)
                         for k, v in features.items()}
             assert len(features[self.timestamps_field]) == out_length
-        return cast_features(features)  # Tensors.
+        return features  # Tensors.
 
     def __len__(self):
         return self.total_length
@@ -122,8 +106,9 @@ class ESPDataset(torch.utils.data.IterableDataset):
     def __iter__(self):
         for filename in self.filenames:
             for rec in read_pyarrow_file(filename, use_threads=True):
-                yield {k: (torch.from_numpy(v) if isinstance(v, np.ndarray) else torch.tensor(v))
-                       for k, v in rec.items()}
+                features = {k: (torch.from_numpy(v) if isinstance(v, np.ndarray) else torch.tensor(v))
+                            for k, v in rec.items()}
+                yield self.process(features)
 
     def collate_fn(self, batch):
         by_name = defaultdict(list)
