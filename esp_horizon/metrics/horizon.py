@@ -126,8 +126,8 @@ class HorizonMetric:
         # Apply horizon.
         targets_mask = self._get_horizon_mask(initial_timestamps, targets)  # (B, I, K).
         predictions_mask = self._get_horizon_mask(initial_timestamps, predictions)  # (B, I, N).
-        self._target_lengths.append(targets_mask.sum(-1).cpu().flatten())  # (BI).
-        self._predicted_lengths.append(predictions_mask.sum(-1).cpu().flatten())  # (BI).
+        self._target_lengths.append(targets_mask[seq_mask].sum(1).cpu().flatten())  # (V).
+        self._predicted_lengths.append(predictions_mask[seq_mask].sum(1).cpu().flatten())  # (BI).
 
         # Update deltas stats.
         predicted_timestamps = predictions.payload["timestamps"][seq_mask]  # (V, N).
