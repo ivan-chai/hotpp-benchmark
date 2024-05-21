@@ -2,8 +2,15 @@ import torch
 
 
 class NextItemMetric(torch.nn.Module):
-    def __init__(self):
+    """Next item (event) prediction evaluation metrics.
+
+    Args:
+        max_time_delta: Limit the maximum difference to stabilize MAE estimation.
+    """
+
+    def __init__(self, max_time_delta=None):
         super().__init__()
+        self.max_time_delta = max_time_delta
         self.reset()
 
     def update(self, mask, target_timestamps, target_labels,
@@ -25,6 +32,8 @@ class NextItemMetric(torch.nn.Module):
 
         ae = (target_timestamps - predicted_timestamps).abs()  # (B, L).
         ae = ae.masked_select(mask)  # (V).
+        if self.max_time_delta is not None:
+            ae = ae.clip(max=self.max_time_delta)
         self._ae_sums.append(ae.float().mean().cpu() * ae.numel())
 
         deltas = predicted_timestamps[:, 1:] - predicted_timestamps[:, :-1]  # (B, L - 1).

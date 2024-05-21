@@ -13,9 +13,10 @@ module:
     losses:
       timestamps:
         _target_: esp_horizon.losses.TimeMAELoss
+        max_delta: ${max_time_delta}
       labels:
         _target_: esp_horizon.losses.CrossEntropyLoss
-        num_classes: 3
+        num_classes: ${num_classes}
   autoreg_adapter_partial:
     _target_: esp_horizon.modules.autoreg.NextItemRNNAdapter
-  autoreg_max_steps: 100
+  autoreg_max_steps: ${max_predictions}

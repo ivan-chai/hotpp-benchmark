@@ -16,7 +16,7 @@ class ScaleGradient(torch.autograd.Function):
         return grad_output * ctx._weight, None
 
 
-def compute_delta(inputs, mask=None, delta="last"):
+def compute_delta(inputs, mask=None, delta="last", max_delta=None):
     if delta == "last":
         deltas = inputs[:, 1:] - inputs[:, :-1]  # (B, L - 1).
         mask = torch.logical_and(mask[:, 1:], mask[:, :-1]) if mask is not None else None  # (B, L - 1).
@@ -25,6 +25,8 @@ def compute_delta(inputs, mask=None, delta="last"):
         mask = torch.logical_and(mask[:, 1:], mask[:, :1]) if mask is not None else None  # (B, L - 1).
     else:
         raise ValueError(f"Unknown delta type: {delta}.")
+    if max_delta is not None:
+        deltas = deltas.clip(max=max_delta)
     return deltas, mask
 
 
@@ -121,10 +123,11 @@ class TimeMAELoss(BaseLoss):
     Args:
         delta: The type of time delta computation (`last` or `start`).
     """
-    def __init__(self, delta="last", grad_scale=None):
+    def __init__(self, delta="last", max_delta=None, grad_scale=None):
         super().__init__(input_dim=1, target_dim=1,
                          grad_scale=grad_scale)
         self.delta = delta
+        self.max_delta = max_delta
 
     def compute_loss(self, inputs, predictions, mask=None):
         """Compute losses and metrics.
@@ -141,7 +144,7 @@ class TimeMAELoss(BaseLoss):
         """
         assert predictions.shape[2] == 1
         predictions = predictions[:, :-1].squeeze(2)  # (B, L - 1).
-        deltas, mask = compute_delta(inputs, mask, delta=self.delta)
+        deltas, mask = compute_delta(inputs, mask, delta=self.delta, max_delta=self.max_delta)
         losses = (predictions - deltas).abs()  # (B, L - 1).
         return losses, mask, {}
 

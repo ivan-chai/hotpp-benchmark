@@ -9,11 +9,12 @@ module:
   _target_: esp_horizon.modules.NextKModule
   loss:
     _target_: esp_horizon.losses.NextKLoss
-    k: 64
+    k: ${max_predictions}
     losses:
       timestamps:
         _target_: esp_horizon.losses.TimeMAELoss
         delta: start
+        max_delta: ${max_time_delta}
       labels:
         _target_: esp_horizon.losses.CrossEntropyLoss
-        num_classes: 3
+        num_classes: ${num_classes}

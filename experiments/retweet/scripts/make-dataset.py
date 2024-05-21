@@ -6,7 +6,7 @@ import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 
-TIME_SCALE = 3600  # 1 hour.
+TIME_SCALE = 15  # 15 seconds, the median delta between events.
 
 SMALL_THRESHOLD = 120
 MEDIUM_THRESHOLD = 1363

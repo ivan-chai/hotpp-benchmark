@@ -27,17 +27,17 @@ class TimeRMTPPLoss(BaseLoss):
         eps: Small value used for influence thresholding in modes prediction.
 
     """
-    def __init__(self, delta="last", grad_scale=None,
+    def __init__(self, delta="last", max_delta=None, grad_scale=None,
                  init_influence=1, influence_dim=1, force_negative_influence=True,
-                 max_delta=None, max_intensity=None, expectation_steps=None,
+                 max_intensity=None, expectation_steps=None,
                  eps=1e-6):
         super().__init__(input_dim=1, target_dim=1,
                          grad_scale=grad_scale)
         self.delta = delta
+        self.max_delta = max_delta
         self.eps = eps
         self.max_intensity = max_intensity
         self.force_negative_influence = force_negative_influence
-        self.max_delta = max_delta
         self.expectation_steps = expectation_steps
         # TODO: use predicted influence.
         # TODO: per-label parameter?
@@ -82,7 +82,7 @@ class TimeRMTPPLoss(BaseLoss):
         """
         assert predictions.shape[2] == 1
         predictions = predictions[:, :-1].squeeze(2)  # (B, L - 1).
-        deltas, mask = compute_delta(inputs, mask, delta=self.delta)
+        deltas, mask = compute_delta(inputs, mask, delta=self.delta, max_delta=self.max_delta)
 
         log_intencities = self._log_intensity(predictions, deltas)  # (B, L).
         log_densities = log_intencities - (log_intencities.exp() - predictions.exp()) / self.get_current_influence()  # (B, L).
