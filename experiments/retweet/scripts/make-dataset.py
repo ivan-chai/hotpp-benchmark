@@ -55,10 +55,10 @@ def read_index(path):
 def split(ids, index_dates):
     # There is a total of 15 days.
     # Train / dev / test are split by the date of the original tweet.
-    # Train: 7 days, dev: 4 days, test: 4 days.
-    mask = index_dates < 7
+    # Train: 9 days, dev: 2 days, test: 4 days.
+    mask = index_dates < 9
     train_ids = ids[mask]
-    mask = np.logical_and(index_dates >= 7, index_dates < 11)
+    mask = np.logical_and(index_dates >= 9, index_dates < 11)
     dev_ids = ids[mask]
     mask = index_dates >= 11
     test_ids = ids[mask]
