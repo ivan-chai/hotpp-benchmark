@@ -5,59 +5,36 @@ import torch
 
 from esp_horizon.data import PaddedBatch
 from esp_horizon.modules import BaseModule, NextItemModule
-from ptls.nn.seq_encoder import RnnEncoder
-from ptls.nn.seq_encoder.containers import SeqEncoderContainer
-from esp_horizon.modules.autoreg import RNNSequencePredictor, NextItemRNNAdapter, BaseAdapter
+from esp_horizon.nn.encoder import RnnEncoder
+from esp_horizon.nn.encoder.autoreg import autoreg_prepare_features, autoreg_revert_features, autoreg_output_to_next_input_inplace
 
 
-class SimpleEncoder(torch.nn.Module):
-    category_names = {"timestamps", "labels"}
-
-    def __init__(self):
-        super().__init__()
-        self.output_size = 2
-        self.embeddings = torch.nn.ModuleDict({
-            "labels": torch.nn.Embedding(2, 1)
-        })
-
+class SimpleEmbedder(torch.nn.Module):
     def forward(self, x):
         payload = torch.stack([x.payload["timestamps"], x.payload["labels"]], -1)
         return PaddedBatch(payload, x.seq_lens)
 
 
-class SimpleSequenceEncoder(RnnEncoder):
-    rnn_type = "gru"
-    num_layers = 1
-    bidirectional = False
-    trainable_starter = "static"
-
-    def __init__(self, input_size, is_reduce_sequence):
-        super(RnnEncoder, self).__init__(is_reduce_sequence=is_reduce_sequence)
-
-    @property
-    def starter_h(self):
-        return torch.zeros(1, 1, 2)
+class SimpleRNN(torch.nn.GRU):
+    def __init__(self):
+        super().__init__(1, 1)
 
     def forward(self, x, h_0=None):
-        return PaddedBatch(x.payload * 2 + 1, x.seq_lens)
+        return x * 2 + 1, None
 
 
-class SimpleContainer(SeqEncoderContainer):
+class SimpleSequenceEncoder(RnnEncoder):
+    num_layers = 1
+    _max_context = None
+    _context_step = None
+
     def __init__(self):
-        super().__init__(trx_encoder=SimpleEncoder(),
-                         seq_encoder_cls=SimpleSequenceEncoder,
-                         input_size=2,
-                         seq_encoder_params={},
-                         is_reduce_sequence=False)
+        super(RnnEncoder, self).__init__({})
+        self.embedder = SimpleEmbedder()
+        self.rnn = SimpleRNN()
 
 
-class SimpleModule(NextItemModule):
-    def __init__(self):
-        super(BaseModule, self).__init__()
-        self.seq_encoder = SimpleContainer()
-        self._encode_time_as_delta = False
-        self._head = None
-
+class SimpleLoss:
     def predict_next(self, embeddings):
         return PaddedBatch({
             "timestamps": embeddings.payload[:, :, 0].long(),
@@ -65,15 +42,16 @@ class SimpleModule(NextItemModule):
         }, embeddings.seq_lens)
 
 
-class SimpleAdapter(BaseAdapter):
-    def __init__(self, **kwargs):
-        super().__init__(torch.nn.Identity(), "timestamps", **kwargs)
+class SimpleModule(NextItemModule):
+    def __init__(self):
+        super(BaseModule, self).__init__()
+        self.seq_encoder = SimpleSequenceEncoder()
+        self._head = None
+        self._autoreg_max_steps = 2
+        self.loss = SimpleLoss()
 
-    def forward(self, batch):
-        return {"timestamps": torch.zeros(len(batch))}
 
-
-class TestAdapters(TestCase):
+class TestAutoreg(TestCase):
     def assertEqualBatch(self, batch1, batch2):
         self.assertEqual(len(batch1), len(batch2))
         self.assertEqual(set(batch1.payload), set(batch2.payload))
@@ -115,66 +93,32 @@ class TestAdapters(TestCase):
             "timestamps": torch.tensor([3, 0])
         }
 
-        # Input delta and output delta.
-        adapter = SimpleAdapter(time_int=True)
-        x = adapter.prepare_features(batch)
+        # Right Batch.
+        x = autoreg_prepare_features(batch)
         gt = PaddedBatch({"timestamps": deltas,
                           "_times": times},
                          lengths)
         self.assertEqualBatch(x, gt)
 
-        d, y = adapter.output_to_next_input(x, features)
-        self.assertEqual(d.tolist(), [3, 0])
+        y = autoreg_output_to_next_input_inplace(x, features)
         self.assertEqual(y["timestamps"].tolist(), [3, 0])
         self.assertEqual(y["_times"].tolist(), [10, 2])
 
-        x = adapter.revert_features(x)
+        x = autoreg_revert_features(x)
         self.assertEqualBatch(x, batch)
 
         # Left Batch.
-        x = adapter.prepare_features(left_batch)
+        x = autoreg_prepare_features(left_batch)
         gt = PaddedBatch({"timestamps": left_deltas,
                           "_times": left_times},
                          lengths, left=True)
         self.assertEqualBatch(x, gt)
 
-        d, y = adapter.output_to_next_input(x, features)
-        self.assertEqual(d.tolist(), [3, 0])
+        y = autoreg_output_to_next_input_inplace(x, features)
         self.assertEqual(y["timestamps"].tolist(), [3, 0])
         self.assertEqual(y["_times"].tolist(), [10, 2])
 
-        x = adapter.revert_features(x)
-        self.assertEqualBatch(x, left_batch)
-
-        # Input raw time and output delta.
-        adapter = SimpleAdapter(time_int=True, time_input_delta=False)
-        x = adapter.prepare_features(batch)
-        gt = PaddedBatch({"timestamps": times,
-                          "_times": times},
-                         lengths)
-        self.assertEqualBatch(x, gt)
-
-        d, y = adapter.output_to_next_input(x, features)
-        self.assertEqual(d.tolist(), [3, 0])
-        self.assertEqual(y["timestamps"].tolist(), [10, 2])
-        self.assertEqual(y["_times"].tolist(), [10, 2])
-
-        x = adapter.revert_features(PaddedBatch({"timestamps": deltas, "_times": times}, x.seq_lens))
-        self.assertEqualBatch(x, batch)
-
-        # Left Batch.
-        x = adapter.prepare_features(left_batch)
-        gt = PaddedBatch({"timestamps": left_times,
-                          "_times": left_times},
-                         lengths, left=True)
-        self.assertEqualBatch(x, gt)
-
-        d, y = adapter.output_to_next_input(x, features)
-        self.assertEqual(d.tolist(), [3, 0])
-        self.assertEqual(y["timestamps"].tolist(), [10, 2])
-        self.assertEqual(y["_times"].tolist(), [10, 2])
-
-        x = adapter.revert_features(PaddedBatch({"timestamps": left_deltas, "_times": left_times}, x.seq_lens, left=True))
+        x = autoreg_revert_features(x)
         self.assertEqualBatch(x, left_batch)
 
     def test_inference(self):
@@ -185,7 +129,7 @@ class TestAdapters(TestCase):
              [4, 0],
              [6, 0]],
             [[2, 1],
-             [3, 1],
+             [4, 1],
              [5, 1],
              [0, 0],
              [0, 0]]
@@ -195,30 +139,34 @@ class TestAdapters(TestCase):
                              "labels": features[..., 1]}, lengths)
         indices = torch.tensor([
             [0, 1],
-            [1, 0]  # Second is unused.
+            [2, 0]  # Second is unused.
         ])
         indices = PaddedBatch(indices, torch.tensor([2, 1]))
 
-        # Initial states:
+        # After time delta:
+        # 0 1 1 2 2
+        # 0 2 1 -5 0
+
+        # Initial states (time_delta, label):
         # [0, 0], [1, 1]
-        # [3, 1]
+        # [5, 3]
 
         # Prediction function is x * 2 + 1
+        # The model predicts labels and time delta.
+        #
         # Results:
-        # [1, 1], [3, 3]
-        # [3, 3], [7, 7]
-        # [7, 3], [15, 7]
+        # [1, 1], [4, 3]
+        # [4, 3], [11, 7]
+        # [8, 7], [15, 15]
 
-        gt_times = [[[1, 3], [3, 7]], [[7, 15]]]
+        gt_times = [[[1, 4], [4, 11]], [[8, 15]]]
         gt_labels = [[[1, 3], [3, 7]], [[3, 7]]]
 
         # Initialize predictors.
         module = SimpleModule()
-        adapter = NextItemRNNAdapter(module, "timestamps", time_input_delta=False, time_output_delta=False)
-        rnn_predictor_modes = RNNSequencePredictor(adapter, max_steps=2)
 
-        for predictor in [rnn_predictor_modes]:
-            results = predictor(batch, indices)
+        for predictor in [module]:
+            results = predictor.generate_sequences(batch, indices)
 
             self.assertEqual(results.shape, (2, 2))
             self.assertEqual(results.seq_lens.tolist(), [2, 1])

@@ -1,6 +1,5 @@
 from esp_horizon.data import PaddedBatch
 from .base_module import BaseModule
-from .autoreg import RNNSequencePredictor
 
 
 class NextItemModule(BaseModule):
@@ -28,7 +27,6 @@ class NextItemModule(BaseModule):
         dev_metric: Dev set metric.
         test_metric: Test set metric.
         autoreg_max_step: The maximum number of future predictions.
-        autoreg_adapter_partial: An autoregressive adapter constructor (see `autoreg` submodule).
     """
     def __init__(self, seq_encoder, loss,
                  timestamps_field="timestamps",
@@ -39,8 +37,7 @@ class NextItemModule(BaseModule):
                  lr_scheduler_partial=None,
                  dev_metric=None,
                  test_metric=None,
-                 autoreg_max_steps=None,
-                 autoreg_adapter_partial=None):
+                 autoreg_max_steps=None):
 
         super().__init__(
             seq_encoder=seq_encoder,
@@ -54,16 +51,7 @@ class NextItemModule(BaseModule):
             dev_metric=dev_metric,
             test_metric=test_metric
         )
-
-        if (autoreg_adapter_partial is None) ^ (autoreg_max_steps is None):
-            raise ValueError("Autoreg adapter and autoreg max steps must be provided together.")
-
-        if autoreg_adapter_partial is not None:
-            logits_field_mapping = {self._labels_field: self._labels_logits_field}
-            self._autoreg_adapter = autoreg_adapter_partial(self, dump_category_logits=logits_field_mapping)
-            self._autoreg_max_steps = autoreg_max_steps
-        else:
-            self._autoreg_adapter = None
+        self._autoreg_max_steps = autoreg_max_steps
 
     def generate_sequences(self, x, indices):
         """Generate future events.
@@ -75,7 +63,12 @@ class NextItemModule(BaseModule):
         Returns:
             Predicted sequences with shape (B, I, N).
         """
-        if self._autoreg_adapter is None:
-            raise RuntimeError("Need autoregressive adapter for prediction.")
-        predictor = RNNSequencePredictor(self._autoreg_adapter, max_steps=self._autoreg_max_steps)
-        return predictor(x, indices)
+        def predict_fn(embeddings):
+            self.apply_head(embeddings)
+            predictions = self.loss.predict_next(embeddings)
+            if hasattr(self.loss, "predict_next_category_logits"):
+                logits = self.loss.predict_next_category_logits(embeddings, fields=[self._labels_field]).payload[self._labels_field]
+                predictions.payload.update({self._labels_logits_field: logits})
+                predictions.seq_names |= {self._labels_logits_field}
+            return predictions
+        return self.seq_encoder.generate(x, indices, predict_fn, self._autoreg_max_steps)  # (B, I, N).
