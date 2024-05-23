@@ -10,9 +10,11 @@ module:
   loss:
     _target_: esp_horizon.losses.NextKLoss
     k: 8
-    losses:
-      timestamps:
-        _target_: esp_horizon.losses.TimeMAELoss
-      labels:
-        _target_: esp_horizon.losses.CrossEntropyLoss
-        num_classes: 204
+    next_item_loss:
+      _target_: esp_horizon.losses.NextItemLoss
+      losses:
+        timestamps:
+          _target_: esp_horizon.losses.TimeMAELoss
+        labels:
+          _target_: esp_horizon.losses.CrossEntropyLoss
+          num_classes: 204
