@@ -1,4 +1,4 @@
-from abc import ABC, abstractmethod
+from abc import ABC, abstractmethod, abstractproperty
 import torch
 
 from ptls.nn import TrxEncoder
@@ -21,6 +21,10 @@ class BaseEncoder(torch.nn.Module):
             numeric_values={timestamps_field: "identity"}
         )
         self._timestamps_field = timestamps_field
+
+    @abstractproperty
+    def embedding_size(self):
+        pass
 
     def embed(self, x, compute_time_deltas=True):
         if compute_time_deltas:

@@ -18,7 +18,6 @@ class NextItemModule(BaseModule):
         loss: Training loss.
         timestamps_field: The name of the timestamps field.
         labels_field: The name of the labels field.
-        encode_time_as_delta: Encode input NN time as a delta feature.
         head_partial: FC head model class which accepts input and output dimensions.
         optimizer_partial:
             optimizer init partial. Network parameters are missed.
@@ -31,7 +30,6 @@ class NextItemModule(BaseModule):
     def __init__(self, seq_encoder, loss,
                  timestamps_field="timestamps",
                  labels_field="labels",
-                 encode_time_as_delta=False,
                  head_partial=None,
                  optimizer_partial=None,
                  lr_scheduler_partial=None,
@@ -44,7 +42,6 @@ class NextItemModule(BaseModule):
             loss=loss,
             timestamps_field=timestamps_field,
             labels_field=labels_field,
-            encode_time_as_delta=encode_time_as_delta,
             head_partial=head_partial,
             optimizer_partial=optimizer_partial,
             lr_scheduler_partial=lr_scheduler_partial,
@@ -65,10 +62,10 @@ class NextItemModule(BaseModule):
         """
         def predict_fn(embeddings):
             self.apply_head(embeddings)
-            predictions = self.loss.predict_next(embeddings)
-            if hasattr(self.loss, "predict_next_category_logits"):
-                logits = self.loss.predict_next_category_logits(embeddings, fields=[self._labels_field]).payload[self._labels_field]
+            predictions = self._loss.predict_next(embeddings)
+            if hasattr(self._loss, "predict_next_category_logits"):
+                logits = self._loss.predict_next_category_logits(embeddings, fields=[self._labels_field]).payload[self._labels_field]
                 predictions.payload.update({self._labels_logits_field: logits})
-                predictions.seq_names |= {self._labels_logits_field}
+                predictions.seq_names.update({self._labels_logits_field})
             return predictions
         return self.seq_encoder.generate(x, indices, predict_fn, self._autoreg_max_steps)  # (B, I, N).

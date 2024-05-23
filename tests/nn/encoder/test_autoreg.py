@@ -48,7 +48,7 @@ class SimpleModule(NextItemModule):
         self.seq_encoder = SimpleSequenceEncoder()
         self._head = None
         self._autoreg_max_steps = 2
-        self.loss = SimpleLoss()
+        self._loss = SimpleLoss()
 
 
 class TestAutoreg(TestCase):

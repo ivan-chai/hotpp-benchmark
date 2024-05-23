@@ -30,6 +30,7 @@ class RnnEncoder(BaseEncoder):
             embeddings=embeddings,
             timestamps_field=timestamps_field
         )
+        self._hidden_size = hidden_size
         self._num_layers = num_layers
         self._max_context = max_inference_context
         self._context_step = inference_context_step
@@ -39,6 +40,10 @@ class RnnEncoder(BaseEncoder):
             num_layers=num_layers,
             batch_first=True
         )
+
+    @property
+    def embedding_size(self):
+        return self._hidden_size
 
     @property
     def num_layers(self):
@@ -53,7 +58,7 @@ class RnnEncoder(BaseEncoder):
         embeddings = self.embed(x)
         payload, _ = self.rnn(embeddings.payload)
         return {
-            "outputs": PaddedBatch(payload, embeddigns.seq_lens)
+            "outputs": PaddedBatch(payload, embeddings.seq_lens)
         }
 
     def generate(self, x, indices, predict_fn, n_steps):
@@ -137,12 +142,12 @@ class RnnEncoder(BaseEncoder):
         seq_names = set(features.seq_names)
         states = states.payload.reshape(batch_size, self.num_layers, -1).permute(1, 0, 2)  # (L, B, D).
 
+        static_outputs = {k: v for k, v in features.payload.items()
+                          if k not in seq_names}
         outputs = defaultdict(list)
-        outputs.update({k: v for k, v in features.payload.items()
-                        if k not in seq_names})
         for _ in range(n_steps):
             embeddings = self.embed(features, compute_time_deltas=False).payload  # (B, 1, D).
-            embeddings, states = self.rnn(embeddings, h_0=states)  # (B, 1, D), (L, B, D).
+            embeddings, states = self.rnn(embeddings, states)  # (B, 1, D), (L, B, D).
             embeddings = PaddedBatch(embeddings, features.seq_lens)
             predictions = {k: v.squeeze(1) for k, v in predict_fn(embeddings).payload.items()}  # (B).
             predictions = autoreg_output_to_next_input_inplace(features, predictions, timestamps_field=self._timestamps_field)  # (B).
@@ -151,8 +156,7 @@ class RnnEncoder(BaseEncoder):
             features = PaddedBatch({k: v.unsqueeze(1) for k, v in predictions.items()},  # (B, 1).
                                    features.seq_lens)
         for k in list(outputs):
-            if isinstance(outputs[k], list):
-                outputs[k] = torch.stack(outputs[k], dim=1)  # (B, T, D).
+            outputs[k] = torch.stack(outputs[k], dim=1)  # (B, T, D).
         lengths = torch.full([batch_size], n_steps, device=device)  # (B).
-        outputs = PaddedBatch(dict(outputs), lengths, seq_names)
+        outputs = PaddedBatch(static_outputs | dict(outputs), lengths, seq_names=list(outputs))
         return outputs
