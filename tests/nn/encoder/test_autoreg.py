@@ -6,7 +6,6 @@ import torch
 from esp_horizon.data import PaddedBatch
 from esp_horizon.modules import BaseModule, NextItemModule
 from esp_horizon.nn.encoder import RnnEncoder
-from esp_horizon.nn.encoder.autoreg import autoreg_prepare_features, autoreg_revert_features, autoreg_output_to_next_input_inplace
 
 
 class SimpleEmbedder(torch.nn.Module):
@@ -37,7 +36,7 @@ class SimpleSequenceEncoder(RnnEncoder):
 class SimpleLoss:
     def predict_next(self, embeddings):
         return PaddedBatch({
-            "timestamps": embeddings.payload[:, :, 0].long(),
+            "timestamps": embeddings.payload[:, :, 0],
             "labels": embeddings.payload[:, :, 1].long()
         }, embeddings.seq_lens)
 
@@ -67,59 +66,6 @@ class TestAutoreg(TestCase):
                     self.assertTrue(v1[i, t - l:].allclose(v2[i, t - l:]))
                 else:
                     self.assertTrue(v1[i, :l].allclose(v2[i, :l]))
-
-    def test_autoreg_functions(self):
-        times = torch.tensor([
-            [3, 5, 5, 7],
-            [0, 2, -5, 200]
-        ])
-        deltas = torch.tensor([
-            [0, 2, 0, 2],
-            [0, 2, -1, -1]
-        ])
-        left_times = torch.tensor([
-            [3, 5, 5, 7],
-            [-8, 100, 0, 2]
-        ])
-        left_deltas = torch.tensor([
-            [0, 2, 0, 2],
-            [-1, -1, 0, 2]
-        ])
-        lengths = torch.tensor([4, 2])
-        batch = PaddedBatch({"timestamps": times}, lengths)
-        left_batch = PaddedBatch({"timestamps": left_times}, lengths, left=True)
-
-        features = {
-            "timestamps": torch.tensor([3, 0])
-        }
-
-        # Right Batch.
-        x = autoreg_prepare_features(batch)
-        gt = PaddedBatch({"timestamps": deltas,
-                          "_times": times},
-                         lengths)
-        self.assertEqualBatch(x, gt)
-
-        y = autoreg_output_to_next_input_inplace(x, features)
-        self.assertEqual(y["timestamps"].tolist(), [3, 0])
-        self.assertEqual(y["_times"].tolist(), [10, 2])
-
-        x = autoreg_revert_features(x)
-        self.assertEqualBatch(x, batch)
-
-        # Left Batch.
-        x = autoreg_prepare_features(left_batch)
-        gt = PaddedBatch({"timestamps": left_deltas,
-                          "_times": left_times},
-                         lengths, left=True)
-        self.assertEqualBatch(x, gt)
-
-        y = autoreg_output_to_next_input_inplace(x, features)
-        self.assertEqual(y["timestamps"].tolist(), [3, 0])
-        self.assertEqual(y["_times"].tolist(), [10, 2])
-
-        x = autoreg_revert_features(x)
-        self.assertEqualBatch(x, left_batch)
 
     def compare_with_simple_rnn_forward(self):
         # One step of autoregression is equivalent to RNN forward.
@@ -152,7 +98,7 @@ class TestAutoreg(TestCase):
              [4, 0],
              [6, 0]],
             [[2, 1],
-             [4, 1],
+             [3, 1],
              [5, 1],
              [0, 0],
              [0, 0]]
@@ -168,21 +114,35 @@ class TestAutoreg(TestCase):
 
         # After time delta:
         # 0 1 1 2 2
-        # 0 2 1 -5 0
+        # 0 1 2 -5 0
 
-        # Initial states (time_delta, label):
+        # Initial states (state is the output from the previous feature, i.e. 2 * x + 1):
         # [0, 0], [1, 1]
-        # [5, 3]
+        # [3, 3]
 
-        # Prediction function is x * 2 + 1
+        # Initial fetures (time_delta, label):
+        # [0, 0], [1, 1]
+        # [2, 1]
+
+        # Prediction function is x * 2 + 1, where x is input.
         # The model predicts labels and time delta.
         #
-        # Results:
+        # Results (time_delta, label):
+        # [1, 1], [3, 3]
+        # [3, 3], [7, 7]
+        # [5, 3], [11, 7]
+        #
+        # Results (time_delta cumsum, label):
+        # [1, 1], [4, 3]
+        # [3, 3], [10, 7]
+        # [5, 3], [16, 7]
+        #
+        # Results (time, label):
         # [1, 1], [4, 3]
         # [4, 3], [11, 7]
-        # [8, 7], [15, 15]
+        # [7, 3], [18, 7]
 
-        gt_times = [[[1, 4], [4, 11]], [[8, 15]]]
+        gt_times = [[[1, 4], [4, 11]], [[7, 18]]]
         gt_labels = [[[1, 3], [3, 7]], [[3, 7]]]
 
         # Initialize predictors.

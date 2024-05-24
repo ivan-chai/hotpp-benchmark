@@ -26,15 +26,19 @@ class BaseEncoder(torch.nn.Module):
     def embedding_size(self):
         pass
 
+    def compute_time_deltas(self, x):
+        """Replace timestamps with time deltas."""
+        field = self._timestamps_field
+        deltas = x.payload[field].clone()
+        deltas[:, 1:] -= x.payload[field][:, :-1]
+        deltas[:, 0] = 0
+        x = x.clone()
+        x.payload[field] = deltas
+        return x
+
     def embed(self, x, compute_time_deltas=True):
         if compute_time_deltas:
-            field = self._timestamps_field
-            deltas = x.payload[field].clone()
-            deltas[:, 1:] -= x.payload[field][:, :-1]
-            deltas[:, 0] = 0
-            x = x.clone()
-            x.payload[field] = deltas
-
+            x = self.compute_time_deltas(x)
         return self.embedder(x)
 
     @abstractmethod

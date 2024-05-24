@@ -4,7 +4,7 @@ import torch
 from .base_encoder import BaseEncoder
 
 from esp_horizon.data import PaddedBatch
-from .autoreg import autoreg_prepare_features, autoreg_revert_features, autoreg_output_to_next_input_inplace
+from esp_horizon.utils.torch import deterministic
 from .window import apply_windows
 
 
@@ -76,7 +76,7 @@ class RnnEncoder(BaseEncoder):
         batch_size, index_size = indices.shape
 
         # Compute time deltas and save initial times.
-        x = autoreg_prepare_features(x, timestamps_field=self._timestamps_field)
+        x = self.compute_time_deltas(x)
 
         # Select input state and initial feature for each index position.
         initial_states, initial_features = self._get_initial_states(x, indices)  # (B, I, D), (B, I).
@@ -94,7 +94,9 @@ class RnnEncoder(BaseEncoder):
         sequences = self._generate_autoreg(initial_states, initial_features, predict_fn, n_steps)  # (B * I, N).
 
         # Revert deltas.
-        sequences = autoreg_revert_features(sequences, timestamps_field=self._timestamps_field)  # (B * I, N).
+        with deterministic(False):
+            sequences.payload[self._timestamps_field].cumsum_(1)
+        sequences.payload[self._timestamps_field] += initial_features.payload[self._timestamps_field]
 
         # Gather results.
         mask = indices.seq_len_mask.bool()  # (B, I).
@@ -149,12 +151,9 @@ class RnnEncoder(BaseEncoder):
             embeddings = self.embed(features, compute_time_deltas=False).payload  # (B, 1, D).
             embeddings, states = self.rnn(embeddings, states)  # (B, 1, D), (L, B, D).
             embeddings = PaddedBatch(embeddings, features.seq_lens)
-            predictions = {k: v.squeeze(1) for k, v in predict_fn(embeddings).payload.items()}  # (B).
-            predictions = autoreg_output_to_next_input_inplace(features, predictions, timestamps_field=self._timestamps_field)  # (B).
-            for k, v in predictions.items():
-                outputs[k].append(v)
-            features = PaddedBatch({k: v.unsqueeze(1) for k, v in predictions.items()},  # (B, 1).
-                                   features.seq_lens)
+            features = predict_fn(embeddings)  # (B, 1).
+            for k, v in features.payload.items():
+                outputs[k].append(v.squeeze(1))  # (B).
         for k in list(outputs):
             outputs[k] = torch.stack(outputs[k], dim=1)  # (B, T, D).
         lengths = torch.full([batch_size], n_steps, device=device)  # (B).
