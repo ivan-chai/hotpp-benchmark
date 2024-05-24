@@ -13,7 +13,7 @@ logger:
 model_path: checkpoints/${name}.ckpt
 report: results/${name}.yaml
 multiseed_report: results/multiseed_${name}.txt
-downstream_report: results/downsteam_${name}.txt
+downstream_report: results/downstream_${name}.txt
 
 data_module:
   _target_: esp_horizon.data.ESPDataModule

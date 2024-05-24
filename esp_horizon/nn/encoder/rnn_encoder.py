@@ -75,6 +75,8 @@ class RnnEncoder(BaseEncoder):
         """
         batch_size, index_size = indices.shape
 
+        initial_timestamps = x.payload[self._timestamps_field].take_along_dim(indices.payload, dim=1)  # (B, I).
+
         # Compute time deltas and save initial times.
         x = self.compute_time_deltas(x)
 
@@ -82,7 +84,8 @@ class RnnEncoder(BaseEncoder):
         initial_states, initial_features = self._get_initial_states(x, indices)  # (B, I, D), (B, I).
 
         # Flatten batches.
-        mask = initial_states.seq_len_mask.bool()
+        mask = initial_states.seq_len_mask.bool()  # (B, I).
+        initial_timestamps = initial_timestamps[mask].unsqueeze(1)  # (B * I, 1).
         initial_states = initial_states.payload[mask].unsqueeze(1)  # (B * I, 1, D).
         lengths = torch.ones(len(initial_states), device=indices.device, dtype=torch.long)
         initial_states = PaddedBatch(initial_states, lengths)
@@ -96,7 +99,7 @@ class RnnEncoder(BaseEncoder):
         # Revert deltas.
         with deterministic(False):
             sequences.payload[self._timestamps_field].cumsum_(1)
-        sequences.payload[self._timestamps_field] += initial_features.payload[self._timestamps_field]
+        sequences.payload[self._timestamps_field] += initial_timestamps
 
         # Gather results.
         mask = indices.seq_len_mask.bool()  # (B, I).

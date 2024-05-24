@@ -149,10 +149,12 @@ class TimeMAELoss(BaseLoss):
         return losses, mask, {}
 
     def predict_modes(self, predictions):
-        return predictions  # (B, L, 1).
+        # Delta is always positive.
+        return predictions.clip(min=0)  # (B, L, 1).
 
     def predict_means(self, predictions):
-        return predictions  # (B, L, 1).
+        # Delta is always positive.
+        return predictions.clip(min=0)  # (B, L, 1).
 
 
 class CrossEntropyLoss(BaseLoss):

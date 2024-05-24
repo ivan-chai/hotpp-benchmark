@@ -111,7 +111,8 @@ class TimeRMTPPLoss(BaseLoss):
         modes = torch.where(influence < self.eps,
                             torch.zeros_like(biases),
                             (clipped_influence.log() - biases) / clipped_influence)  # (*, L).
-        return modes.unsqueeze(-1)  # (*, L, 1).
+        # Delta is always positive.
+        return modes.unsqueeze(-1).clip(min=0)  # (*, L, 1).
 
     def predict_means(self, predictions):
         """Predict distributions means.
@@ -133,7 +134,8 @@ class TimeRMTPPLoss(BaseLoss):
             sample[empty, 0] = self.max_delta
             mask[empty, 0] = True
         expectations = (sample * mask).sum(1) / mask.sum(1)  # (B).
-        return expectations.reshape(*predictions.shape)  # (*, L, 1).
+        # Delta is always positive.
+        return expectations.reshape(*predictions.shape).clip(min=0)  # (*, L, 1).
 
     def _sample(self, biases, max_steps):
         """Apply thinning algorithm.
