@@ -72,3 +72,6 @@ trainer:
   precision: 16-mixed
   gradient_clip_val: 1  # Increases training stability.
   check_val_every_n_epoch: 3
+  model_selection:
+    metric: dev/detection-mAP
+    mode: max
