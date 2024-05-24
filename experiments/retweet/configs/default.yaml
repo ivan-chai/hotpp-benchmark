@@ -37,20 +37,15 @@ metric:
   otd_delete_cost: 3
 
 module:
-  encode_time_as_delta: true
   seq_encoder:
-    _target_: ptls.nn.RnnSeqEncoder
-    trx_encoder:
-      _target_: ptls.nn.TrxEncoder
-      embeddings_noise: 0.003
-      embeddings:
-        labels:
-          in: 3
-          out: 16
-      numeric_values:
-        timestamps: identity
-    type: gru
+    _target_: esp_horizon.nn.RnnEncoder
+    embeddings:
+      labels:
+        in: 3
+        out: 16
     hidden_size: 512
+    max_inference_context: 1200
+    inference_context_step: 200
   head_partial:
     _target_: esp_horizon.nn.Head
     _partial_: true
