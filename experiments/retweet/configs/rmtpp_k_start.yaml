@@ -10,16 +10,18 @@ module:
   loss:
     _target_: esp_horizon.losses.NextKLoss
     k: ${max_predictions}
-    losses:
-      timestamps:
-        _target_: esp_horizon.losses.TimeRMTPPLoss
-        delta: start
-        max_delta: ${max_time_delta}
-        init_influence: -0.1
-        influence_dim: ${max_predictions}
-        max_intensity: 10
-        grad_scale: 0.05
-        expectation_steps: 100
-      labels:
-        _target_: esp_horizon.losses.CrossEntropyLoss
-        num_classes: ${num_classes}
+    next_item_loss:
+      _target_: esp_horizon.losses.NextItemLoss
+      losses:
+        timestamps:
+          _target_: esp_horizon.losses.TimeRMTPPLoss
+          delta: start
+          max_delta: ${max_time_delta}
+          init_influence: -0.1
+          influence_dim: ${max_predictions}
+          max_intensity: 10
+          grad_scale: 0.05
+          expectation_steps: 100
+        labels:
+          _target_: esp_horizon.losses.CrossEntropyLoss
+          num_classes: ${num_classes}

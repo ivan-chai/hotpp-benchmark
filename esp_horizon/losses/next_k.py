@@ -13,11 +13,11 @@ class NextKLoss(torch.nn.Module):
         prediction: The type of prediction (either `mean` or `mode`).
         loss_step: The period of loss evaluation.
     """
-    def __init__(self, k, losses, prediction="mean", loss_step=1):
+    def __init__(self, next_item_loss, k, loss_step=1):
         super().__init__()
+        self._next_item = next_item_loss
         self._k = k
         self._loss_step = loss_step
-        self._next_item = NextItemLoss(losses, prediction=prediction)
 
     @property
     def num_events(self):

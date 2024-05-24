@@ -1,6 +1,10 @@
 seed_everything: 42
 num_evaluation_seeds: 5
 
+max_predictions: 32
+num_classes: 204
+max_time_delta: 8  # Larger than horizon, but not too large.
+
 logger:
   _target_: pytorch_lightning.loggers.WandbLogger
   project: esp-agepred
@@ -9,7 +13,7 @@ logger:
 model_path: checkpoints/${name}.ckpt
 report: results/${name}.yaml
 multiseed_report: results/multiseed_${name}.txt
-downstream_report: results/downsteam_${name}.txt
+downstream_report: results/downstream_${name}.txt
 
 data_module:
   _target_: esp_horizon.data.ESPDataModule
@@ -25,6 +29,7 @@ metric:
   _target_: esp_horizon.metrics.HorizonMetric
   horizon: 7  # One week.
   horizon_evaluation_step: 64
+  max_time_delta: ${max_time_delta}
   map_thresholds: [1, 3, 7]
   map_target_length: 24
   otd_steps: 5
@@ -32,20 +37,15 @@ metric:
   otd_delete_cost: 2
 
 module:
-  encode_time_as_delta: true
   seq_encoder:
-    _target_: ptls.nn.RnnSeqEncoder
-    trx_encoder:
-      _target_: ptls.nn.TrxEncoder
-      embeddings_noise: 0.003
-      embeddings:
-        labels:
-          in: 204
-          out: 256
-      numeric_values:
-        timestamps: identity
-    type: gru
+    _target_: esp_horizon.nn.RnnEncoder
+    embeddings:
+      labels:
+        in: 204
+        out: 256
     hidden_size: 512
+    max_inference_context: 1200
+    inference_context_step: 200
   head_partial:
     _target_: esp_horizon.nn.Head
     _partial_: true
@@ -72,3 +72,6 @@ trainer:
   precision: 16-mixed
   gradient_clip_val: 1  # Increases training stability.
   check_val_every_n_epoch: 3
+  model_selection:
+    metric: dev/detection-mAP
+    mode: max

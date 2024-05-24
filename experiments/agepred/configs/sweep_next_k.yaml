@@ -31,8 +31,8 @@ parameters:
   module.seq_encoder.trx_encoder.embeddings.labels.out:
     min: 4
     max: 128
-  module.loss.k:
-    min: 5
+  max_predictions:
+    min: 4
     max: 24
   module.optimizer_partial.lr:
     distribution: log_uniform_values
