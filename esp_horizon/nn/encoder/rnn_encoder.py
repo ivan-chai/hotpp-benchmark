@@ -6,6 +6,7 @@ from .base_encoder import BaseEncoder
 from esp_horizon.data import PaddedBatch
 from esp_horizon.utils.torch import deterministic
 from .window import apply_windows
+from .rnn import GRU, ContTimeLSTM
 
 
 class RnnEncoder(BaseEncoder):
@@ -14,6 +15,7 @@ class RnnEncoder(BaseEncoder):
     Args:
         embeddings: Dict with categorical feature names. Values must be like this `{'in': dictionary_size, 'out': embedding_size}`.
         timestamps_field: The name of the timestamps field.
+        rnn_type: Type of the model (`gru` or `cont-lstm`).
         hidden_size: The size of the hidden layer.
         num_layers: The number of layers.
         max_inference_context: Maximum RNN context for long sequences.
@@ -22,6 +24,7 @@ class RnnEncoder(BaseEncoder):
     def __init__(self,
                  embeddings,
                  timestamps_field="timestamps",
+                 rnn_type="gru",
                  hidden_size=256,
                  num_layers=1,
                  max_inference_context=None, inference_context_step=None,
@@ -34,12 +37,20 @@ class RnnEncoder(BaseEncoder):
         self._num_layers = num_layers
         self._max_context = max_inference_context
         self._context_step = inference_context_step
-        self.rnn = torch.nn.GRU(
-            self.embedder.output_size,
-            hidden_size,
-            num_layers=num_layers,
-            batch_first=True
-        )
+        if rnn_type == "gru":
+            self.rnn = GRU(
+                self.embedder.output_size,
+                hidden_size,
+                num_layers=num_layers
+            )
+        elif rnn_type == "cont-lstm":
+            self.rnn = ContTimeLSTM(
+                self.embedder.output_size,
+                hidden_size,
+                num_layers=num_layers
+            )
+        else:
+            raise ValueError(f"Unknown RNN type: {rnn_type}")
 
     @property
     def embedding_size(self):
@@ -49,17 +60,44 @@ class RnnEncoder(BaseEncoder):
     def num_layers(self):
         return self._num_layers
 
-    def forward(self, x):
+    def forward(self, x, return_states=False):
         """Apply RNN model.
 
         Args:
             x: PaddedBatch with input features.
+            return_states: Whether to return states or not.
+
+        Returns:
+            Dictionary with "outputs" and optional "states" keys.
+            Outputs is a PaddedBatch with shape (B, T, D).
+            States (if provided) is a PaddedBatch with shape (N, B, T, D).
         """
+        timestamps = x.payload[self._timestamps_field]
         embeddings = self.embed(x)
-        payload, _ = self.rnn(embeddings.payload)
-        return {
-            "outputs": PaddedBatch(payload, embeddings.seq_lens)
-        }
+        result = self.rnn(embeddings.payload, timestamps, return_states=return_states)
+        if return_states:
+            outputs, states = result
+            return {
+                "outputs": PaddedBatch(outputs, embeddings.seq_lens),
+                "states": PaddedBatch(states, embeddings.seq_lens)
+            }
+        else:
+            return {
+                "outputs": PaddedBatch(result, embeddings.seq_lens)
+            }
+
+    def interpolate(self, states, time_deltas):
+        """Compute layer output for continous time.
+
+        Args:
+            states: Last model states with shape (N, B, L, D).
+            time_deltas: Relative timestamps to compute output at with shape (B, L).
+
+        Returns:
+            Outputs with shape (B, L, D).
+        """
+        result = self.rnn.interpolate(states.payload, time_deltas.payload)
+        return PaddedBatch(result, states.seq_lens)
 
     def generate(self, x, indices, predict_fn, n_steps):
         """Use auto-regression to generate future sequence.

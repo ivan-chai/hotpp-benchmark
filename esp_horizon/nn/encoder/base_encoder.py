@@ -42,15 +42,30 @@ class BaseEncoder(torch.nn.Module):
         return self.embedder(x)
 
     @abstractmethod
-    def forward(self, x):
+    def forward(self, x, return_states=False):
         """Apply the model.
 
         Args:
             x: PaddedBatch with input features with shape (B, T).
+            return_states: Whether to return states or not.
 
         Returns:
             Dictionary with "outputs" and optional "states" keys.
             Outputs is a PaddedBatch with shape (B, T, D).
+            States (if provided) is a PaddedBatch with shape (N, B, T, D).
+        """
+        pass
+
+    @abstractmethod
+    def interpolate(self, states, timestamps):
+        """Compute layer output for continous time.
+
+        Args:
+            states: Last model states with shape (B, L, D).
+            timestamps: Timestamps to compute output at with shape (B, L).
+
+        Returns:
+            Outputs with shape (B, L, D).
         """
         pass
 
