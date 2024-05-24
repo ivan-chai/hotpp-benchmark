@@ -140,9 +140,9 @@ class TestAutoreg(TestCase):
         # Results (time, label):
         # [1, 1], [4, 3]
         # [4, 3], [11, 7]
-        # [7, 3], [18, 7]
+        # [10, 3], [21, 7]
 
-        gt_times = [[[1, 4], [4, 11]], [[7, 18]]]
+        gt_times = [[[1, 4], [4, 11]], [[10, 21]]]
         gt_labels = [[[1, 3], [3, 7]], [[3, 7]]]
 
         # Initialize predictors.

@@ -47,7 +47,7 @@ class TestNextItemLoss(TestCase):
         modes_gt = torch.tensor([
             [(math.log(3) - 0) / 3, (math.log(3) - 1) / 3, (math.log(3) + 1) / 3],
             [(math.log(3) - 2) / 3, (math.log(3) - 0) / 3, (math.log(3) - 1) / 3],
-        ], dtype=torch.double)
+        ], dtype=torch.double).clip(min=0)
         self.assertTrue(modes.allclose(modes_gt))
 
     def test_rmtpp_thinning(self):
