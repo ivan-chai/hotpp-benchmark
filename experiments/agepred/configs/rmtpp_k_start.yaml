@@ -9,19 +9,19 @@ module:
   _target_: esp_horizon.modules.NextKModule
   loss:
     _target_: esp_horizon.losses.NextKLoss
-    k: 8
+    k: ${max_predictions}
     next_item_loss:
       _target_: esp_horizon.losses.NextItemLoss
       losses:
         timestamps:
           _target_: esp_horizon.losses.TimeRMTPPLoss
           delta: start
+          max_delta: ${max_time_delta}
           init_influence: -0.1
-          influence_dim: 8
+          influence_dim: ${max_predictions}
           max_intensity: 4
           grad_scale: 0.05
-          max_delta: 8  # horizon + 1.
           expectation_steps: 100
         labels:
           _target_: esp_horizon.losses.CrossEntropyLoss
-          num_classes: 204
+          num_classes: ${num_classes}

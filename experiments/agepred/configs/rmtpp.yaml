@@ -1,7 +1,6 @@
 defaults:
   - default
   - module/head_partial: head_512_256
-  - module/autoreg_adapter_partial: default
   - _self_
 
 name: rmtpp
@@ -13,14 +12,12 @@ module:
     losses:
       timestamps:
         _target_: esp_horizon.losses.TimeRMTPPLoss
+        max_delta: ${max_time_delta}
         init_influence: -0.1
         max_intensity: 4
         grad_scale: 0.05
-        max_delta: 8  # horizon + 1.
         expectation_steps: 100
       labels:
         _target_: esp_horizon.losses.CrossEntropyLoss
-        num_classes: 204
-  autoreg_adapter_partial:
-    _target_: esp_horizon.modules.autoreg.NextItemRNNAdapter
-  autoreg_max_steps: 24
+        num_classes: ${num_classes}
+  autoreg_max_steps: ${max_predictions}

@@ -68,7 +68,7 @@ class TestAutoreg(TestCase):
                 else:
                     self.assertTrue(v1[i, :l].allclose(v2[i, :l]))
 
-    def test_time(self):
+    def test_autoreg_functions(self):
         times = torch.tensor([
             [3, 5, 5, 7],
             [0, 2, -5, 200]
@@ -120,6 +120,29 @@ class TestAutoreg(TestCase):
 
         x = autoreg_revert_features(x)
         self.assertEqualBatch(x, left_batch)
+
+    def compare_with_simple_rnn_forward(self):
+        # One step of autoregression is equivalent to RNN forward.
+        encoder = RnnEncoder(
+            {"labels": {"in": 4, "out": 8}}
+        )
+        batch = PaddedBatch({
+            "timestamps": torch.rand(1, 10).cumsum(1),
+            "labels": torch.randint(0, 4, (1, 10))
+        }, torch.tensor([10]))  # (1, 10).
+        indices = PaddedBatch(torch.arange(10)[None], torch.tensor([10]))
+
+        def predict_fn(outputs):
+            return PaddedBatch({
+                "timestamps": outputs.payload[:, :, 0],
+                "labels": (outputs.payload[:, :, 1] * 100).abs().long().clip(min=0, max=3)
+            }, outputs.seq_lens)
+        result = encoder.generate(batch, indices, predict_fn, 1)  # (B, I, 1).
+        result = PaddedBatch({k: v.squeeze(2) for k, v in result.payload.items()}, result.seq_lens)
+        result_gt = predict_fn(encoder(batch)["outputs"])
+        result_gt.payload["timestamps"].clip_(min=0)
+        result_gt.payload["timestamps"] += batch.payload["timestamps"]
+        self.assertEqualBatch(result, result_gt)
 
     def test_inference(self):
         features = torch.tensor([

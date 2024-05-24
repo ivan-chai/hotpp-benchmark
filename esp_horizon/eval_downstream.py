@@ -38,7 +38,7 @@ class InferenceModule(pl.LightningModule):
 
     def forward(self, batch):
         data, _ = batch  # Ignore labels.
-        embeddings = self.model.embed(data)  # (B, L, D).
+        embeddings = self.model.encode(data)  # (B, L, D).
         assert embeddings.payload.ndim == 3
         if self.reducer == "mean":
             embeddings = self.reduce_mean(embeddings)

@@ -61,10 +61,10 @@ class NextItemModule(BaseModule):
             Predicted sequences with shape (B, I, N).
         """
         def predict_fn(embeddings):
-            self.apply_head(embeddings)
-            predictions = self._loss.predict_next(embeddings)
+            embeddings = self.apply_head(embeddings)  # (B, L, D).
+            predictions = self._loss.predict_next(embeddings)  # (B, L).
             if hasattr(self._loss, "predict_next_category_logits"):
-                logits = self._loss.predict_next_category_logits(embeddings, fields=[self._labels_field]).payload[self._labels_field]
+                logits = self._loss.predict_next_category_logits(embeddings, fields=[self._labels_field]).payload[self._labels_field]  # (B, L, C).
                 predictions.payload.update({self._labels_logits_field: logits})
                 predictions.seq_names.update({self._labels_logits_field})
             return predictions

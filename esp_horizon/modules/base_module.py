@@ -67,10 +67,9 @@ class BaseModule(pl.LightningModule):
         return self._seq_encoder(x)["outputs"]  # (B, L, D).
 
     def apply_head(self, embeddings):
-        payload, seq_lens  = embeddings.payload, embeddings.seq_lens
-        if self._head is not None:
-            payload = self._head(payload)
-        return PaddedBatch(payload, seq_lens)
+        if self._head is None:
+            return embeddings
+        return PaddedBatch(self._head(embeddings.payload), embeddings.seq_lens)
 
     def forward(self, x):
         embeddings = self.encode(x)

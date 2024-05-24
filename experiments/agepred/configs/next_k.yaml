@@ -9,7 +9,7 @@ module:
   _target_: esp_horizon.modules.NextKModule
   loss:
     _target_: esp_horizon.losses.NextKLoss
-    k: 8
+    k: ${max_predictions}
     next_item_loss:
       _target_: esp_horizon.losses.NextItemLoss
       losses:
@@ -17,4 +17,4 @@ module:
           _target_: esp_horizon.losses.TimeMAELoss
         labels:
           _target_: esp_horizon.losses.CrossEntropyLoss
-          num_classes: 204
+          num_classes: ${num_classes}
