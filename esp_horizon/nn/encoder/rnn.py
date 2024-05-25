@@ -24,7 +24,7 @@ class GRU(torch.nn.GRU):
         Returns:
             Output with shape (B, L, D) and optional states tensor with shape (N, B, L, D).
         """
-        outputs = super().forward(x, states)
+        outputs, _ = super().forward(x, states)
         if not return_states:
             return outputs
         # Compute and return states.
