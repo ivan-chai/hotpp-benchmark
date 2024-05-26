@@ -32,6 +32,7 @@ class BaseEncoder(torch.nn.Module):
         deltas = x.payload[field].clone()
         deltas[:, 1:] -= x.payload[field][:, :-1]
         deltas[:, 0] = 0
+        deltas.clip_(min=0)
         x = x.clone()
         x.payload[field] = deltas
         return x

@@ -6,7 +6,7 @@ from .base_encoder import BaseEncoder
 from esp_horizon.data import PaddedBatch
 from esp_horizon.utils.torch import deterministic
 from .window import apply_windows
-from .rnn import GRU
+from .rnn import GRU, ContTimeLSTM
 
 
 class RnnEncoder(BaseEncoder):
@@ -15,7 +15,7 @@ class RnnEncoder(BaseEncoder):
     Args:
         embeddings: Dict with categorical feature names. Values must be like this `{'in': dictionary_size, 'out': embedding_size}`.
         timestamps_field: The name of the timestamps field.
-        rnn_type: Type of the model (`gru`).
+        rnn_type: Type of the model (`gru` or `cont-lstm`).
         hidden_size: The size of the hidden layer.
         num_layers: The number of layers.
         max_inference_context: Maximum RNN context for long sequences.
@@ -41,6 +41,12 @@ class RnnEncoder(BaseEncoder):
         self._context_step = inference_context_step
         if rnn_type == "gru":
             self.rnn = GRU(
+                self.embedder.output_size,
+                hidden_size,
+                num_layers=num_layers
+            )
+        elif rnn_type == "cont-time-lstm":
+            self.rnn = ContTimeLSTM(
                 self.embedder.output_size,
                 hidden_size,
                 num_layers=num_layers
