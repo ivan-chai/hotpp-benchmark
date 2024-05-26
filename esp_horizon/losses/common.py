@@ -33,26 +33,26 @@ def compute_delta(inputs, mask=None, delta="last", max_delta=None):
 class BaseLoss(ABC, torch.nn.Module):
     """Base loss class.
 
-    Each loss has some parametrization (input_dim) and a number of outputs (target_dim).
+    Each loss has some parametrization (input_size) and a number of outputs (target_size).
 
     Args:
-        input_dim: The number of parameters.
-        target_dim: Target value dimension.
+        input_size: The number of parameters.
+        target_size: Target value dimension.
         grad_scale: The backward pass gradient scale.
     """
-    def __init__(self, input_dim, target_dim, grad_scale=None):
+    def __init__(self, input_size, target_size, grad_scale=None):
         super().__init__()
-        self._input_dim = input_dim
-        self._target_dim = target_dim
+        self._input_size = input_size
+        self._target_size = target_size
         self._grad_scale = grad_scale
 
     @property
-    def input_dim(self):
-        return self._input_dim
+    def input_size(self):
+        return self._input_size
 
     @property
-    def target_dim(self):
-        return self._target_dim
+    def target_size(self):
+        return self._target_size
 
     def forward(self, inputs, predictions, mask=None):
         """Compute loss between predictions and targets.
@@ -124,7 +124,7 @@ class TimeMAELoss(BaseLoss):
         delta: The type of time delta computation (`last` or `start`).
     """
     def __init__(self, delta="last", max_delta=None, grad_scale=None):
-        super().__init__(input_dim=1, target_dim=1,
+        super().__init__(input_size=1, target_size=1,
                          grad_scale=grad_scale)
         self.delta = delta
         self.max_delta = max_delta
@@ -158,15 +158,15 @@ class TimeMAELoss(BaseLoss):
 
 
 class CrossEntropyLoss(BaseLoss):
-    target_dim = 1
+    target_size = 1
 
     def __init__(self, num_classes, grad_scale=None):
-        super().__init__(input_dim=num_classes, target_dim=1,
+        super().__init__(input_size=num_classes, target_size=1,
                          grad_scale=grad_scale)
 
     @property
     def num_classes(self):
-        return self.input_dim
+        return self.input_size
 
     def compute_loss(self, inputs, predictions, mask=None):
         """Compute cross-entropy loss between predictions and targets.

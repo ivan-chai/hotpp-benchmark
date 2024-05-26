@@ -60,12 +60,7 @@ class NextItemModule(BaseModule):
         Returns:
             Predicted sequences with shape (B, I, N).
         """
-        def predict_fn(embeddings):
-            embeddings = self.apply_head(embeddings)  # (B, L, D).
-            predictions = self._loss.predict_next(embeddings)  # (B, L).
-            if hasattr(self._loss, "predict_next_category_logits"):
-                logits = self._loss.predict_next_category_logits(embeddings, fields=[self._labels_field]).payload[self._labels_field]  # (B, L, C).
-                predictions.payload.update({self._labels_logits_field: logits})
-                predictions.seq_names.update({self._labels_logits_field})
-            return predictions
-        return self.seq_encoder.generate(x, indices, predict_fn, self._autoreg_max_steps)  # (B, I, N).
+        def predict_fn(hiddens):
+            outputs = self.apply_head(hiddens)  # (B, L, D).
+            return self.predict_next(outputs, logits_fields_mapping={self._labels_field: self._labels_logits_field})  # (B, L).
+        return self._seq_encoder.generate(x, indices, predict_fn, self._autoreg_max_steps)  # (B, I, N).

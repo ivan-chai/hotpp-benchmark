@@ -28,19 +28,19 @@ class NextKLoss(torch.nn.Module):
         return self._next_item.fields
 
     @property
-    def input_dim(self):
-        return self._k * self._next_item.input_dim
+    def input_size(self):
+        return self._k * self._next_item.input_size
 
     def get_delta_type(self, field):
         """Get time delta type."""
         return self._next_item.get_delta_type(field)
 
-    def forward(self, inputs, predictions):
+    def forward(self, inputs, outputs):
         """Extract targets and compute loss between predictions and targets.
 
         Args:
             inputs: Input features with shape (B, L).
-            predictions: Predicted values with shape (B, L, P).
+            outputs: Predicted values with shape (B, L, P).
 
         Returns:
             Losses dict and metrics dict.
@@ -58,7 +58,7 @@ class NextKLoss(torch.nn.Module):
         if self._loss_step > 1:
             lengths = (lengths - self._loss_step - 1).div(self._loss_step, rounding_mode="floor").clip(min=-1) + 1
             targets = targets[:, self._loss_step::self._loss_step]  # (B, L', k + 1, D).
-            predictions = PaddedBatch(predictions.payload[:, self._loss_step::self._loss_step], lengths)  # (B, L', P).
+            outputs = PaddedBatch(outputs.payload[:, self._loss_step::self._loss_step], lengths)  # (B, L', P).
 
         # Split targets.
         assert len(self.fields) == targets.shape[-1]
@@ -66,55 +66,64 @@ class NextKLoss(torch.nn.Module):
         targets = PaddedBatch(windows, lengths, inputs.seq_names)  # (B, L', k + 1).
 
         # Reshape predictions.
-        b, l_ = predictions.shape
-        predictions = PaddedBatch(predictions.payload.reshape(b, l_, self._k, self._next_item.input_dim),
-                                  predictions.seq_lens)  # (B, L', k, P).
+        b, l_ = outputs.shape
+        outputs = PaddedBatch(outputs.payload.reshape(b, l_, self._k, self._next_item.input_size),
+                              outputs.seq_lens)  # (B, L', k, P).
 
         # Select by mask.
         mask = targets.seq_len_mask.bool()  # (B, L').
         lengths = torch.full([mask.sum().item()], self._k + 1)  # (V).
         targets = PaddedBatch({k: v[mask] for k, v in targets.payload.items()},
                               lengths, targets.seq_names)  # (V, k + 1).
-        payload = predictions.payload[:, :mask.shape[1]][mask]  # (V, k, P).
+        payload = outputs.payload[:, :mask.shape[1]][mask]  # (V, k, P).
         payload = torch.cat([payload, payload[:, -1:]], dim=1)  # (V, k + 1, P).
-        predictions = PaddedBatch(payload, lengths)  # (V, k + 1, P).
+        outputs = PaddedBatch(payload, lengths)  # (V, k + 1, P).
 
-        losses, metrics = self._next_item(targets, predictions)
+        losses, metrics = self._next_item(targets, outputs)
         return losses, metrics
 
-    def predict_next(self, predictions, fields=None):
-        # Select parameters of the first predicted event.
-        b, l = predictions.shape
-        lengths = predictions.seq_lens
-        predictions = PaddedBatch(predictions.payload.reshape(b * l, self._k, self._next_item.input_dim)[:, :1, :],
-                                  torch.ones_like(predictions.seq_lens))  # (BL, 1, P).
-        next_values = self._next_item.predict_next(predictions, fields=fields)  # (BL, 1).
-        return PaddedBatch({k: v.reshape(b, l) for k, v in next_values.payload.items()},
-                           lengths)  # (B, L).
+    def predict_next(self, outputs, fields=None, logits_fields_mapping=None):
+        """Predict next events.
 
-    def predict_next_category_logits(self, predictions, fields=None):
-        # Select parameters of the first predicted event.
-        b, l = predictions.shape
-        lengths = predictions.seq_lens
-        predictions = PaddedBatch(predictions.payload.reshape(b * l, self._k, self._next_item.input_dim)[:, :1, :],
-                                  torch.ones_like(predictions.seq_lens))  # (BL, 1, P).
-        next_values = self._next_item.predict_next_category_logits(predictions, fields=fields)  # (BL, 1, C).
-        return PaddedBatch({k: v.reshape(b, l, -1) for k, v in next_values.payload.items()},
-                           lengths)  # (B, L, C).
+        Args:
+            outputs: Model outputs.
+            fields: The fields to predict next values for. By default, predict all fields.
+            logits_fields_mapping: A mapping from field to the output logits field to predict logits for.
 
-    def predict_next_k(self, predictions, fields=None, dump_category_logits=None):
-        b, l = predictions.shape
-        predictions = PaddedBatch(predictions.payload.reshape(b, l, self._k, self._next_item.input_dim),
-                                  predictions.seq_lens)  # (B, L, K, P).
-        results = self._next_item.predict_next(predictions, fields=fields)  # (B, L, K).
-        if dump_category_logits:
-            logits = self._next_item.predict_next_category_logits(predictions, fields=set(dump_category_logits))
-            payload = dict(results.payload)
-            payload.update({logits_field: logits.payload[field]
-                            for field, logits_field in dump_category_logits.items()})
-            result = PaddedBatch(payload, results.seq_lens,
-                                 seq_names=set(results.seq_names) | set(dump_category_logits.values()))
-        return result
+        Returns:
+            PaddedBatch with predictions with shape (B, L) or (B, L, C) for logits.
+        """
+        # Select parameters of the first predicted event.
+        b, l = outputs.shape
+        lengths = outputs.seq_lens
+        outputs = PaddedBatch(outputs.payload.reshape(b * l, self._k, self._next_item.input_size)[:, :1, :],
+                              torch.ones_like(outputs.seq_lens))  # (BL, 1, P).
+        next_values = self._next_item.predict_next(outputs,
+                                                   fields=fields,
+                                                   logits_fields_mapping=logits_fields_mapping)  # (BL, 1) or (BL, 1, C).
+        return PaddedBatch({k: v.reshape(b, l, *v.shape[2:]) for k, v in next_values.payload.items()},
+                           lengths)  # (B, L) or (B, L, C).
+
+    def predict_next_k(self, outputs, fields=None, logits_fields_mapping=None):
+        """Predict K future events.
+
+        Args:
+            outputs: Model outputs.
+            fields: The fields to predict next values for. By default, predict all fields.
+            logits_fields: A mapping from field to the output logits field to predict logits for.
+
+        Returns:
+            PaddedBatch with predictions with shape (B, L, K) or (B, L, K, C) for logits.
+        """
+        b, l = outputs.shape
+        lengths = outputs.seq_lens
+        outputs = PaddedBatch(outputs.payload.reshape(b * l, self._k, self._next_item.input_size),
+                              outputs.seq_lens)  # (BL, K, P).
+        next_values = self._next_item.predict_next(outputs,
+                                                   fields=fields,
+                                                   logits_fields_mapping=logits_fields_mapping)  # (BL, K) or (BL, K, C).
+        return PaddedBatch({k: v.reshape(b, l, self._k, *v.shape[2:]) for k, v in next_values.payload.items()},
+                           lengths)  # (B, L, K) or (B, L, K, C).
 
     @staticmethod
     def extract_windows(x, t):

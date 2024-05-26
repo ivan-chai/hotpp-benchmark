@@ -12,27 +12,26 @@ class GRU(torch.nn.GRU):
         )
         self._num_layers = num_layers
 
-    def forward(self, x, timestamps, states=None, return_states=False):
+    def forward(self, x, time_deltas, states=None, return_full_states=False):
         """Apply RNN.
 
         Args:
             x: Batch with shape (B, L, D).
-            timestamps (unused): Inputs timestamps.
+            time_deltas (unused): Relative inputs timestamps.
             states: Initial states with shape (N, B, D), where N is the number of layers.
-            return_states: Whether to return next hiddens states or not.
+            return_full_states: Whether to return states for each iteration or only output states.
 
         Returns:
-            Output with shape (B, L, D) and optional states tensor with shape (N, B, L, D).
+            Outputs with shape (B, T, D) and states with shape (N, B, D) or (N, B, T, D), where
+            N is the number of layers.
         """
-        outputs, _ = super().forward(x, states)
-        if not return_states:
-            return outputs
-        # Compute and return states.
-        if self._num_layers == 1:
-            # In GRU output and states are equal.
-            states = outputs[None]  # (1, B, L, D).
-        else:
-            raise NotImplementedError("Multilayer GRU states")
+        outputs, states = super().forward(x, states)
+        if return_full_states:
+            if self._num_layers == 1:
+                # In GRU output and states are equal.
+                states = outputs[None]  # (1, B, L, D).
+            else:
+                raise NotImplementedError("Multilayer GRU states")
         return outputs, states
 
     def interpolate(self, states, time_deltas):
@@ -65,7 +64,7 @@ class ContTimeLSTM(torch.nn.Module):
         self.d = nn.Linear(input_size + hidden_size, 1)
         self.beta = torch.nn.Parameter(torch.ones([]))
 
-    def forward(self, x, timestamps, states=None, return_states=False):
+    def forward(self, x, time_deltas, states=None, return_full_states=False):
         """Apply RNN.
 
         Args:
@@ -73,7 +72,7 @@ class ContTimeLSTM(torch.nn.Module):
             timestamps: Inputs timestamps with shape (B, L).
             states: Initial states with shape (1, B, 3D + 2).
                 State output gate, context_start, context_end, delta and previous timestamp.
-            return_states: Whether to return next hiddens states or not.
+            return_full_states: Whether to return states for each iteration or only output states.
 
         Returns:
             Output with shape (B, L, D) and optional states tensor with shape (1, B, L, 3D + 2).
@@ -112,15 +111,15 @@ class ContTimeLSTM(torch.nn.Module):
             ce = fe * prev_ce + ie * z
             d = torch.nn.functional.softplus(self.d(x_s), self.beta)  # (B, 1).
             outputs.append(h)  # (B, D).
-            if return_states:
+            if return_full_states:
                 output_states.append(torch.cat([o_gate, cs, ce, d, t], dim=1))  # (B, 3D + 2).
             prev_o, prev_cs, prev_ce, prev_d, prev_t = o_gate, cs, ce, d, t
         outputs = torch.stack(outputs, dim=1)  # (B, L, D).
-        if not return_states:
-            return outputs
-        else:
+        if return_full_states:
             states = torch.stack(output_states, dim=1)[None]  # (1, B, L, 3D + 2).
-            return outputs, states
+        else:
+            states = torch.cat([prev_o, prev_cs, prev_ce, prev_d, prev_t], dim=1)[None]  # (1, B, 3D + 2).
+        return outputs, states
 
     def interpolate(self, states, time_deltas):
         # GRU output is constant between events.

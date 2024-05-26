@@ -34,7 +34,7 @@ class SimpleSequenceEncoder(RnnEncoder):
 
 
 class SimpleLoss:
-    def predict_next(self, embeddings):
+    def predict_next(self, embeddings, fields, logits_fields_mapping):
         return PaddedBatch({
             "timestamps": embeddings.payload[:, :, 0],
             "labels": embeddings.payload[:, :, 1].long()
@@ -44,10 +44,13 @@ class SimpleLoss:
 class SimpleModule(NextItemModule):
     def __init__(self):
         super(BaseModule, self).__init__()
-        self.seq_encoder = SimpleSequenceEncoder()
-        self._head = None
+        self._seq_encoder = SimpleSequenceEncoder()
+        self._head = torch.nn.Identity()
         self._autoreg_max_steps = 2
         self._loss = SimpleLoss()
+        self._timestamps_field = "timestamps"
+        self._labels_field = "labels"
+        self._labels_logits_field = "logits"
 
 
 class TestAutoreg(TestCase):

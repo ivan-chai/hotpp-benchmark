@@ -23,7 +23,7 @@ class BaseEncoder(torch.nn.Module):
         self._timestamps_field = timestamps_field
 
     @abstractproperty
-    def embedding_size(self):
+    def hidden_size(self):
         pass
 
     def compute_time_deltas(self, x):
@@ -39,15 +39,18 @@ class BaseEncoder(torch.nn.Module):
     def embed(self, x, compute_time_deltas=True):
         if compute_time_deltas:
             x = self.compute_time_deltas(x)
-        return self.embedder(x)
+        embeddings = self.embedder(x)
+        # Convert PTLS batch to ESP batch.
+        return PaddedBatch(embeddings.payload, embeddings.seq_lens)
 
     @abstractmethod
-    def forward(self, x, return_states=False):
+    def forward(self, x, return_full_states=False):
         """Apply the model.
 
         Args:
             x: PaddedBatch with input features with shape (B, T).
-            return_states: Whether to return states or not.
+            return_full_states: Whether to return full states with shape (B, T, D)
+                or only final states with shape (B, D).
 
         Returns:
             Dictionary with "outputs" and optional "states" keys.
@@ -57,12 +60,12 @@ class BaseEncoder(torch.nn.Module):
         pass
 
     @abstractmethod
-    def interpolate(self, states, timestamps):
+    def interpolate(self, states, time_deltas):
         """Compute layer output for continous time.
 
         Args:
             states: Last model states with shape (B, L, D).
-            timestamps: Timestamps to compute output at with shape (B, L).
+            time_deltas: Relative timestamps with shape (B, L).
 
         Returns:
             Outputs with shape (B, L, D).

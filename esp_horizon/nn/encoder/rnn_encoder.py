@@ -25,10 +25,12 @@ class RnnEncoder(BaseEncoder):
                  embeddings,
                  timestamps_field="timestamps",
                  rnn_type="gru",
-                 hidden_size=256,
+                 hidden_size=None,
                  num_layers=1,
                  max_inference_context=None, inference_context_step=None,
                  ):
+        if hidden_size is None:
+            raise ValueError("Hidden size must be provided.")
         super().__init__(
             embeddings=embeddings,
             timestamps_field=timestamps_field
@@ -53,45 +55,36 @@ class RnnEncoder(BaseEncoder):
             raise ValueError(f"Unknown RNN type: {rnn_type}")
 
     @property
-    def embedding_size(self):
+    def hidden_size(self):
         return self._hidden_size
 
     @property
     def num_layers(self):
         return self._num_layers
 
-    def forward(self, x, return_states=False):
+    def forward(self, x, return_full_states=False):
         """Apply RNN model.
 
         Args:
             x: PaddedBatch with input features.
-            return_states: Whether to return states or not.
+            return_full_states: Whether to return full states with shape (B, T, D)
+                or only final states with shape (B, D).
 
         Returns:
-            Dictionary with "outputs" and optional "states" keys.
-            Outputs is a PaddedBatch with shape (B, T, D).
-            States (if provided) is a PaddedBatch with shape (N, B, T, D).
+            Outputs is with shape (B, T, D) and states with shape (N, B, D) or (N, B, T, D).
         """
-        timestamps = x.payload[self._timestamps_field]
-        embeddings = self.embed(x)
-        result = self.rnn(embeddings.payload, timestamps, return_states=return_states)
-        if return_states:
-            outputs, states = result
-            return {
-                "outputs": PaddedBatch(outputs, embeddings.seq_lens),
-                "states": PaddedBatch(states, embeddings.seq_lens)
-            }
-        else:
-            return {
-                "outputs": PaddedBatch(result, embeddings.seq_lens)
-            }
+        x = self.compute_time_deltas(x)
+        time_deltas = x.payload[self._timestamps_field]
+        embeddings = self.embed(x, compute_time_deltas=False)
+        outputs, states = self.rnn(embeddings.payload, time_deltas, return_full_states=return_full_states)
+        return PaddedBatch(outputs, embeddings.seq_lens), PaddedBatch(states, embeddings.seq_lens)
 
     def interpolate(self, states, time_deltas):
         """Compute layer output for continous time.
 
         Args:
             states: Last model states with shape (N, B, L, D).
-            time_deltas: Relative timestamps to compute output at with shape (B, L).
+            time_deltas: Relative timestamps with shape (B, L).
 
         Returns:
             Outputs with shape (B, L, D).
@@ -153,14 +146,15 @@ class RnnEncoder(BaseEncoder):
         return PaddedBatch(payload, indices.seq_lens, sequences.seq_names)
 
     def _get_initial_states(self, batch, indices):
+        time_deltas = PaddedBatch(batch.payload[self._timestamps_field], batch.seq_lens)
         indices, seq_lens = indices.payload, indices.seq_lens
 
         if (self.num_layers != 1) or (not isinstance(self.rnn, torch.nn.GRU)):
             raise NotImplementedError("Only single-layer GRU is supported.")
         # GRU states are equal to GRU outputs.
         embeddings = self.embed(batch, compute_time_deltas=False)  # (B, T, D).
-        next_states = apply_windows(embeddings,
-                                    lambda x: PaddedBatch(self.rnn(x.payload)[0], x.seq_lens),
+        next_states = apply_windows((embeddings, time_deltas),
+                                    lambda xe, xt: PaddedBatch(self.rnn(xe.payload, xt.payload)[0], xe.seq_lens),
                                     self._max_context, self._context_step).payload  # (B, T, D).
         # (B, T, D) for 1-layer RNN is equal to (B, T, L * D), where L is the number of layers.
 
@@ -189,8 +183,9 @@ class RnnEncoder(BaseEncoder):
                           if k not in seq_names}
         outputs = defaultdict(list)
         for _ in range(n_steps):
+            time_deltas = features.payload[self._timestamps_field]
             embeddings = self.embed(features, compute_time_deltas=False).payload  # (B, 1, D).
-            embeddings, states = self.rnn(embeddings, states)  # (B, 1, D), (L, B, D).
+            embeddings, states = self.rnn(embeddings, time_deltas, states=states)  # (B, 1, D), (L, B, D).
             embeddings = PaddedBatch(embeddings, features.seq_lens)
             features = predict_fn(embeddings)  # (B, 1).
             for k, v in features.payload.items():

@@ -21,7 +21,6 @@ class BaseModule(pl.LightningModule):
         loss: Training loss.
         timestamps_field: The name of the timestamps field.
         labels_field: The name of the labels field.
-        head_partial: FC head model class which accepts input and output dimensions.
         optimizer_partial:
             optimizer init partial. Network parameters are missed.
         lr_scheduler_partial:
@@ -51,41 +50,29 @@ class BaseModule(pl.LightningModule):
         self._optimizer_partial = optimizer_partial
         self._lr_scheduler_partial = lr_scheduler_partial
 
-        if head_partial is not None:
-            embedding_dim = self._seq_encoder.embedding_size
-            output_dim = loss.input_dim
-            self._head = head_partial(embedding_dim, output_dim)
-        else:
-            self._head = None
-
-    @property
-    def seq_encoder(self):
-        return self._seq_encoder
+        self._head = head_partial(seq_encoder.hidden_size, loss.input_size) if head_partial is not None else torch.nn.Identity()
 
     def encode(self, x):
         """Apply sequential model."""
-        return self._seq_encoder(x)["outputs"]  # (B, L, D).
+        hiddens, _ = self._seq_encoder(x)  # (B, L, D).
+        return hiddens
 
-    def apply_head(self, embeddings):
-        if self._head is None:
-            return embeddings
-        return PaddedBatch(self._head(embeddings.payload), embeddings.seq_lens)
+    def apply_head(self, hiddens):
+        """Project hidden states to model outputs."""
+        return PaddedBatch(self._head(hiddens.payload), hiddens.seq_lens)
 
-    def forward(self, x):
-        embeddings = self.encode(x)
-        outputs = self.apply_head(embeddings)
-        return outputs
-
-    def predict_next(self, outputs, fields=None):
+    def predict_next(self, outputs, fields=None, logits_fields_mapping=None):
         """Predict events from head outputs.
 
         NOTE: Predicted time is relative to the last event.
         """
-        return self._loss.predict_next(outputs, fields=fields)  # (B, L).
+        return self._loss.predict_next(outputs, fields=fields, logits_fields_mapping=logits_fields_mapping)  # (B, L) or (B, L, C).
 
-    def predict_next_category_logits(self, outputs, fields=None):
-        """Predict categorical fields logits from head outputs."""
-        return self._loss.predict_next_category_logits(outputs, fields=fields)  # (B, L, C).
+    def forward(self, x):
+        hiddens = self.encode(x)
+        outputs = self.apply_head(hiddens)
+        predictions = self.predict_next(outputs)
+        return predictions
 
     @abstractmethod
     def generate_sequences(self, x, indices):
@@ -100,7 +87,7 @@ class BaseModule(pl.LightningModule):
         """
         pass
 
-    def compute_loss(self, x, predictions):
+    def compute_loss(self, x, outputs):
         """Compute loss for the batch.
 
         Args:
@@ -110,13 +97,13 @@ class BaseModule(pl.LightningModule):
         Returns:
             A dict of losses and a dict of metrics.
         """
-        losses, metrics = self._loss(x, predictions)
+        losses, metrics = self._loss(x, outputs)
         return losses, metrics
 
     def training_step(self, batch, _):
         x, _ = batch
-        predictions = self.forward(x)  # (B, L, D).
-        losses, metrics = self.compute_loss(x, predictions)
+        outputs = self.apply_head(self.encode(x))  # (B, L, D).
+        losses, metrics = self.compute_loss(x, outputs)
         loss = sum(losses.values())
 
         # Log statistics.
@@ -130,8 +117,8 @@ class BaseModule(pl.LightningModule):
 
     def validation_step(self, batch, _):
         x, _ = batch
-        predictions = self.forward(x)  # (B, L, D).
-        losses, metrics = self.compute_loss(x, predictions)
+        outputs = self.apply_head(self.encode(x))  # (B, L, D).
+        losses, metrics = self.compute_loss(x, outputs)
         loss = sum(losses.values())
 
         # Log statistics.
@@ -141,12 +128,12 @@ class BaseModule(pl.LightningModule):
             self.log(f"dev/{k}", v, batch_size=len(x))
         self.log("dev/loss", loss, batch_size=len(x))
         if self._dev_metric is not None:
-            self._update_metric(self._dev_metric, predictions, x)
+            self._update_metric(self._dev_metric, outputs, x)
 
     def test_step(self, batch, _):
         x, _ = batch
-        predictions = self.forward(x)  # (B, L, D).
-        losses, metrics = self.compute_loss(x, predictions)
+        outputs = self.apply_head(self.encode(x))  # (B, L, D).
+        losses, metrics = self.compute_loss(x, outputs)
         loss = sum(losses.values())
 
         # Log statistics.
@@ -156,7 +143,7 @@ class BaseModule(pl.LightningModule):
             self.log(f"test/{k}", v, batch_size=len(x))
         self.log("test/loss", loss, batch_size=len(x))
         if self._test_metric is not None:
-            self._update_metric(self._test_metric, predictions, x)
+            self._update_metric(self._test_metric, outputs, x)
 
     def on_validation_epoch_end(self):
         if self._dev_metric is not None:
@@ -188,11 +175,13 @@ class BaseModule(pl.LightningModule):
 
     def _update_metric(self, metric, outputs, features):
         lengths = torch.minimum(outputs.seq_lens, features.seq_lens)
+        next_items = self.predict_next(outputs,
+                                       fields=[self._timestamps_field],
+                                       logits_fields_mapping={self._labels_field: self._labels_logits_field})
+        predicted_timestamps = next_items.payload[self._timestamps_field]  # (B, L).
+        predicted_logits = next_items.payload[self._labels_logits_field]  # (B, L, C).
         # Time is predicted as delta. Convert it to real time.
-        predicted_timestamps = self.predict_next(outputs, fields=[self._timestamps_field]).payload[self._timestamps_field]  # (B, L).
-        predicted_timestamps += features.payload[self._timestamps_field]
-        # Get labels logits.
-        predicted_logits = self.predict_next_category_logits(outputs, fields=[self._labels_field]).payload[self._labels_field]  # (B, L, C).
+        predicted_timestamps += features.payload[self._timestamps_field]  # (B, L).
 
         metric.update_next_item(lengths,
                                 features.payload[self._timestamps_field],
