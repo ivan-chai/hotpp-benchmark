@@ -6,7 +6,7 @@ from .base_encoder import BaseEncoder
 from esp_horizon.data import PaddedBatch
 from esp_horizon.utils.torch import deterministic
 from .window import apply_windows
-from .rnn import GRU, ContTimeLSTM
+from .rnn import GRU
 
 
 class RnnEncoder(BaseEncoder):
@@ -41,12 +41,6 @@ class RnnEncoder(BaseEncoder):
         self._context_step = inference_context_step
         if rnn_type == "gru":
             self.rnn = GRU(
-                self.embedder.output_size,
-                hidden_size,
-                num_layers=num_layers
-            )
-        elif rnn_type == "cont-lstm":
-            self.rnn = ContTimeLSTM(
                 self.embedder.output_size,
                 hidden_size,
                 num_layers=num_layers

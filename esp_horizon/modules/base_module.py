@@ -21,6 +21,7 @@ class BaseModule(pl.LightningModule):
         loss: Training loss.
         timestamps_field: The name of the timestamps field.
         labels_field: The name of the labels field.
+        head_partial: FC head model class which accepts input and output dimensions.
         optimizer_partial:
             optimizer init partial. Network parameters are missed.
         lr_scheduler_partial:
