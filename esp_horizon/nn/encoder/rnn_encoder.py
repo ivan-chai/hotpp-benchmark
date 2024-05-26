@@ -6,6 +6,7 @@ from .base_encoder import BaseEncoder
 from esp_horizon.data import PaddedBatch
 from esp_horizon.utils.torch import deterministic
 from .window import apply_windows
+from .rnn import GRU
 
 
 class RnnEncoder(BaseEncoder):
@@ -14,6 +15,7 @@ class RnnEncoder(BaseEncoder):
     Args:
         embeddings: Dict with categorical feature names. Values must be like this `{'in': dictionary_size, 'out': embedding_size}`.
         timestamps_field: The name of the timestamps field.
+        rnn_type: Type of the model (`gru` or `cont-lstm`).
         hidden_size: The size of the hidden layer.
         num_layers: The number of layers.
         max_inference_context: Maximum RNN context for long sequences.
@@ -22,10 +24,13 @@ class RnnEncoder(BaseEncoder):
     def __init__(self,
                  embeddings,
                  timestamps_field="timestamps",
-                 hidden_size=256,
+                 rnn_type="gru",
+                 hidden_size=None,
                  num_layers=1,
                  max_inference_context=None, inference_context_step=None,
                  ):
+        if hidden_size is None:
+            raise ValueError("Hidden size must be provided.")
         super().__init__(
             embeddings=embeddings,
             timestamps_field=timestamps_field
@@ -34,32 +39,52 @@ class RnnEncoder(BaseEncoder):
         self._num_layers = num_layers
         self._max_context = max_inference_context
         self._context_step = inference_context_step
-        self.rnn = torch.nn.GRU(
-            self.embedder.output_size,
-            hidden_size,
-            num_layers=num_layers,
-            batch_first=True
-        )
+        if rnn_type == "gru":
+            self.rnn = GRU(
+                self.embedder.output_size,
+                hidden_size,
+                num_layers=num_layers
+            )
+        else:
+            raise ValueError(f"Unknown RNN type: {rnn_type}")
 
     @property
-    def embedding_size(self):
+    def hidden_size(self):
         return self._hidden_size
 
     @property
     def num_layers(self):
         return self._num_layers
 
-    def forward(self, x):
+    def forward(self, x, return_full_states=False):
         """Apply RNN model.
 
         Args:
             x: PaddedBatch with input features.
+            return_full_states: Whether to return full states with shape (B, T, D)
+                or only final states with shape (B, D).
+
+        Returns:
+            Outputs is with shape (B, T, D) and states with shape (N, B, D) or (N, B, T, D).
         """
-        embeddings = self.embed(x)
-        payload, _ = self.rnn(embeddings.payload)
-        return {
-            "outputs": PaddedBatch(payload, embeddings.seq_lens)
-        }
+        x = self.compute_time_deltas(x)
+        time_deltas = x.payload[self._timestamps_field]
+        embeddings = self.embed(x, compute_time_deltas=False)
+        outputs, states = self.rnn(embeddings.payload, time_deltas, return_full_states=return_full_states)
+        return PaddedBatch(outputs, embeddings.seq_lens), PaddedBatch(states, embeddings.seq_lens)
+
+    def interpolate(self, states, time_deltas):
+        """Compute layer output for continous time.
+
+        Args:
+            states: Last model states with shape (N, B, L, D).
+            time_deltas: Relative timestamps with shape (B, L).
+
+        Returns:
+            Outputs with shape (B, L, D).
+        """
+        result = self.rnn.interpolate(states.payload, time_deltas.payload)
+        return PaddedBatch(result, states.seq_lens)
 
     def generate(self, x, indices, predict_fn, n_steps):
         """Use auto-regression to generate future sequence.
@@ -115,14 +140,15 @@ class RnnEncoder(BaseEncoder):
         return PaddedBatch(payload, indices.seq_lens, sequences.seq_names)
 
     def _get_initial_states(self, batch, indices):
+        time_deltas = PaddedBatch(batch.payload[self._timestamps_field], batch.seq_lens)
         indices, seq_lens = indices.payload, indices.seq_lens
 
         if (self.num_layers != 1) or (not isinstance(self.rnn, torch.nn.GRU)):
             raise NotImplementedError("Only single-layer GRU is supported.")
         # GRU states are equal to GRU outputs.
         embeddings = self.embed(batch, compute_time_deltas=False)  # (B, T, D).
-        next_states = apply_windows(embeddings,
-                                    lambda x: PaddedBatch(self.rnn(x.payload)[0], x.seq_lens),
+        next_states = apply_windows((embeddings, time_deltas),
+                                    lambda xe, xt: PaddedBatch(self.rnn(xe.payload, xt.payload)[0], xe.seq_lens),
                                     self._max_context, self._context_step).payload  # (B, T, D).
         # (B, T, D) for 1-layer RNN is equal to (B, T, L * D), where L is the number of layers.
 
@@ -151,8 +177,9 @@ class RnnEncoder(BaseEncoder):
                           if k not in seq_names}
         outputs = defaultdict(list)
         for _ in range(n_steps):
+            time_deltas = features.payload[self._timestamps_field]
             embeddings = self.embed(features, compute_time_deltas=False).payload  # (B, 1, D).
-            embeddings, states = self.rnn(embeddings, states)  # (B, 1, D), (L, B, D).
+            embeddings, states = self.rnn(embeddings, time_deltas, states=states)  # (B, 1, D), (L, B, D).
             embeddings = PaddedBatch(embeddings, features.seq_lens)
             features = predict_fn(embeddings)  # (B, 1).
             for k, v in features.payload.items():

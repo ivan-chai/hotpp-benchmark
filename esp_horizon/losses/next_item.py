@@ -21,73 +21,75 @@ class NextItemLoss(torch.nn.Module):
         return self._order
 
     @property
-    def input_dim(self):
-        return sum([loss.input_dim for loss in self._losses.values()])
+    def input_size(self):
+        return sum([loss.input_size for loss in self._losses.values()])
 
     def get_delta_type(self, field):
         """Get time delta type."""
         return self._losses[field].delta
 
-    def forward(self, inputs, predictions):
+    def forward(self, inputs, outputs):
         """Extract targets and compute loss between predictions and targets.
 
         Args:
             inputs: Input features with shape (B, L).
-            predictions: Predicted values with shape (B, L, P).
+            outputs: Model outputs with shape (B, L, D).
 
         Returns:
             Losses dict and metrics dict.
         """
         # Align lengths.
-        l = min(predictions.shape[1], inputs.shape[1])
-        lengths = torch.minimum(predictions.seq_lens, inputs.seq_lens)
-        predictions = PaddedBatch(predictions.payload[:, :l], lengths)
+        l = min(outputs.shape[1], inputs.shape[1])
+        lengths = torch.minimum(outputs.seq_lens, inputs.seq_lens)
         inputs = PaddedBatch({k: (v[:, :l] if k in inputs.seq_names else v)
                               for k, v in inputs.payload.items()},
                              lengths, inputs.seq_names)
+        outputs = PaddedBatch(outputs.payload[:, :l], lengths)
 
         # Compute losses. It is assumed that predictions lengths are equal to targets lengths.
-        predictions = self._split_predictions(predictions)
+        outputs = self._split_outputs(outputs)
         mask = inputs.seq_len_mask.bool() if (inputs.seq_lens != inputs.shape[1]).any() else None
         losses = {}
         metrics = {}
-        for name, output in predictions.items():
+        for name, output in outputs.items():
             losses[name], loss_metrics = self._losses[name](inputs.payload[name], output, mask)
             for k, v in loss_metrics.items():
                 metrics[f"{name}-{k}"] = v
         return losses, metrics
 
-    def predict_next(self, predictions, fields=None):
-        seq_lens = predictions.seq_lens
-        predictions = self._split_predictions(predictions)
+    def predict_next(self, outputs, fields=None, logits_fields_mapping=None):
+        """Predict next events.
+
+        Args:
+            outputs: Model outputs with shape (B, L, D).
+            fields: The fields to predict next values for. By default, predict all fields.
+            logits_fields_mapping: A mapping from field to the output logits field to predict logits for.
+
+        Returns:
+            PaddedBatch with predictions.
+        """
+        seq_lens = outputs.seq_lens
+        outputs = self._split_outputs(outputs)
         result = {}
         for name in (fields or self._losses):
             if self._prediction == "mode":
-                result[name] = self._losses[name].predict_modes(predictions[name]).squeeze(-1)  # (B, L).
+                result[name] = self._losses[name].predict_modes(outputs[name]).squeeze(-1)  # (B, L).
             elif self._prediction == "mean":
-                result[name] = self._losses[name].predict_means(predictions[name]).squeeze(-1)  # (B, L).
+                result[name] = self._losses[name].predict_means(outputs[name]).squeeze(-1)  # (B, L).
             else:
                 raise ValueError(f"Unknown prediction type: {self._prediction}.")
+        for name, target_name in (logits_fields_mapping or {}).items():
+            result[target_name] = self._losses[name].predict_logits(outputs[name])  # (B, L, C).
         return PaddedBatch(result, seq_lens)
 
-    def predict_next_category_logits(self, predictions, fields=None):
-        if fields is None:
-            fields = [name for name, loss in self._losses.items() if hasattr(loss, "predict_logits")]
-        seq_lens = predictions.seq_lens
-        predictions = self._split_predictions(predictions)
-        result = {}
-        for name in fields:
-            result[name] = self._losses[name].predict_logits(predictions[name])  # (B, L, C).
-        return PaddedBatch(result, seq_lens)
-
-    def _split_predictions(self, predictions):
+    def _split_outputs(self, outputs):
         """Convert parameters tensor to the dictionary with parameters for each loss."""
         offset = 0
         result = {}
         for name in self._order:
             loss = self._losses[name]
-            result[name] = predictions.payload[..., offset:offset + loss.input_dim]
-            offset += loss.input_dim
-        if offset != self.input_dim:
+            result[name] = outputs.payload[..., offset:offset + loss.input_size]
+            offset += loss.input_size
+        if offset != self.input_size:
             raise ValueError("Predictions tensor has inconsistent size.")
         return result

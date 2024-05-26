@@ -31,7 +31,7 @@ class TimeRMTPPLoss(BaseLoss):
                  init_influence=1, influence_dim=1, force_negative_influence=True,
                  max_intensity=None, expectation_steps=None,
                  eps=1e-6):
-        super().__init__(input_dim=1, target_dim=1,
+        super().__init__(input_size=1, target_size=1,
                          grad_scale=grad_scale)
         self.delta = delta
         self.max_delta = max_delta

@@ -28,6 +28,18 @@ class NextKModule(BaseModule):
         test_metric: Test set metric.
     """
 
+    @property
+    def delta_type(self):
+        """Returns the type of time delta computation: `last` or `start`."""
+        return self._loss.get_delta_type(self._timestamps_field)
+
+    def predict_next_k(self, outputs, fields=None, logits_fields_mapping=None):
+        """Predict events from head outputs.
+
+        NOTE: Predicted time is relative to the last event.
+        """
+        return self._loss.predict_next_k(outputs, fields=fields, logits_fields_mapping=logits_fields_mapping)  # (B, L) or (B, L, C).
+
     def generate_sequences(self, x, indices):
         """Generate future events.
 
@@ -38,19 +50,18 @@ class NextKModule(BaseModule):
         Returns:
             Predicted sequences with shape (B, I, N).
         """
-        outputs = self.forward(x)  # (B, L, D).
+        outputs = self.apply_head(self.encode(x))  # (B, L, D).
         outputs = PaddedBatch(outputs.payload.take_along_dim(indices.payload.unsqueeze(2), 1),
                               indices.seq_lens)  # (B, I, D).
-        sequences = self._loss.predict_next_k(outputs, dump_category_logits={self._labels_field: self._labels_logits_field})  # (B, I, N)
+        sequences = self.predict_next_k(outputs, logits_fields_mapping={self._labels_field: self._labels_logits_field})  # (B, I, N)
 
         # Deltas to times.
         init_times = x.payload[self._timestamps_field].take_along_dim(indices.payload, 1)  # (B, I).
-        delta_type = self._loss.get_delta_type(self._timestamps_field)
-        if delta_type == "last":
+        if self.delta_type == "last":
             with deterministic(False):
                 sequences.payload[self._timestamps_field].cumsum_(2)
-        elif delta_type != "start":
-            raise ValueError(f"Unknown delta type: {delta_type}.")
+        elif self.delta_type != "start":
+            raise ValueError(f"Unknown delta type: {self.delta_type}.")
         sequences.payload[self._timestamps_field] += init_times.unsqueeze(2)  # (B, I, N).
 
         # Sort sequences.
