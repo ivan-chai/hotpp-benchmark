@@ -71,7 +71,7 @@ class RnnEncoder(BaseEncoder):
         time_deltas = x.payload[self._timestamps_field]
         embeddings = self.embed(x, compute_time_deltas=False)
         outputs, states = self.rnn(embeddings.payload, time_deltas, return_full_states=return_full_states)
-        return PaddedBatch(outputs, embeddings.seq_lens), PaddedBatch(states, embeddings.seq_lens)
+        return PaddedBatch(outputs, embeddings.seq_lens), states
 
     def interpolate(self, states, time_deltas):
         """Compute layer output for continous time.
@@ -179,9 +179,9 @@ class RnnEncoder(BaseEncoder):
         for _ in range(n_steps):
             time_deltas = features.payload[self._timestamps_field]
             embeddings = self.embed(features, compute_time_deltas=False).payload  # (B, 1, D).
-            embeddings, states = self.rnn(embeddings, time_deltas, states=states)  # (B, 1, D), (L, B, D).
+            embeddings, states = self.rnn(embeddings, time_deltas, states=states)  # (B, 1, D), (N, B, D).
             embeddings = PaddedBatch(embeddings, features.seq_lens)
-            features = predict_fn(embeddings)  # (B, 1).
+            features = predict_fn(embeddings, states.unsqueeze(2))  # (B, 1).
             for k, v in features.payload.items():
                 outputs[k].append(v.squeeze(1))  # (B).
         for k in list(outputs):
