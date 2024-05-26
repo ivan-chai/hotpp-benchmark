@@ -1,3 +1,4 @@
+from functools import partial
 import torch
 
 from esp_horizon.data import PaddedBatch
@@ -15,6 +16,23 @@ class NextItemLoss(torch.nn.Module):
         self._losses = torch.nn.ModuleDict(losses)
         self._order = list(sorted(losses))
         self._prediction = prediction
+        self._intepolator = None
+
+    @property
+    def interpolator(self):
+        return self._intepolator
+
+    @interpolator.setter
+    def interpolator(self, value):
+        self._intepolator = value
+        for name, loss in self._losses.items():
+            loss.interpolator = partial(self._intepolate_field, field=name)
+
+    def _intepolate_field(self, states, time_deltas, field):
+        """Partial interpolator for a particular field."""
+        outputs = self._intepolator(states, time_deltas)
+        parameters = self._split_outputs(outputs)[field]
+        return parameters
 
     @property
     def fields(self):

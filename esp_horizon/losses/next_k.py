@@ -20,6 +20,14 @@ class NextKLoss(torch.nn.Module):
         self._loss_step = loss_step
 
     @property
+    def interpolator(self):
+        return self._next_item.intepolator
+
+    @interpolator.setter
+    def interpolator(self, value):
+        self._next_item.intepolator = value
+
+    @property
     def num_events(self):
         return self._k
 

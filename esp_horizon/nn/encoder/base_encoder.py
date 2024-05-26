@@ -64,7 +64,7 @@ class BaseEncoder(torch.nn.Module):
         """Compute layer output for continous time.
 
         Args:
-            states: Last model states with shape (B, L, D).
+            states: Last model states with shape (N, B, L, D).
             time_deltas: Relative timestamps with shape (B, L).
 
         Returns:

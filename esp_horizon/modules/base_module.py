@@ -1,8 +1,18 @@
-from abc import ABC, abstractmethod
+from abc import ABC, abstractmethod, abstractproperty
 import pytorch_lightning as pl
 import torch
 
 from esp_horizon.data import PaddedBatch
+
+
+class Interpolator:
+    def __init__(self, encoder, head):
+        self._encoder = encoder
+        self._head = head
+
+    def __call__(self, states, time_deltas):
+        outputs = self._encoder.interpolate(states, time_delta)
+        return self._head(outputs)
 
 
 class BaseModule(pl.LightningModule):
@@ -52,6 +62,8 @@ class BaseModule(pl.LightningModule):
         self._lr_scheduler_partial = lr_scheduler_partial
 
         self._head = head_partial(seq_encoder.hidden_size, loss.input_size) if head_partial is not None else torch.nn.Identity()
+
+        self._loss.interpolator = Interpolator(self._seq_encoder, self._head)
 
     def encode(self, x):
         """Apply sequential model."""
