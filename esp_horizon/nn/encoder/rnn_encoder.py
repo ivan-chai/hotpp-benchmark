@@ -15,7 +15,7 @@ class RnnEncoder(BaseEncoder):
     Args:
         embeddings: Dict with categorical feature names. Values must be like this `{'in': dictionary_size, 'out': embedding_size}`.
         timestamps_field: The name of the timestamps field.
-        rnn_type: Type of the model (`gru` or `cont-lstm`).
+        rnn_type: Type of the model (`gru`).
         hidden_size: The size of the hidden layer.
         num_layers: The number of layers.
         max_inference_context: Maximum RNN context for long sequences.
@@ -106,14 +106,14 @@ class RnnEncoder(BaseEncoder):
         x = self.compute_time_deltas(x)
 
         # Select input state and initial feature for each index position.
-        initial_states, initial_features = self._get_initial_states(x, indices)  # (B, I, D), (B, I).
+        initial_states, initial_features = self._get_initial_states(x, indices)  # (N, B, I, D), (B, I).
 
         # Flatten batches.
-        mask = initial_states.seq_len_mask.bool()  # (B, I).
+        mask = initial_features.seq_len_mask.bool()  # (B, I).
         initial_timestamps = initial_timestamps[mask].unsqueeze(1)  # (B * I, 1).
-        initial_states = initial_states.payload[mask].unsqueeze(1)  # (B * I, 1, D).
+        initial_states = initial_states.masked_select(mask[None, :, :, None]).reshape(
+            len(initial_states), -1, 1, initial_states.shape[-1])  # (N, B * I, 1, D).
         lengths = torch.ones(len(initial_states), device=indices.device, dtype=torch.long)
-        initial_states = PaddedBatch(initial_states, lengths)
         initial_features = PaddedBatch({k: (v[mask].unsqueeze(1) if k in initial_features.seq_names else v)
                                         for k, v in initial_features.payload.items()},
                                        lengths, initial_features.seq_names)  # (B * I, 1).
@@ -143,19 +143,18 @@ class RnnEncoder(BaseEncoder):
         time_deltas = PaddedBatch(batch.payload[self._timestamps_field], batch.seq_lens)
         indices, seq_lens = indices.payload, indices.seq_lens
 
-        if (self.num_layers != 1) or (not isinstance(self.rnn, torch.nn.GRU)):
-            raise NotImplementedError("Only single-layer GRU is supported.")
+        if self.num_layers != 1:
+            raise NotImplementedError("Only single-layer RNN is supported.")
         # GRU states are equal to GRU outputs.
         embeddings = self.embed(batch, compute_time_deltas=False)  # (B, T, D).
         next_states = apply_windows((embeddings, time_deltas),
-                                    lambda xe, xt: PaddedBatch(self.rnn(xe.payload, xt.payload)[0], xe.seq_lens),
-                                    self._max_context, self._context_step).payload  # (B, T, D).
-        # (B, T, D) for 1-layer RNN is equal to (B, T, L * D), where L is the number of layers.
+                                    lambda xe, xt: PaddedBatch(self.rnn(xe.payload, xt.payload, return_full_states=True)[1].squeeze(0),
+                                                               xe.seq_lens),
+                                    self._max_context, self._context_step).payload[None]  # (N, B, T, D).
 
-        initial_state = torch.zeros_like(next_states[:, :1])  # (B, 1, LD).
-        input_states = torch.cat([initial_state, next_states[:, :-1]], dim=1)  # (B, T, LD).
-        input_states = input_states.take_along_dim(indices.unsqueeze(2), 1)  # (B, I, LD).
-        input_states = PaddedBatch(input_states, seq_lens)  # (B, I, LD).
+        initial_state = torch.zeros_like(next_states[:, :, :1])  # (N, B, 1, LD).
+        input_states = torch.cat([initial_state, next_states[:, :, :-1]], dim=2)  # (N, B, T, LD).
+        input_states = input_states.take_along_dim(indices[None, :, :, None], 2)  # (N, B, I, LD).
 
         input_features = PaddedBatch({k: (v.take_along_dim(indices, 1) if k in batch.seq_names else v)
                                       for k, v in batch.payload.items()},
@@ -164,14 +163,14 @@ class RnnEncoder(BaseEncoder):
         return input_states, input_features
 
     def _generate_autoreg(self, states, features, predict_fn, n_steps):
-        # states: (B, 1, LD), where L is the number of layers.
+        # states: (N, B, 1, D), where N is the number of layers.
         # features: (B, 1).
-        assert states.shape[1] == 1
+        assert states.shape[2] == 1
         assert features.shape[1] == 1
-        batch_size = len(states)
+        batch_size = states.shape[1]
         device = states.device
         seq_names = set(features.seq_names)
-        states = states.payload.reshape(batch_size, self.num_layers, -1).permute(1, 0, 2)  # (L, B, D).
+        states = states.squeeze(2)  # (N, B, D).
 
         static_outputs = {k: v for k, v in features.payload.items()
                           if k not in seq_names}
