@@ -62,8 +62,8 @@ class TimeRMTPPLoss(BaseLoss):
             value = value[:l]  # Return the first value for the next item prediction.
         return value
 
-    def _log_intensity(self, biases, deltas):
-        log_intencities = self.get_current_influence(deltas.shape[-1]) * deltas + biases  # (B, L).
+    def _log_intensity(self, influence, biases, deltas):
+        log_intencities = influence * deltas + biases  # (B, L).
         if self.max_intensity is not None:
             log_intencities = log_intencities.clip(max=math.log(self.max_intensity))
         return log_intencities
@@ -85,7 +85,7 @@ class TimeRMTPPLoss(BaseLoss):
         predictions = predictions[:, :-1].squeeze(2)  # (B, L - 1).
         deltas, mask = compute_delta(inputs, mask, delta=self.delta, max_delta=self.max_delta)
 
-        log_intencities = self._log_intensity(predictions, deltas)  # (B, L).
+        log_intencities = self._log_intensity(self.get_current_influence(deltas.shape[1]), predictions, deltas)  # (B, L).
         log_densities = log_intencities - (log_intencities.exp() - predictions.exp()) / self.get_current_influence()  # (B, L).
         losses = -log_densities  # (B, L).
 
@@ -136,7 +136,7 @@ class TimeRMTPPLoss(BaseLoss):
         if (influence > 0).any():
             raise RuntimeError("Can't sample with positive current influence.")
         sample, mask = thinning(b, l,
-                                intensity_fn = lambda deltas: (influence * deltas + biases).exp(),
+                                intensity_fn = lambda deltas: self._log_intensity(influence, biases, deltas).exp(),
                                 max_steps=self.expectation_steps,
                                 max_delta=self.max_delta,
                                 dtype=biases.dtype, device=biases.device)  # (B, L, N), (B, L, N).

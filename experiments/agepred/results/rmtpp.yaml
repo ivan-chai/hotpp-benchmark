@@ -1,4 +1,4 @@
-date: '2024-05-24 14:50:37'
+date: '2024-05-27 13:38:02'
 dev/detection-mAP: 0.06919588893651962
 dev/horizon-mean-time-step: 0.721550703048706
 dev/loss: 2.8817741870880127
@@ -13,7 +13,7 @@ dev/optimal-transport-distance: 12.417887687683105
 dev/timestamps-bias-mean: 0.503686249256134
 dev/timestamps-current_influence: -0.21806427836418152
 test/detection-mAP: 0.0693708211183548
-test/horizon-mean-time-step: 0.718269944190979
+test/horizon-mean-time-step: 0.7182700037956238
 test/loss: 2.9015746116638184
 test/loss_labels: 2.2568609714508057
 test/loss_timestamps: 0.6447135210037231
