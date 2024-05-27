@@ -88,7 +88,7 @@ class NHPLoss(torch.nn.Module):
         timestamps, mask = inputs.payload[self._timestamps_field], inputs.seq_len_mask  # (B, L), (B, L).
         lengths = (lengths - 1).clip(min=0)
         deltas, mask = compute_delta(timestamps, mask, max_delta=self._max_delta)
-        labels = inputs.payload[self._labels_field][:, 1:].long()  # (B, L).
+        labels = inputs.payload[self._labels_field][:, 1:].long().clip(min=0, max=self._num_classes - 1)  # (B, L).
         states = states[:, :, :l - 1]
         # states: (N, B, L, D).
         # deltas, labels: (B, L).
