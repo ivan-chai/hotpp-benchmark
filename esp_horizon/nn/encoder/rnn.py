@@ -102,9 +102,27 @@ class ContTimeLSTM(torch.nn.Module):
             raise NotImplementedError("Cont-LSTM with multiple layers")
         self._hidden_size = hidden_size
         self._num_layers = num_layers
+        self.start = torch.nn.Parameter(torch.randn(input_size))  # (D).
         self.layer = torch.nn.Linear(input_size + hidden_size, 6 * hidden_size + 1)
         self.d = torch.nn.Linear(input_size + hidden_size, 1)
         self.beta = torch.nn.Parameter(torch.ones([]))
+
+    @property
+    def init_state(self):
+        s = self._hidden_size
+        proj = torch.sigmoid(F.linear(
+            self.start[None], self.layer.weight[:, :len(self.start)], self.layer.bias)).squeeze(0)  # (6D + 1).
+        i_gate = proj[:s]  # (D).
+        f_gate = proj[s:2 * s]  # (D).
+        ie_gate = proj[2 * s:3 * s]  # (D).
+        fe_gate = proj[3 * s:4 * s]  # (D).
+        z = 2 * proj[4 * s:5 * s] - 1  # (D).
+        o_state = proj[5 * s:6 * s]  # (D).
+        cs_state = i_gate * z
+        ce_state = ie_gate * z
+        d_state = torch.nn.functional.softplus(self.beta * F.linear(
+            self.start[None], self.d.weight[:, :len(self.start)], self.d.bias).squeeze(0)) / self.beta
+        return torch.cat([o_state, cs_state, ce_state, d_state])  # (3D + 1).
 
     def forward(self, x, time_deltas, states=None, return_full_states=False):
         """Apply RNN.
@@ -123,17 +141,15 @@ class ContTimeLSTM(torch.nn.Module):
             raise NotImplementedError("Multiple layers.")
         b, l, _ = x.shape
         s = self._hidden_size
-        if states is not None:
-            states = states.squeeze(0)  # Remove layer dim.
-            o_state = states[:, :s]
-            cs_state = states[:, s:2 * s]
-            ce_state = states[:, 2 * s:3 * s]
-            d_state = states[:, 3 * s:]
+        if states is None:
+            states = self.init_state[None].repeat(b, 1)  # (B, 3D + 1)
         else:
-            o_state = torch.zeros(b, s, dtype=x.dtype, device=x.device)
-            cs_state = torch.zeros(b, s, dtype=x.dtype, device=x.device)
-            ce_state = torch.zeros(b, s, dtype=x.dtype, device=x.device)
-            d_state = torch.zeros(b, 1, dtype=x.dtype, device=x.device)
+            states = states.squeeze(0)  # Remove layer dim.
+        # states: (B, 3D + 1).
+        o_state = states[:, :s]
+        cs_state = states[:, s:2 * s]
+        ce_state = states[:, 2 * s:3 * s]
+        d_state = states[:, 3 * s:]
         outputs, output_states = cont_time_lstm(x.permute(1, 0, 2), time_deltas.T.unsqueeze(2),  # (L, B, D), (L, B, 1).
                                                 o_state, cs_state, ce_state, d_state,
                                                 self.layer.weight, self.layer.bias,
