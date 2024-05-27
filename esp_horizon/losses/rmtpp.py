@@ -29,7 +29,7 @@ class TimeRMTPPLoss(BaseLoss):
 
     """
     def __init__(self, delta="last", max_delta=None, grad_scale=None,
-                 init_influence=1, influence_dim=1, force_negative_influence=True,
+                 init_influence=-1, influence_dim=1, force_negative_influence=True,
                  max_intensity=None, expectation_steps=None,
                  eps=1e-6):
         super().__init__(input_size=1, target_size=1,
@@ -75,7 +75,7 @@ class TimeRMTPPLoss(BaseLoss):
 
         Args:
             inputs: Input features with shape (B, L).
-            predictions: Mode outputs with shape (B, L, P).
+            predictions: Model outputs with shape (B, L, P).
             mask: Sequence lengths mask with shape (B, L) or None.
 
         Returns:
@@ -136,7 +136,7 @@ class TimeRMTPPLoss(BaseLoss):
         if (influence > 0).any():
             raise RuntimeError("Can't sample with positive current influence.")
         expectations = thinning_expectation(b, l,
-                                            intensity_fn = lambda deltas: self._log_intensity(influence, biases, deltas).exp(),
+                                            intensity_fn=lambda deltas: self._log_intensity(influence, biases, deltas).exp(),
                                             max_steps=self.expectation_steps,
                                             max_delta=self.max_delta,
                                             dtype=biases.dtype, device=biases.device)  # (B, L).
