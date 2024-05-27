@@ -18,7 +18,14 @@ class SimpleRNN(torch.nn.GRU):
     def __init__(self):
         super().__init__(1, 1)
 
-    def forward(self, x, timestamps, states=None):
+    def forward(self, x, timestamps, states=None, return_full_states=False):
+        if states is None:
+            b, l, d = x.shape
+            states = torch.zeros(1, b, l, d)
+        else:
+            states = states.unsqueeze(2).repeat(1, 1, x.shape[1], 1)
+        if not return_full_states:
+            states = states[:, :, -1]
         return x * 2 + 1, states
 
 
