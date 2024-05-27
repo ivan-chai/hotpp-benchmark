@@ -84,13 +84,13 @@ class RnnEncoder(BaseEncoder):
 
         Args:
             states: Last model states with shape (N, B, L, D).
-            time_deltas: Relative timestamps with shape (B, L).
+            time_deltas: Relative timestamps with shape (B, L, S), where S is a sample size.
 
         Returns:
-            Outputs with shape (B, L, D).
+            Outputs with shape (B, L, S, D).
         """
-        result = self.rnn.interpolate(states.payload, time_deltas.payload)
-        return PaddedBatch(result, states.seq_lens)
+        result = self.rnn.interpolate(states, time_deltas.payload)
+        return PaddedBatch(result, time_deltas.seq_lens)
 
     def generate(self, x, indices, predict_fn, n_steps):
         """Use auto-regression to generate future sequence.

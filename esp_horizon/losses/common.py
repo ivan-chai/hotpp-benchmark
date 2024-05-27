@@ -45,15 +45,15 @@ class BaseLoss(ABC, torch.nn.Module):
         self._input_size = input_size
         self._target_size = target_size
         self._grad_scale = grad_scale
-        self._intepolator = None
+        self._interpolator = None
 
     @property
     def interpolator(self):
-        return self._intepolator
+        return self._interpolator
 
     @interpolator.setter
     def interpolator(self, value):
-        self._intepolator = value
+        self._interpolator = value
 
     @property
     def input_size(self):

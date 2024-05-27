@@ -21,11 +21,11 @@ class NextKLoss(torch.nn.Module):
 
     @property
     def interpolator(self):
-        return self._next_item.intepolator
+        return self._next_item.interpolator
 
     @interpolator.setter
     def interpolator(self, value):
-        self._next_item.intepolator = value
+        self._next_item.interpolator = value
 
     @property
     def num_events(self):

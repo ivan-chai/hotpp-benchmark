@@ -16,21 +16,21 @@ class NextItemLoss(torch.nn.Module):
         self._losses = torch.nn.ModuleDict(losses)
         self._order = list(sorted(losses))
         self._prediction = prediction
-        self._intepolator = None
+        self._interpolator = None
 
     @property
     def interpolator(self):
-        return self._intepolator
+        return self._interpolator
 
     @interpolator.setter
     def interpolator(self, value):
-        self._intepolator = value
+        self._interpolator = value
         for name, loss in self._losses.items():
             loss.interpolator = partial(self._intepolate_field, field=name)
 
     def _intepolate_field(self, states, time_deltas, field):
         """Partial interpolator for a particular field."""
-        outputs = self._intepolator(states, time_deltas)
+        outputs = self._interpolator(states, time_deltas)
         parameters = self._split_outputs(outputs)[field]
         return parameters
 
