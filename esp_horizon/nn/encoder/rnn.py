@@ -11,7 +11,13 @@ class GRU(torch.nn.GRU):
             num_layers=num_layers,
             batch_first=True
         )
+        self._hidden_size = hidden_size
         self._num_layers = num_layers
+
+    @property
+    def init_state(self):
+        p = next(iter(self.parameters()))
+        return torch.zeros(1, self.hidden_size, dtype=p.dtype, device=p.device)  # (1, D).
 
     def forward(self, x, time_deltas, states=None, return_full_states=False):
         """Apply RNN.
@@ -20,7 +26,8 @@ class GRU(torch.nn.GRU):
             x: Batch with shape (B, L, D).
             time_deltas (unused): Relative inputs timestamps.
             states: Initial states with shape (N, B, D), where N is the number of layers.
-            return_full_states: Whether to return states for each iteration or only output states.
+            return_full_states: Whether to return full states with shape (B, T, D)
+                or only output states with shape (B, D).
 
         Returns:
             Outputs with shape (B, T, D) and states with shape (N, B, D) or (N, B, T, D), where
@@ -122,7 +129,7 @@ class ContTimeLSTM(torch.nn.Module):
         ce_state = ie_gate * z
         d_state = torch.nn.functional.softplus(self.beta * F.linear(
             self.start[None], self.d.weight[:, :len(self.start)], self.d.bias).squeeze(0)) / self.beta
-        return torch.cat([o_state, cs_state, ce_state, d_state])  # (3D + 1).
+        return torch.cat([o_state, cs_state, ce_state, d_state])[None]  # (1, 3D + 1).
 
     def forward(self, x, time_deltas, states=None, return_full_states=False):
         """Apply RNN.
@@ -132,7 +139,8 @@ class ContTimeLSTM(torch.nn.Module):
             time_deltas: Relative timestamps with shape (B, L).
             states: Initial states with shape (1, B, 3D + 1).
                 State output gate, context_start, context_end, and delta parameter.
-            return_full_states: Whether to return states for each iteration or only output states.
+            return_full_states: Whether to return full states with shape (B, T, D)
+                or only final states with shape (B, D).
 
         Returns:
             Output with shape (B, L, D) and optional states tensor with shape (1, B, L, 3D + 1).
@@ -142,7 +150,7 @@ class ContTimeLSTM(torch.nn.Module):
         b, l, _ = x.shape
         s = self._hidden_size
         if states is None:
-            states = self.init_state[None].repeat(b, 1)  # (B, 3D + 1)
+            states = self.init_state.repeat(b, 1)  # (B, 3D + 1)
         else:
             states = states.squeeze(0)  # Remove layer dim.
         # states: (B, 3D + 1).
@@ -155,8 +163,8 @@ class ContTimeLSTM(torch.nn.Module):
                                                 self.layer.weight, self.layer.bias,
                                                 self.d.weight, self.d.bias, self.beta)  # (B, L, D), (B, L, 3D + 1).
         if not return_full_states:
-            output_states = output_states[:, -1]
-        return outputs, output_states[None]
+            output_states = output_states[:, -1]  # (B, 3D + 1).
+        return outputs, output_states[None]  # (1, B, 3D + 1) or (1, B, L, 3D + 1).
 
     def interpolate(self, states, time_deltas):
         """Compute model outputs in continuous time.

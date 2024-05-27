@@ -3,7 +3,7 @@ import torch
 
 from esp_horizon.data import PaddedBatch
 from .common import compute_delta
-from .tpp import thinning
+from .tpp import thinning_expectation
 
 
 class NHPLoss(torch.nn.Module):
@@ -134,20 +134,11 @@ class NHPLoss(torch.nn.Module):
             intensities = self.intensity(result)  # (B, L, D).
             return intensities.sum(2)  # (B, L).
 
-        sample, mask = thinning(b, l,
-                                intensity_fn=intensity_fn,
-                                max_steps=self._expectation_steps,
-                                max_delta=self._max_delta,
-                                dtype=states.dtype, device=states.device)  # (B, L, N), (B, L, N).
-
-        sample, mask = sample.flatten(0, 1), mask.flatten(0, 1)  # (BL, N), (BL, N).
-        empty = ~mask.any(-1)  # (BL).
-        if empty.any():
-            sample[empty, 0] = self._max_delta
-            mask[empty, 0] = True
-        timestamps = (sample * mask).sum(1) / mask.sum(1)  # (BL).
-        # Delta is always positive.
-        timestamps = timestamps.reshape(b, l).clip(min=0)  # (B, L).
+        timestamps = thinning_expectation(b, l,
+                                          intensity_fn=intensity_fn,
+                                          max_steps=self._expectation_steps,
+                                          max_delta=self._max_delta,
+                                          dtype=states.dtype, device=states.device)  # (B, L).
 
         outputs = self.interpolator(states, PaddedBatch(timestamps.unsqueeze(2), seq_lens)).payload.squeeze(2)  # (B, L, D).
         intensities = self.intensity(outputs)  # (B, L, D).

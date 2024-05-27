@@ -16,7 +16,8 @@ class SimpleEmbedder(torch.nn.Module):
 
 class SimpleRNN(torch.nn.GRU):
     def __init__(self):
-        super().__init__(1, 1)
+        super().__init__(2, 2)
+        self.init_state = torch.zeros(1, 2)
 
     def forward(self, x, timestamps, states=None, return_full_states=False):
         if states is None:

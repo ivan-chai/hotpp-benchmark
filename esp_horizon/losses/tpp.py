@@ -25,3 +25,20 @@ def thinning(b, l, intensity_fn, max_steps, max_delta, device=None, dtype=None):
         samples[i].masked_fill_(mask, 0)  # Reset time for future sampling.
         rejected[i].masked_fill_(mask, 1)  # Reject zero time.
     return samples[1:].permute(1, 2, 0), (~rejected[1:]).permute(1, 2, 0)  # (B, L, N).
+
+
+def thinning_expectation(b, l, intensity_fn, max_steps, max_delta, device=None, dtype=None):
+    """Estimate expectation with thinning algorithm."""
+    sample, mask = thinning(b, l,
+                            intensity_fn=intensity_fn,
+                            max_steps=max_steps,
+                            max_delta=max_delta,
+                            dtype=dtype, device=device)  # (B, L, N), (B, L, N).
+    sample, mask = sample.flatten(0, 1), mask.flatten(0, 1)  # (BL, N), (BL, N).
+    empty = ~mask.any(-1)  # (BL).
+    if empty.any():
+        sample[empty, 0] = max_delta
+        mask[empty, 0] = True
+    expectations = (sample * mask).sum(1) / mask.sum(1)  # (BL).
+    # Delta is always positive.
+    return expectations.reshape(b, l).clip(min=0)  # (B, L).

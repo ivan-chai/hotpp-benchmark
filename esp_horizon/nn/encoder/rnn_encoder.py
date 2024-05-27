@@ -158,7 +158,7 @@ class RnnEncoder(BaseEncoder):
                                                                xe.seq_lens),
                                     self._max_context, self._context_step).payload[None]  # (N, B, T, D).
 
-        initial_state = torch.zeros_like(next_states[:, :, :1])  # (N, B, 1, LD).
+        initial_state = self.rnn.init_state[:, None, None, :].repeat(1, len(batch), 1, 1)  # (N, B, 1, LD).
         input_states = torch.cat([initial_state, next_states[:, :, :-1]], dim=2)  # (N, B, T, LD).
         input_states = input_states.take_along_dim(indices[None, :, :, None], 2)  # (N, B, I, LD).
 

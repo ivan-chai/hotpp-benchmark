@@ -2,7 +2,7 @@ import math
 import torch
 
 from .common import BaseLoss, compute_delta
-from .tpp import thinning
+from .tpp import thinning_expectation
 
 
 class TimeRMTPPLoss(BaseLoss):
@@ -126,25 +126,18 @@ class TimeRMTPPLoss(BaseLoss):
         """
         if self.expectation_steps is None:
             raise ValueError("Need maximum expectation steps for the mean estimation.")
+        if self.max_delta is None:
+            raise ValueError("Need maximum time delta for sampling.")
         assert predictions.shape[-1] == 1
         biases = predictions.squeeze(-1).flatten(0, -2)  # (B, L).
 
         b, l = biases.shape
         influence = self.get_current_influence(l)
-        if self.max_delta is None:
-            raise ValueError("Need maximum time delta for sampling.")
         if (influence > 0).any():
             raise RuntimeError("Can't sample with positive current influence.")
-        sample, mask = thinning(b, l,
-                                intensity_fn = lambda deltas: self._log_intensity(influence, biases, deltas).exp(),
-                                max_steps=self.expectation_steps,
-                                max_delta=self.max_delta,
-                                dtype=biases.dtype, device=biases.device)  # (B, L, N), (B, L, N).
-        sample, mask = sample.flatten(0, -2), mask.flatten(0, -2)  # (B, N), (B, N).
-        empty = ~mask.any(-1)  # (B).
-        if empty.any():
-            sample[empty, 0] = self.max_delta
-            mask[empty, 0] = True
-        expectations = (sample * mask).sum(1) / mask.sum(1)  # (B).
-        # Delta is always positive.
-        return expectations.reshape(*predictions.shape).clip(min=0)  # (*, L, 1).
+        expectations = thinning_expectation(b, l,
+                                            intensity_fn = lambda deltas: self._log_intensity(influence, biases, deltas).exp(),
+                                            max_steps=self.expectation_steps,
+                                            max_delta=self.max_delta,
+                                            dtype=biases.dtype, device=biases.device)  # (B, L).
+        return expectations.unsqueeze(2)
