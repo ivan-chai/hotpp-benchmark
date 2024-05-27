@@ -143,7 +143,7 @@ class NHPLoss(torch.nn.Module):
         sample, mask = sample.flatten(0, 1), mask.flatten(0, 1)  # (BL, N), (BL, N).
         empty = ~mask.any(-1)  # (BL).
         if empty.any():
-            sample[empty, 0] = self.max_delta
+            sample[empty, 0] = self._max_delta
             mask[empty, 0] = True
         timestamps = (sample * mask).sum(1) / mask.sum(1)  # (BL).
         # Delta is always positive.
