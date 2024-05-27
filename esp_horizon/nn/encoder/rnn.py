@@ -50,7 +50,8 @@ class GRU(torch.nn.GRU):
         return states[-1].unsqueeze(2).repeat(1, 1, s, 1)  # (B, L, S, D).
 
 
-@torch.jit.script
+# JIT increases memory usage without significant speedup.
+#@torch.jit.script
 def cont_time_lstm(x, time_deltas, o_state, cs_state, ce_state, d_state,
                    weight, bias, d_weight, d_bias, d_beta):
     """Apply ContTimeLSTM.

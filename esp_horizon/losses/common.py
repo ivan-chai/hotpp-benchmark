@@ -25,8 +25,7 @@ def compute_delta(inputs, mask=None, delta="last", max_delta=None):
         mask = torch.logical_and(mask[:, 1:], mask[:, :1]) if mask is not None else None  # (B, L - 1).
     else:
         raise ValueError(f"Unknown delta type: {delta}.")
-    if max_delta is not None:
-        deltas = deltas.clip(max=max_delta)
+    deltas = deltas.clip(min=0, max=max_delta)
     return deltas, mask
 
 
