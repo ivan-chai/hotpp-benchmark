@@ -62,14 +62,14 @@ class BaseEncoder(torch.nn.Module):
 
     @abstractmethod
     def interpolate(self, states, time_deltas):
-        """Compute layer output for continous time.
+        """Compute model outputs in continuous time.
 
         Args:
-            states: Last model states with shape (N, B, L, D).
-            time_deltas: Relative timestamps with shape (B, L).
+            states: Model states with shape (N, B, L, 3D + 1), where N is the number of layers.
+            time_deltas: Relative timestamps with shape (B, L, S), where S is a sample size.
 
         Returns:
-            Outputs with shape (B, L, D).
+            Outputs with shape (B, L, S, D).
         """
         pass
 

@@ -2,6 +2,7 @@ import math
 import torch
 
 from .common import BaseLoss, compute_delta
+from .tpp import thinning
 
 
 class TimeRMTPPLoss(BaseLoss):
@@ -127,7 +128,18 @@ class TimeRMTPPLoss(BaseLoss):
             raise ValueError("Need maximum expectation steps for the mean estimation.")
         assert predictions.shape[-1] == 1
         biases = predictions.squeeze(-1).flatten(0, -2)  # (B, L).
-        sample, mask = self._sample(biases, self.expectation_steps)  # (B, L, N), (B, L, N).
+
+        b, l = biases.shape
+        influence = self.get_current_influence(l)
+        if self.max_delta is None:
+            raise ValueError("Need maximum time delta for sampling.")
+        if (influence > 0).any():
+            raise RuntimeError("Can't sample with positive current influence.")
+        sample, mask = thinning(b, l,
+                                intensity_fn = lambda deltas: (influence * deltas + biases).exp(),
+                                max_steps=self.expectation_steps,
+                                max_delta=self.max_delta,
+                                dtype=biases.dtype, device=biases.device)  # (B, L, N), (B, L, N).
         sample, mask = sample.flatten(0, -2), mask.flatten(0, -2)  # (B, N), (B, N).
         empty = ~mask.any(-1)  # (B).
         if empty.any():
@@ -136,32 +148,3 @@ class TimeRMTPPLoss(BaseLoss):
         expectations = (sample * mask).sum(1) / mask.sum(1)  # (B).
         # Delta is always positive.
         return expectations.reshape(*predictions.shape).clip(min=0)  # (*, L, 1).
-
-    def _sample(self, biases, max_steps):
-        """Apply thinning algorithm.
-
-        Args:
-            biases: The biases tensor with shape (B, L).
-            max_steps: The maximum number of steps in thinning algorithm.
-
-        Returns:
-            Samples tensor with shape (B, L, N) and acceptance tensor with shape (B, L, N).
-        """
-        bs, l = biases.shape
-        influence = self.get_current_influence(l)
-        if self.max_delta is None:
-            raise ValueError("Need maximum time delta for sampling.")
-        if (influence > 0).any():
-            raise RuntimeError("Can't sample with positive current influence.")
-
-        samples = torch.zeros(1 + max_steps, bs, l, dtype=biases.dtype, device=biases.device)  # (1 + N, B, L).
-        rejected = torch.ones(1 + max_steps, bs, l, dtype=torch.bool, device=biases.device)  # (1 + N, B, L).
-        for i in range(1, max_steps + 1):
-            upper = (influence * samples[i - 1] + biases).exp()  # (B, L).
-            tau = -torch.rand_like(upper).log() / upper  # (B, L).
-            samples[i] = samples[i - 1] * rejected[i - 1] + tau
-            rejected[i] = torch.rand_like(upper) * upper >= (influence * samples[i] + biases).exp()
-            mask = samples[i] > self.max_delta  # (B, L).
-            samples[i].masked_fill_(mask, 0)  # Reset time for future sampling.
-            rejected[i].masked_fill_(mask, 1)  # Reject zero time.
-        return samples[1:].permute(1, 2, 0), (~rejected[1:]).permute(1, 2, 0)  # (B, L, N).

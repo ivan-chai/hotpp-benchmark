@@ -36,8 +36,18 @@ class GRU(torch.nn.GRU):
         return outputs, states
 
     def interpolate(self, states, time_deltas):
+        """Compute model outputs in continuous time.
+
+        Args:
+            states: Model states with shape (N, B, L, 3D + 1), where N is the number of layers.
+            time_deltas: Relative timestamps with shape (B, L, S), where S is a sample size.
+
+        Returns:
+            Outputs with shape (B, L, S, D).
+        """
         # GRU output is constant between events.
-        return states[-1]  # (B, L, D).
+        s = time_deltas.shape[2]
+        return states[-1].unsqueeze(2).repeat(1, 1, s, 1)  # (B, L, S, D).
 
 
 @torch.jit.script
@@ -132,14 +142,22 @@ class ContTimeLSTM(torch.nn.Module):
         return outputs, output_states[None]
 
     def interpolate(self, states, time_deltas):
-        # GRU output is constant between events.
-        h = self._hidden_size
-        states = states[-1]  # (B, L, 3D + 2).
-        states_o = states[..., :h]  # (B, L, D).
-        states_cs = states[..., h:2 * h]  # (B, L, D).
-        states_ce = states[..., 2 * h:3 * h]  # (B, L, D).
-        states_d = states[..., 3 * h].unsqueeze(-1)  # (B, L, 1).
+        """Compute model outputs in continuous time.
 
-        c = states_cs + (states_ce - states_cs) * (-states_d * time_deltas).exp()  # (B, L, D).
-        h = states_o * (2 * torch.sigmoid(2 * c) - 1)  # (B, L, D).
+        Args:
+            states: Model states with shape (N, B, L, 3D + 1), where N is the number of layers.
+            time_deltas: Relative timestamps with shape (B, L, S), where S is a sample size.
+
+        Returns:
+            Outputs with shape (B, L, S, D).
+        """
+        s = self._hidden_size
+        states = states[-1].unsqueeze(2)  # (B, L, 1, 3D + 1).
+        states_o = states[..., :s]  # (B, L, 1, D).
+        states_cs = states[..., s:2 * s]  # (B, L, 1, D).
+        states_ce = states[..., 2 * s:3 * s]  # (B, L, 1, D).
+        states_d = states[..., 3 * s:]  # (B, L, 1, 1).
+
+        c = states_cs + (states_ce - states_cs) * (-states_d * time_deltas.unsqueeze(3)).exp()  # (B, L, S, D).
+        h = states_o * (2 * torch.sigmoid(2 * c) - 1)  # (B, L, S, D).
         return h
