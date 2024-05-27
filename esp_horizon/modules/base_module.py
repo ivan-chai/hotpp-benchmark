@@ -5,6 +5,18 @@ import torch
 from esp_horizon.data import PaddedBatch
 
 
+class Interpolator:
+    def __init__(self, encoder, head):
+        self._encoder = encoder
+        self._head = head
+
+    def __call__(self, states, time_deltas):
+        outputs = self._encoder.interpolate(states, time_deltas)  # (B, L, S, D).
+        b, l, s, d = outputs.payload.shape
+        return PaddedBatch(self._head(outputs.payload.reshape(b * l, s, d)).reshape(b, l, s, -1),
+                           outputs.seq_lens)
+
+
 class BaseModule(pl.LightningModule):
     """Base module class.
 
@@ -53,26 +65,28 @@ class BaseModule(pl.LightningModule):
 
         self._head = head_partial(seq_encoder.hidden_size, loss.input_size) if head_partial is not None else torch.nn.Identity()
 
+        self._loss.interpolator = Interpolator(self._seq_encoder, self._head)
+
     def encode(self, x):
         """Apply sequential model."""
-        hiddens, _ = self._seq_encoder(x)  # (B, L, D).
-        return hiddens
+        hiddens, states = self._seq_encoder(x, return_full_states=True)  # (B, L, D), (N, B, L, D).
+        return hiddens, states
 
     def apply_head(self, hiddens):
         """Project hidden states to model outputs."""
         return PaddedBatch(self._head(hiddens.payload), hiddens.seq_lens)
 
-    def predict_next(self, outputs, fields=None, logits_fields_mapping=None):
+    def predict_next(self, outputs, states, fields=None, logits_fields_mapping=None):
         """Predict events from head outputs.
 
         NOTE: Predicted time is relative to the last event.
         """
-        return self._loss.predict_next(outputs, fields=fields, logits_fields_mapping=logits_fields_mapping)  # (B, L) or (B, L, C).
+        return self._loss.predict_next(outputs, states, fields=fields, logits_fields_mapping=logits_fields_mapping)  # (B, L) or (B, L, C).
 
     def forward(self, x):
-        hiddens = self.encode(x)
+        hiddens, states = self.encode(x)
         outputs = self.apply_head(hiddens)
-        predictions = self.predict_next(outputs)
+        predictions = self.predict_next(outputs, states)
         return predictions
 
     @abstractmethod
@@ -88,23 +102,25 @@ class BaseModule(pl.LightningModule):
         """
         pass
 
-    def compute_loss(self, x, outputs):
+    def compute_loss(self, x, outputs, states):
         """Compute loss for the batch.
 
         Args:
             x: Input batch.
-            predictions: Head output.
+            outputs: Head output.
+            states: Sequential model hidden states.
 
         Returns:
             A dict of losses and a dict of metrics.
         """
-        losses, metrics = self._loss(x, outputs)
+        losses, metrics = self._loss(x, outputs, states)
         return losses, metrics
 
     def training_step(self, batch, _):
         x, _ = batch
-        outputs = self.apply_head(self.encode(x))  # (B, L, D).
-        losses, metrics = self.compute_loss(x, outputs)
+        hiddens, states = self.encode(x)
+        outputs = self.apply_head(hiddens)  # (B, L, D).
+        losses, metrics = self.compute_loss(x, outputs, states)
         loss = sum(losses.values())
 
         # Log statistics.
@@ -118,8 +134,9 @@ class BaseModule(pl.LightningModule):
 
     def validation_step(self, batch, _):
         x, _ = batch
-        outputs = self.apply_head(self.encode(x))  # (B, L, D).
-        losses, metrics = self.compute_loss(x, outputs)
+        hiddens, states = self.encode(x)
+        outputs = self.apply_head(hiddens)  # (B, L, D).
+        losses, metrics = self.compute_loss(x, outputs, states)
         loss = sum(losses.values())
 
         # Log statistics.
@@ -129,12 +146,13 @@ class BaseModule(pl.LightningModule):
             self.log(f"dev/{k}", v, batch_size=len(x))
         self.log("dev/loss", loss, batch_size=len(x))
         if self._dev_metric is not None:
-            self._update_metric(self._dev_metric, outputs, x)
+            self._update_metric(self._dev_metric, outputs, states, x)
 
     def test_step(self, batch, _):
         x, _ = batch
-        outputs = self.apply_head(self.encode(x))  # (B, L, D).
-        losses, metrics = self.compute_loss(x, outputs)
+        hiddens, states = self.encode(x)
+        outputs = self.apply_head(hiddens)  # (B, L, D).
+        losses, metrics = self.compute_loss(x, outputs, states)
         loss = sum(losses.values())
 
         # Log statistics.
@@ -144,7 +162,7 @@ class BaseModule(pl.LightningModule):
             self.log(f"test/{k}", v, batch_size=len(x))
         self.log("test/loss", loss, batch_size=len(x))
         if self._test_metric is not None:
-            self._update_metric(self._test_metric, outputs, x)
+            self._update_metric(self._test_metric, outputs, states, x)
 
     def on_validation_epoch_end(self):
         if self._dev_metric is not None:
@@ -174,9 +192,9 @@ class BaseModule(pl.LightningModule):
     def on_before_optimizer_step(self, optimizer=None, optimizer_idx=None):
         self.log("grad_norm", self._get_grad_norm(), prog_bar=True)
 
-    def _update_metric(self, metric, outputs, features):
+    def _update_metric(self, metric, outputs, states, features):
         lengths = torch.minimum(outputs.seq_lens, features.seq_lens)
-        next_items = self.predict_next(outputs,
+        next_items = self.predict_next(outputs, states,
                                        fields=[self._timestamps_field],
                                        logits_fields_mapping={self._labels_field: self._labels_logits_field})
         predicted_timestamps = next_items.payload[self._timestamps_field]  # (B, L).

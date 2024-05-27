@@ -25,8 +25,7 @@ def compute_delta(inputs, mask=None, delta="last", max_delta=None):
         mask = torch.logical_and(mask[:, 1:], mask[:, :1]) if mask is not None else None  # (B, L - 1).
     else:
         raise ValueError(f"Unknown delta type: {delta}.")
-    if max_delta is not None:
-        deltas = deltas.clip(max=max_delta)
+    deltas = deltas.clip(min=0, max=max_delta)
     return deltas, mask
 
 
@@ -45,6 +44,15 @@ class BaseLoss(ABC, torch.nn.Module):
         self._input_size = input_size
         self._target_size = target_size
         self._grad_scale = grad_scale
+        self._interpolator = None
+
+    @property
+    def interpolator(self):
+        return self._interpolator
+
+    @interpolator.setter
+    def interpolator(self, value):
+        self._interpolator = value
 
     @property
     def input_size(self):

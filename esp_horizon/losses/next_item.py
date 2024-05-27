@@ -1,3 +1,4 @@
+from functools import partial
 import torch
 
 from esp_horizon.data import PaddedBatch
@@ -15,6 +16,23 @@ class NextItemLoss(torch.nn.Module):
         self._losses = torch.nn.ModuleDict(losses)
         self._order = list(sorted(losses))
         self._prediction = prediction
+        self._interpolator = None
+
+    @property
+    def interpolator(self):
+        return self._interpolator
+
+    @interpolator.setter
+    def interpolator(self, value):
+        self._interpolator = value
+        for name, loss in self._losses.items():
+            loss.interpolator = partial(self._intepolate_field, field=name)
+
+    def _intepolate_field(self, states, time_deltas, field):
+        """Partial interpolator for a particular field."""
+        outputs = self._interpolator(states, time_deltas)
+        parameters = self._split_outputs(outputs)[field]
+        return parameters
 
     @property
     def fields(self):
@@ -28,12 +46,13 @@ class NextItemLoss(torch.nn.Module):
         """Get time delta type."""
         return self._losses[field].delta
 
-    def forward(self, inputs, outputs):
+    def forward(self, inputs, outputs, states):
         """Extract targets and compute loss between predictions and targets.
 
         Args:
             inputs: Input features with shape (B, L).
             outputs: Model outputs with shape (B, L, D).
+            states: Hidden model states with shape (N, B, L, D), where N is the number of layers.
 
         Returns:
             Losses dict and metrics dict.
@@ -57,11 +76,12 @@ class NextItemLoss(torch.nn.Module):
                 metrics[f"{name}-{k}"] = v
         return losses, metrics
 
-    def predict_next(self, outputs, fields=None, logits_fields_mapping=None):
+    def predict_next(self, outputs, states, fields=None, logits_fields_mapping=None):
         """Predict next events.
 
         Args:
             outputs: Model outputs with shape (B, L, D).
+            states: Hidden model states with shape (N, B, L, D), where N is the number of layers.
             fields: The fields to predict next values for. By default, predict all fields.
             logits_fields_mapping: A mapping from field to the output logits field to predict logits for.
 

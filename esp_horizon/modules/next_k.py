@@ -33,12 +33,12 @@ class NextKModule(BaseModule):
         """Returns the type of time delta computation: `last` or `start`."""
         return self._loss.get_delta_type(self._timestamps_field)
 
-    def predict_next_k(self, outputs, fields=None, logits_fields_mapping=None):
+    def predict_next_k(self, outputs, states, fields=None, logits_fields_mapping=None):
         """Predict events from head outputs.
 
         NOTE: Predicted time is relative to the last event.
         """
-        return self._loss.predict_next_k(outputs, fields=fields, logits_fields_mapping=logits_fields_mapping)  # (B, L) or (B, L, C).
+        return self._loss.predict_next_k(outputs, states, fields=fields, logits_fields_mapping=logits_fields_mapping)  # (B, L) or (B, L, C).
 
     def generate_sequences(self, x, indices):
         """Generate future events.
@@ -50,10 +50,12 @@ class NextKModule(BaseModule):
         Returns:
             Predicted sequences with shape (B, I, N).
         """
-        outputs = self.apply_head(self.encode(x))  # (B, L, D).
+        hiddens, states = self.encode(x)  # (B, L, D), (N, B, L, D).
+        outputs = self.apply_head(hiddens)  # (B, L, D).
         outputs = PaddedBatch(outputs.payload.take_along_dim(indices.payload.unsqueeze(2), 1),
                               indices.seq_lens)  # (B, I, D).
-        sequences = self.predict_next_k(outputs, logits_fields_mapping={self._labels_field: self._labels_logits_field})  # (B, I, N)
+        states = states.take_along_dim(indices.payload[None, :, :, None], 2)  # (N, B, I, D).
+        sequences = self.predict_next_k(outputs, states, logits_fields_mapping={self._labels_field: self._labels_logits_field})  # (B, I, N)
 
         # Deltas to times.
         init_times = x.payload[self._timestamps_field].take_along_dim(indices.payload, 1)  # (B, I).

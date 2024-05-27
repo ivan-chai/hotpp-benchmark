@@ -8,7 +8,7 @@ from torch import Tensor
 from esp_horizon.losses import TimeRMTPPLoss
 
 
-class TestNextItemLoss(TestCase):
+class TestRMTPPLoss(TestCase):
     def test_rmtpp_loss(self):
         loss = TimeRMTPPLoss(init_influence=3, force_negative_influence=False)
 

@@ -16,10 +16,18 @@ class SimpleEmbedder(torch.nn.Module):
 
 class SimpleRNN(torch.nn.GRU):
     def __init__(self):
-        super().__init__(1, 1)
+        super().__init__(2, 2)
+        self.init_state = torch.zeros(1, 2)
 
-    def forward(self, x, h_0=None):
-        return x * 2 + 1, None
+    def forward(self, x, timestamps, states=None, return_full_states=False):
+        if states is None:
+            b, l, d = x.shape
+            states = torch.zeros(1, b, l, d)
+        else:
+            states = states.unsqueeze(2).repeat(1, 1, x.shape[1], 1)
+        if not return_full_states:
+            states = states[:, :, -1]
+        return x * 2 + 1, states
 
 
 class SimpleSequenceEncoder(RnnEncoder):
@@ -34,11 +42,11 @@ class SimpleSequenceEncoder(RnnEncoder):
 
 
 class SimpleLoss:
-    def predict_next(self, embeddings, fields, logits_fields_mapping):
+    def predict_next(self, outputs, states, fields, logits_fields_mapping):
         return PaddedBatch({
-            "timestamps": embeddings.payload[:, :, 0],
-            "labels": embeddings.payload[:, :, 1].long()
-        }, embeddings.seq_lens)
+            "timestamps": outputs.payload[:, :, 0],
+            "labels": outputs.payload[:, :, 1].long()
+        }, outputs.seq_lens)
 
 
 class SimpleModule(NextItemModule):

@@ -2,6 +2,7 @@ import math
 import torch
 
 from .common import BaseLoss, compute_delta
+from .tpp import thinning_expectation
 
 
 class TimeRMTPPLoss(BaseLoss):
@@ -28,7 +29,7 @@ class TimeRMTPPLoss(BaseLoss):
 
     """
     def __init__(self, delta="last", max_delta=None, grad_scale=None,
-                 init_influence=1, influence_dim=1, force_negative_influence=True,
+                 init_influence=-1, influence_dim=1, force_negative_influence=True,
                  max_intensity=None, expectation_steps=None,
                  eps=1e-6):
         super().__init__(input_size=1, target_size=1,
@@ -61,8 +62,8 @@ class TimeRMTPPLoss(BaseLoss):
             value = value[:l]  # Return the first value for the next item prediction.
         return value
 
-    def _log_intensity(self, biases, deltas):
-        log_intencities = self.get_current_influence(deltas.shape[-1]) * deltas + biases  # (B, L).
+    def _log_intensity(self, influence, biases, deltas):
+        log_intencities = influence * deltas + biases  # (B, L).
         if self.max_intensity is not None:
             log_intencities = log_intencities.clip(max=math.log(self.max_intensity))
         return log_intencities
@@ -74,7 +75,7 @@ class TimeRMTPPLoss(BaseLoss):
 
         Args:
             inputs: Input features with shape (B, L).
-            predictions: Mode outputs with shape (B, L, P).
+            predictions: Model outputs with shape (B, L, P).
             mask: Sequence lengths mask with shape (B, L) or None.
 
         Returns:
@@ -84,7 +85,7 @@ class TimeRMTPPLoss(BaseLoss):
         predictions = predictions[:, :-1].squeeze(2)  # (B, L - 1).
         deltas, mask = compute_delta(inputs, mask, delta=self.delta, max_delta=self.max_delta)
 
-        log_intencities = self._log_intensity(predictions, deltas)  # (B, L).
+        log_intencities = self._log_intensity(self.get_current_influence(deltas.shape[1]), predictions, deltas)  # (B, L).
         log_densities = log_intencities - (log_intencities.exp() - predictions.exp()) / self.get_current_influence()  # (B, L).
         losses = -log_densities  # (B, L).
 
@@ -125,43 +126,18 @@ class TimeRMTPPLoss(BaseLoss):
         """
         if self.expectation_steps is None:
             raise ValueError("Need maximum expectation steps for the mean estimation.")
-        assert predictions.shape[-1] == 1
-        biases = predictions.squeeze(-1).flatten(0, -2)  # (B, L).
-        sample, mask = self._sample(biases, self.expectation_steps)  # (B, L, N), (B, L, N).
-        sample, mask = sample.flatten(0, -2), mask.flatten(0, -2)  # (B, N), (B, N).
-        empty = ~mask.any(-1)  # (B).
-        if empty.any():
-            sample[empty, 0] = self.max_delta
-            mask[empty, 0] = True
-        expectations = (sample * mask).sum(1) / mask.sum(1)  # (B).
-        # Delta is always positive.
-        return expectations.reshape(*predictions.shape).clip(min=0)  # (*, L, 1).
-
-    def _sample(self, biases, max_steps):
-        """Apply thinning algorithm.
-
-        Args:
-            biases: The biases tensor with shape (B, L).
-            max_steps: The maximum number of steps in thinning algorithm.
-
-        Returns:
-            Samples tensor with shape (B, L, N) and acceptance tensor with shape (B, L, N).
-        """
-        bs, l = biases.shape
-        influence = self.get_current_influence(l)
         if self.max_delta is None:
             raise ValueError("Need maximum time delta for sampling.")
+        assert predictions.shape[-1] == 1
+        biases = predictions.squeeze(-1).flatten(0, -2)  # (B, L).
+
+        b, l = biases.shape
+        influence = self.get_current_influence(l)
         if (influence > 0).any():
             raise RuntimeError("Can't sample with positive current influence.")
-
-        samples = torch.zeros(1 + max_steps, bs, l, dtype=biases.dtype, device=biases.device)  # (1 + N, B, L).
-        rejected = torch.ones(1 + max_steps, bs, l, dtype=torch.bool, device=biases.device)  # (1 + N, B, L).
-        for i in range(1, max_steps + 1):
-            upper = (influence * samples[i - 1] + biases).exp()  # (B, L).
-            tau = -torch.rand_like(upper).log() / upper  # (B, L).
-            samples[i] = samples[i - 1] * rejected[i - 1] + tau
-            rejected[i] = torch.rand_like(upper) * upper >= (influence * samples[i] + biases).exp()
-            mask = samples[i] > self.max_delta  # (B, L).
-            samples[i].masked_fill_(mask, 0)  # Reset time for future sampling.
-            rejected[i].masked_fill_(mask, 1)  # Reject zero time.
-        return samples[1:].permute(1, 2, 0), (~rejected[1:]).permute(1, 2, 0)  # (B, L, N).
+        expectations = thinning_expectation(b, l,
+                                            intensity_fn=lambda deltas: self._log_intensity(influence, biases, deltas).exp(),
+                                            max_steps=self.expectation_steps,
+                                            max_delta=self.max_delta,
+                                            dtype=biases.dtype, device=biases.device)  # (B, L).
+        return expectations.unsqueeze(2)

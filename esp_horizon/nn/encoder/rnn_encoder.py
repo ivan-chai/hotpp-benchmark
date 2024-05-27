@@ -6,7 +6,7 @@ from .base_encoder import BaseEncoder
 from esp_horizon.data import PaddedBatch
 from esp_horizon.utils.torch import deterministic
 from .window import apply_windows
-from .rnn import GRU
+from .rnn import GRU, ContTimeLSTM
 
 
 class RnnEncoder(BaseEncoder):
@@ -45,6 +45,12 @@ class RnnEncoder(BaseEncoder):
                 hidden_size,
                 num_layers=num_layers
             )
+        elif rnn_type == "cont-time-lstm":
+            self.rnn = ContTimeLSTM(
+                self.embedder.output_size,
+                hidden_size,
+                num_layers=num_layers
+            )
         else:
             raise ValueError(f"Unknown RNN type: {rnn_type}")
 
@@ -71,20 +77,20 @@ class RnnEncoder(BaseEncoder):
         time_deltas = x.payload[self._timestamps_field]
         embeddings = self.embed(x, compute_time_deltas=False)
         outputs, states = self.rnn(embeddings.payload, time_deltas, return_full_states=return_full_states)
-        return PaddedBatch(outputs, embeddings.seq_lens), PaddedBatch(states, embeddings.seq_lens)
+        return PaddedBatch(outputs, embeddings.seq_lens), states
 
     def interpolate(self, states, time_deltas):
         """Compute layer output for continous time.
 
         Args:
             states: Last model states with shape (N, B, L, D).
-            time_deltas: Relative timestamps with shape (B, L).
+            time_deltas: Relative timestamps with shape (B, L, S), where S is a sample size.
 
         Returns:
-            Outputs with shape (B, L, D).
+            Outputs with shape (B, L, S, D).
         """
-        result = self.rnn.interpolate(states.payload, time_deltas.payload)
-        return PaddedBatch(result, states.seq_lens)
+        result = self.rnn.interpolate(states, time_deltas.payload)
+        return PaddedBatch(result, time_deltas.seq_lens)
 
     def generate(self, x, indices, predict_fn, n_steps):
         """Use auto-regression to generate future sequence.
@@ -106,14 +112,14 @@ class RnnEncoder(BaseEncoder):
         x = self.compute_time_deltas(x)
 
         # Select input state and initial feature for each index position.
-        initial_states, initial_features = self._get_initial_states(x, indices)  # (B, I, D), (B, I).
+        initial_states, initial_features = self._get_initial_states(x, indices)  # (N, B, I, D), (B, I).
 
         # Flatten batches.
-        mask = initial_states.seq_len_mask.bool()  # (B, I).
+        mask = initial_features.seq_len_mask.bool()  # (B, I).
         initial_timestamps = initial_timestamps[mask].unsqueeze(1)  # (B * I, 1).
-        initial_states = initial_states.payload[mask].unsqueeze(1)  # (B * I, 1, D).
+        initial_states = initial_states.masked_select(mask[None, :, :, None]).reshape(
+            len(initial_states), -1, 1, initial_states.shape[-1])  # (N, B * I, 1, D).
         lengths = torch.ones(len(initial_states), device=indices.device, dtype=torch.long)
-        initial_states = PaddedBatch(initial_states, lengths)
         initial_features = PaddedBatch({k: (v[mask].unsqueeze(1) if k in initial_features.seq_names else v)
                                         for k, v in initial_features.payload.items()},
                                        lengths, initial_features.seq_names)  # (B * I, 1).
@@ -143,19 +149,18 @@ class RnnEncoder(BaseEncoder):
         time_deltas = PaddedBatch(batch.payload[self._timestamps_field], batch.seq_lens)
         indices, seq_lens = indices.payload, indices.seq_lens
 
-        if (self.num_layers != 1) or (not isinstance(self.rnn, torch.nn.GRU)):
-            raise NotImplementedError("Only single-layer GRU is supported.")
+        if self.num_layers != 1:
+            raise NotImplementedError("Only single-layer RNN is supported.")
         # GRU states are equal to GRU outputs.
         embeddings = self.embed(batch, compute_time_deltas=False)  # (B, T, D).
         next_states = apply_windows((embeddings, time_deltas),
-                                    lambda xe, xt: PaddedBatch(self.rnn(xe.payload, xt.payload)[0], xe.seq_lens),
-                                    self._max_context, self._context_step).payload  # (B, T, D).
-        # (B, T, D) for 1-layer RNN is equal to (B, T, L * D), where L is the number of layers.
+                                    lambda xe, xt: PaddedBatch(self.rnn(xe.payload, xt.payload, return_full_states=True)[1].squeeze(0),
+                                                               xe.seq_lens),
+                                    self._max_context, self._context_step).payload[None]  # (N, B, T, D).
 
-        initial_state = torch.zeros_like(next_states[:, :1])  # (B, 1, LD).
-        input_states = torch.cat([initial_state, next_states[:, :-1]], dim=1)  # (B, T, LD).
-        input_states = input_states.take_along_dim(indices.unsqueeze(2), 1)  # (B, I, LD).
-        input_states = PaddedBatch(input_states, seq_lens)  # (B, I, LD).
+        initial_state = self.rnn.init_state[:, None, None, :].repeat(1, len(batch), 1, 1)  # (N, B, 1, LD).
+        input_states = torch.cat([initial_state, next_states[:, :, :-1]], dim=2)  # (N, B, T, LD).
+        input_states = input_states.take_along_dim(indices[None, :, :, None], 2)  # (N, B, I, LD).
 
         input_features = PaddedBatch({k: (v.take_along_dim(indices, 1) if k in batch.seq_names else v)
                                       for k, v in batch.payload.items()},
@@ -164,14 +169,14 @@ class RnnEncoder(BaseEncoder):
         return input_states, input_features
 
     def _generate_autoreg(self, states, features, predict_fn, n_steps):
-        # states: (B, 1, LD), where L is the number of layers.
+        # states: (N, B, 1, D), where N is the number of layers.
         # features: (B, 1).
-        assert states.shape[1] == 1
+        assert states.shape[2] == 1
         assert features.shape[1] == 1
-        batch_size = len(states)
+        batch_size = states.shape[1]
         device = states.device
         seq_names = set(features.seq_names)
-        states = states.payload.reshape(batch_size, self.num_layers, -1).permute(1, 0, 2)  # (L, B, D).
+        states = states.squeeze(2)  # (N, B, D).
 
         static_outputs = {k: v for k, v in features.payload.items()
                           if k not in seq_names}
@@ -179,9 +184,9 @@ class RnnEncoder(BaseEncoder):
         for _ in range(n_steps):
             time_deltas = features.payload[self._timestamps_field]
             embeddings = self.embed(features, compute_time_deltas=False).payload  # (B, 1, D).
-            embeddings, states = self.rnn(embeddings, time_deltas, states=states)  # (B, 1, D), (L, B, D).
+            embeddings, states = self.rnn(embeddings, time_deltas, states=states)  # (B, 1, D), (N, B, D).
             embeddings = PaddedBatch(embeddings, features.seq_lens)
-            features = predict_fn(embeddings)  # (B, 1).
+            features = predict_fn(embeddings, states.unsqueeze(2))  # (B, 1).
             for k, v in features.payload.items():
                 outputs[k].append(v.squeeze(1))  # (B).
         for k in list(outputs):

@@ -38,12 +38,12 @@ class InferenceModule(pl.LightningModule):
 
     def forward(self, batch):
         data, _ = batch  # Ignore labels.
-        embeddings = self.model.encode(data)  # (B, L, D).
-        assert embeddings.payload.ndim == 3
+        hiddens, _ = self.model.encode(data)  # (B, L, D).
+        assert hiddens.payload.ndim == 3
         if self.reducer == "mean":
-            embeddings = self.reduce_mean(embeddings)
+            embeddings = self.reduce_mean(hiddens)
         elif self.reducer == "last":
-            embeddings = self.reduce_last(embeddings)
+            embeddings = self.reduce_last(hiddens)
         else:
             raise ValueError(f"Unknown reducer: {self.reducer}.")
         ids = data.payload[self.id_field]  # (B).
