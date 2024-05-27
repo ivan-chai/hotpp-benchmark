@@ -29,7 +29,7 @@ class IdentityInterpolator:
         return PaddedBatch(states, time_deltas.seq_lens)
 
 
-class TestRMTPPLoss(TestCase):
+class TestNHPLoss(TestCase):
     def test_compare_nhp_to_rmtpp(self):
         # RMTPP uses closed form solution for likelihood computation.
         # Check general NHP algorithm is equal to RMTPP, when intensity matches.
