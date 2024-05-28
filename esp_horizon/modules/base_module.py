@@ -12,9 +12,7 @@ class Interpolator:
 
     def __call__(self, states, time_deltas):
         outputs = self._encoder.interpolate(states, time_deltas)  # (B, L, S, D).
-        b, l, s, d = outputs.payload.shape
-        return PaddedBatch(self._head(outputs.payload.reshape(b * l * s, d)).reshape(b, l, s, -1),
-                           outputs.seq_lens)
+        return self._head(outputs)
 
 
 class BaseModule(pl.LightningModule):

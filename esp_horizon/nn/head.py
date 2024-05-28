@@ -33,14 +33,12 @@ class Head(torch.nn.Sequential):
         self.output_size = output_size
 
     def forward(self, x):
-        if isinstance(x, torch.Tensor):
-            if x.ndim != 2:
-                raise ValueError("Head input must be either PaddedBatch or a matrix.")
-            return super().forward(x)
         x, lengths, mask = x.payload, x.seq_lens, x.seq_len_mask.bool()
-        assert x.ndim == 3  # (B, L, D).
-        b, l, d = x.shape
-        x_mapped = super().forward(x[mask])
-        x_new = torch.empty(b, l, self.output_size, dtype=x_mapped.dtype, device=x_mapped.device)
+        assert x.ndim > 2  # (B, L, *, D).
+        shape = list(x.shape)
+        x_masked = x[mask]  # (V, *, D).
+        v = len(x_masked)
+        x_mapped = super().forward(x_masked.flatten(0, -2)).reshape(*([v] + shape[2:-1] + [self.output_size]))  # (V, *, D).
+        x_new = torch.empty(*[shape[:-1] + [self.output_size]], dtype=x_mapped.dtype, device=x_mapped.device)  # (B, L, *, D).
         x_new[mask] = x_mapped
         return PaddedBatch(x_new, lengths)
