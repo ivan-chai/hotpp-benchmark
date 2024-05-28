@@ -1,3 +1,0 @@
-[submodule "esp_horizon/third_party/mimic3-benchmarks"]
-	path = esp_horizon/third_party/repo/mimic3-benchmarks
-	url = https://github.com/YerevaNN/mimic3-benchmarks.git

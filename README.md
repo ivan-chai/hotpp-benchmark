@@ -9,9 +9,3 @@ Sometimes the following parameters are necessary for a successful dependency ins
 ```
 CXX=<c++-compiler> CC=<gcc-compiler> pip install .
 ```
-
-# Submodules
-Make sure to get the necessary GIT submodules:
-```
-git submodule update --init --recursive
-```
