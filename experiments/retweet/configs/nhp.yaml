@@ -1,0 +1,19 @@
+defaults:
+  - default
+  - module/head_partial: head_256
+  - _self_
+
+name: nhp
+
+module:
+  _target_: esp_horizon.modules.NextItemModule
+  seq_encoder:
+    rnn_type: cont-time-lstm
+  loss:
+    _target_: esp_horizon.losses.NHPLoss
+    num_classes: ${num_classes}
+    max_delta: ${max_time_delta}
+    max_intensity: 4
+    likelihood_sample_size: 1
+    expectation_steps: 100
+  autoreg_max_steps: ${max_predictions}

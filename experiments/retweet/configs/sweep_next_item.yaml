@@ -1,4 +1,4 @@
-project: esp-sweep-agepred
+project: esp-sweep-retweet
 run_cap: 100
 name: next-item
 command:
@@ -24,8 +24,8 @@ early_terminate:
   min_iter: 3
 parameters:
   module.seq_encoder.hidden_size:
-    min: 128
-    max: 2048
+    min: 4
+    max: 512
   module/head_partial:
     values: [head_no, head_128, head_256, head_512, head_256_128, head_512_256, head_256_512_256]
   module.seq_encoder.trx_encoder.embeddings.labels.out:

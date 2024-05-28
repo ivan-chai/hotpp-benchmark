@@ -1,4 +1,4 @@
-project: esp-sweep-agepred
+project: esp-sweep-amazon
 run_cap: 100
 name: next-item
 command:
