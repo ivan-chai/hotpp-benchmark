@@ -85,13 +85,14 @@ class NHPLoss(torch.nn.Module):
                               for k, v in inputs.payload.items()},
                              lengths, inputs.seq_names)
 
+        # Extract targets.
         timestamps, mask = inputs.payload[self._timestamps_field], inputs.seq_len_mask  # (B, L), (B, L).
         lengths = (lengths - 1).clip(min=0)
         deltas, mask = compute_delta(timestamps, mask, max_delta=self._max_delta)
         labels = inputs.payload[self._labels_field][:, 1:].long().clip(min=0, max=self._num_classes - 1)  # (B, L).
         states = states[:, :, :l - 1]
         # states: (N, B, L, D).
-        # deltas, labels: (B, L).
+        # deltas, labels: (B, L), shifted relative to states.
 
         outputs = self._interpolator(states, PaddedBatch(deltas.unsqueeze(2), lengths)).payload.squeeze(2)  # (B, L, D).
         outputs = outputs.take_along_dim(labels.unsqueeze(2), 2).squeeze(2)  # (B, L).
