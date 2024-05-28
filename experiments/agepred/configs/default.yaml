@@ -1,7 +1,7 @@
 seed_everything: 42
 num_evaluation_seeds: 5
 
-max_predictions: 32
+max_predictions: 16
 num_classes: 204
 max_time_delta: 8  # Larger than horizon, but not too large.
 
