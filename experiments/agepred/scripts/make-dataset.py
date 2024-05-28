@@ -15,7 +15,7 @@ TRANSACTIONS_FILES = [
 TARGET_FILE = "train_target"
 
 SEED = 42
-DEV_SIZE = 0.05
+VAL_SIZE = 0.05
 TEST_SIZE = 0.1
 
 
@@ -59,7 +59,7 @@ def get_targets(cache_dir):
     return dataset
 
 
-def train_dev_test_split(transactions, targets):
+def train_val_test_split(transactions, targets):
     """Select test set from the labeled subset of the dataset."""
     data_ids = {row["id"] for row in transactions.select("id").distinct().collect()}
     labeled_ids = {row["id"] for row in targets.select("id").distinct().collect()}
@@ -72,15 +72,15 @@ def train_dev_test_split(transactions, targets):
     test_ids = set(labeled_ids[-n_clients_test:])
     train_ids = list(sorted(set(labeled_ids[:-n_clients_test]) | unlabeled_ids))
     Random(SEED + 1).shuffle(train_ids)
-    n_clients_dev = int(len(train_ids) * DEV_SIZE)
-    dev_ids = set(train_ids[-n_clients_dev:])
-    train_ids = set(train_ids[:-n_clients_dev])
+    n_clients_val = int(len(train_ids) * VAL_SIZE)
+    val_ids = set(train_ids[-n_clients_val:])
+    train_ids = set(train_ids[:-n_clients_val])
 
     testset = transactions.filter(transactions["id"].isin(test_ids))
     testset = testset.join(targets, on="id", how="inner")
     trainset = transactions.filter(transactions["id"].isin(train_ids))
-    devset = transactions.filter(transactions["id"].isin(dev_ids))
-    return trainset.persist(), devset.persist(), testset.persist()
+    valset = transactions.filter(transactions["id"].isin(val_ids))
+    return trainset.persist(), valset.persist(), testset.persist()
 
 
 def dump_parquet(df, path, n_partitions):
@@ -107,19 +107,19 @@ def main(args):
     transactions = preprocessor.fit_transform(transactions).persist()
 
     print("Split")
-    train, dev, test = train_dev_test_split(transactions, targets)
+    train, val, test = train_val_test_split(transactions, targets)
 
     print("Dump downstream indices")
     targets.toPandas().set_index("id").to_csv(os.path.join(args.root, "global_target.csv"))
     test.select("id").toPandas().set_index("id").to_csv(os.path.join(args.root, "test_ids.csv"))
 
     train_path = os.path.join(args.root, "train.parquet")
-    dev_path = os.path.join(args.root, "dev.parquet")
+    val_path = os.path.join(args.root, "val.parquet")
     test_path = os.path.join(args.root, "test.parquet")
     print(f"Dump train with {train.count()} records to {train_path}")
     dump_parquet(train, train_path, n_partitions=32)
-    print(f"Dump dev with {dev.count()} records to {dev_path}")
-    dump_parquet(dev, dev_path, n_partitions=1)
+    print(f"Dump val with {val.count()} records to {val_path}")
+    dump_parquet(val, val_path, n_partitions=1)
     print(f"Dump test with {test.count()} records to {test_path}")
     dump_parquet(test, test_path, n_partitions=1)
     print("OK")

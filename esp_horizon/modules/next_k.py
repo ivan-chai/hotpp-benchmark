@@ -24,7 +24,7 @@ class NextKModule(BaseModule):
             optimizer init partial. Network parameters are missed.
         lr_scheduler_partial:
             scheduler init partial. Optimizer are missed.
-        dev_metric: Dev set metric.
+        val_metric: Validation set metric.
         test_metric: Test set metric.
     """
 

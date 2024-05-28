@@ -23,7 +23,7 @@ class NextItemModule(BaseModule):
             optimizer init partial. Network parameters are missed.
         lr_scheduler_partial:
             scheduler init partial. Optimizer are missed.
-        dev_metric: Dev set metric.
+        val_metric: Validation set metric.
         test_metric: Test set metric.
         autoreg_max_step: The maximum number of future predictions.
     """
@@ -33,7 +33,7 @@ class NextItemModule(BaseModule):
                  head_partial=None,
                  optimizer_partial=None,
                  lr_scheduler_partial=None,
-                 dev_metric=None,
+                 val_metric=None,
                  test_metric=None,
                  autoreg_max_steps=None):
 
@@ -45,7 +45,7 @@ class NextItemModule(BaseModule):
             head_partial=head_partial,
             optimizer_partial=optimizer_partial,
             lr_scheduler_partial=lr_scheduler_partial,
-            dev_metric=dev_metric,
+            val_metric=val_metric,
             test_metric=test_metric
         )
         self._autoreg_max_steps = autoreg_max_steps

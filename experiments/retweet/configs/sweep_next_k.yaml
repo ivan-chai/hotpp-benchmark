@@ -17,7 +17,7 @@ command:
   - ${args_no_hyphens}
 method: bayes
 metric:
-  name: dev/detection-mAP
+  name: val/detection-mAP
   goal: maximize
 early_terminate:
   type: hyperband

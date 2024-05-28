@@ -8,7 +8,7 @@ from esp_horizon.data import ESPDataModule
 
 
 def gather_distributed_dataset(data, split, world_size=1, epoch=1):
-    get_loader_fn = getattr(data, f"{split.replace('dev', 'val')}_dataloader")
+    get_loader_fn = getattr(data, f"{split}_dataloader")
     loaders = [get_loader_fn(rank=i, world_size=world_size)
                for i in range(world_size)]
     for loader in loaders:

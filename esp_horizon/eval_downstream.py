@@ -97,7 +97,7 @@ def extract_embeddings(conf):
     trainer = get_trainer(conf)
     embeddings = []
     ids = []
-    for split in ["test", "dev", "train"]:
+    for split in ["test", "val", "train"]:
         split_dm = InferenceDataModule(dm, split=split)
         split_embeddings, split_ids = zip(*trainer.predict(model, split_dm))  # (B, D), (B).
         embeddings.extend(split_embeddings)

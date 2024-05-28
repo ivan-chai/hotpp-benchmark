@@ -32,8 +32,8 @@ class ESPDataModule(pl.LightningDataModule):
     def __init__(self,
                  train_path=None,
                  train_params=None,
-                 dev_path=None,
-                 dev_params=None,
+                 val_path=None,
+                 val_params=None,
                  test_path=None,
                  test_params=None,
                  **params
@@ -45,12 +45,12 @@ class ESPDataModule(pl.LightningDataModule):
             self.train_data = ESPDataset(train_path, **train_params)
         else:
             self.train_data = None
-        if dev_path is not None:
-            dev_params = dict(params, **(dev_params or {}))
-            self.dev_loader_params = pop_loader_params(dev_params)
-            self.dev_data = ESPDataset(dev_path, **dev_params)
+        if val_path is not None:
+            val_params = dict(params, **(val_params or {}))
+            self.val_loader_params = pop_loader_params(val_params)
+            self.val_data = ESPDataset(val_path, **val_params)
         else:
-            self.dev_data = None
+            self.val_data = None
         if test_path is not None:
             test_params = dict(params, **(test_params or {}))
             self.test_loader_params = pop_loader_params(test_params)
@@ -59,11 +59,11 @@ class ESPDataModule(pl.LightningDataModule):
             self.test_data = None
 
         train_id_field = self.train_data.id_field if self.train_data is not None else None
-        dev_id_field = self.dev_data.id_field if self.dev_data is not None else None
+        val_id_field = self.val_data.id_field if self.val_data is not None else None
         test_id_field = self.test_data.id_field if self.test_data is not None else None
-        id_field = train_id_field or dev_id_field or test_id_field
+        id_field = train_id_field or val_id_field or test_id_field
         if ((train_id_field and (train_id_field != id_field)) or
-            (dev_id_field and (dev_id_field != id_field)) or
+            (val_id_field and (val_id_field != id_field)) or
             (test_id_field and (test_id_field != id_field))):
             raise ValueError("Different id fields in data splits.")
         if id_field is None:
@@ -88,8 +88,8 @@ class ESPDataModule(pl.LightningDataModule):
 
     def val_dataloader(self, rank=None, world_size=None):
         loader_params = {"pin_memory": torch.cuda.is_available()}
-        loader_params.update(self.dev_loader_params)
-        dataset = ShuffledDistributedDataset(self.dev_data, rank=rank, world_size=world_size,
+        loader_params.update(self.val_loader_params)
+        dataset = ShuffledDistributedDataset(self.val_data, rank=rank, world_size=world_size,
                                              num_workers=loader_params.get("num_workers", 0))  # Disable shuffle.
         loader = torch.utils.data.DataLoader(
             dataset=dataset,

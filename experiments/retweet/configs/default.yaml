@@ -22,7 +22,7 @@ data_module:
   max_length: 1200
   num_workers: 4
   train_path: data/train.parquet
-  dev_path: data/dev.parquet
+  val_path: data/val.parquet
   test_path: data/test.parquet
 
 metric:
@@ -60,7 +60,7 @@ module:
     _target_: torch.optim.lr_scheduler.StepLR
     step_size: 5
     gamma: 0.8
-  dev_metric: ${metric}
+  val_metric: ${metric}
   test_metric: ${metric}
 
 trainer:
@@ -73,5 +73,5 @@ trainer:
   gradient_clip_val: 1  # Increases training stability.
   check_val_every_n_epoch: 3
   model_selection:
-    metric: dev/detection-mAP
+    metric: val/detection-mAP
     mode: max

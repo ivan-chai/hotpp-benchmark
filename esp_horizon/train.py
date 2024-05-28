@@ -65,9 +65,9 @@ def test(conf, model, dm):
     pl.seed_everything(42)
 
     trainer = get_trainer(conf, devices=1, precision=32)
-    dev_metrics = trainer.validate(model, dm)[0]
+    val_metrics = trainer.validate(model, dm)[0]
     test_metrics = trainer.test(model, dm)[0]
-    metrics = dict(**dev_metrics, **test_metrics)
+    metrics = dict(**val_metrics, **test_metrics)
     if "report" in conf:
         with open(conf["report"], "w") as fp:
             dump_report(metrics, fp)

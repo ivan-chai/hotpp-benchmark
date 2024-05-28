@@ -38,7 +38,7 @@ class BaseModule(pl.LightningModule):
             optimizer init partial. Network parameters are missed.
         lr_scheduler_partial:
             scheduler init partial. Optimizer are missed.
-        dev_metric: Dev set metric.
+        val_metric: Validation set metric.
         test_metric: Test set metric.
     """
     def __init__(self, seq_encoder, loss,
@@ -47,7 +47,7 @@ class BaseModule(pl.LightningModule):
                  head_partial=None,
                  optimizer_partial=None,
                  lr_scheduler_partial=None,
-                 dev_metric=None,
+                 val_metric=None,
                  test_metric=None):
 
         super().__init__()
@@ -58,7 +58,7 @@ class BaseModule(pl.LightningModule):
         self._loss = loss
         self._seq_encoder = seq_encoder
         self._seq_encoder.is_reduce_sequence = False
-        self._dev_metric = dev_metric
+        self._val_metric = val_metric
         self._test_metric = test_metric
         self._optimizer_partial = optimizer_partial
         self._lr_scheduler_partial = lr_scheduler_partial
@@ -141,12 +141,12 @@ class BaseModule(pl.LightningModule):
 
         # Log statistics.
         for k, v in losses.items():
-            self.log(f"dev/loss_{k}", v, batch_size=len(x))
+            self.log(f"val/loss_{k}", v, batch_size=len(x))
         for k, v in metrics.items():
-            self.log(f"dev/{k}", v, batch_size=len(x))
-        self.log("dev/loss", loss, batch_size=len(x))
-        if self._dev_metric is not None:
-            self._update_metric(self._dev_metric, outputs, states, x)
+            self.log(f"val/{k}", v, batch_size=len(x))
+        self.log("val/loss", loss, batch_size=len(x))
+        if self._val_metric is not None:
+            self._update_metric(self._val_metric, outputs, states, x)
 
     def test_step(self, batch, _):
         x, _ = batch
@@ -165,11 +165,11 @@ class BaseModule(pl.LightningModule):
             self._update_metric(self._test_metric, outputs, states, x)
 
     def on_validation_epoch_end(self):
-        if self._dev_metric is not None:
-            metrics = self._dev_metric.compute()
+        if self._val_metric is not None:
+            metrics = self._val_metric.compute()
             for k, v in metrics.items():
-                self.log(f"dev/{k}", v, prog_bar=True)
-            self._dev_metric.reset()
+                self.log(f"val/{k}", v, prog_bar=True)
+            self._val_metric.reset()
 
     def on_test_epoch_end(self):
         if self._test_metric is not None:
@@ -185,7 +185,7 @@ class BaseModule(pl.LightningModule):
         if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
             scheduler = {
                 "scheduler": scheduler,
-                "monitor": "dev/loss",
+                "monitor": "val/loss",
             }
         return [optimizer], [scheduler]
 

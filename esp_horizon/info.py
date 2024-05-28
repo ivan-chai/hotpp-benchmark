@@ -20,7 +20,7 @@ def main(conf):
     print("======== MODEL ========")
     print(model)
     print("======== DATASET ========")
-    for split in ["train", "dev", "test"]:
+    for split in ["train", "val", "test"]:
         if not hasattr(dm, f"{split}_data"):
             continue
         dataset = getattr(dm, f"{split}_data")
