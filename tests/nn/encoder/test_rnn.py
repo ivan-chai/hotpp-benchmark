@@ -76,6 +76,7 @@ class TestContTimeLSTM(TestCase):
         self.assertTrue((x.grad[:, -1].abs() < EPS).all())
         self.assertTrue((dt.grad.abs() > EPS).all())
         self.assertTrue((rnn.start.grad.abs() > EPS).all())
+        self.assertTrue((rnn.beta.grad.abs() > EPS).all())
 
         x.grad = None
         dt.grad = None
@@ -84,6 +85,7 @@ class TestContTimeLSTM(TestCase):
         self.assertTrue((x.grad.abs() > EPS).all())
         self.assertTrue((dt.grad.abs() > EPS).all())
         self.assertTrue((rnn.start.grad.abs() > EPS).all())
+        self.assertTrue((rnn.beta.grad.abs() > EPS).all())
 
     def test_interpolation(self):
         rnn = ContTimeLSTM(3, 5)

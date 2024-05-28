@@ -39,6 +39,6 @@ class Head(torch.nn.Sequential):
         x_masked = x[mask]  # (V, *, D).
         v = len(x_masked)
         x_mapped = super().forward(x_masked.flatten(0, -2)).reshape(*([v] + shape[2:-1] + [self.output_size]))  # (V, *, D).
-        x_new = torch.empty(*[shape[:-1] + [self.output_size]], dtype=x_mapped.dtype, device=x_mapped.device)  # (B, L, *, D).
+        x_new = torch.zeros(*[shape[:-1] + [self.output_size]], dtype=x_mapped.dtype, device=x_mapped.device)  # (B, L, *, D).
         x_new[mask] = x_mapped
         return PaddedBatch(x_new, lengths)
