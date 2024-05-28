@@ -1,4 +1,4 @@
-Download and prepare dataset:
+## Download and prepare dataset:
 ```
 spark-submit <spark-options> scripts/make-dataset.py
 ```
