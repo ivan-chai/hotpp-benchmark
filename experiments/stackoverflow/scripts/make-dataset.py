@@ -36,7 +36,7 @@ def main(args):
         os.mkdir(args.root)
     if not os.path.isdir(cache_dir):
         os.mkdir(cache_dir)
-    collection = load_dataset("easytpp/retweet", cache_dir=cache_dir)
+    collection = load_dataset("easytpp/stackoverflow", cache_dir=cache_dir)
     for part, name in SPLITS.items():
         dataset = collection[part]
         df = dataset2spark(dataset, name, cache_dir)

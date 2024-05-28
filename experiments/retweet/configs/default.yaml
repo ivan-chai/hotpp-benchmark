@@ -1,9 +1,9 @@
 seed_everything: 42
 num_evaluation_seeds: 5
 
-max_predictions: 32
+max_predictions: 16
 num_classes: 3
-max_time_delta: 16  # Larger than horizon, but not too large.
+max_time_delta: 200  # Larger than horizon, but not too large.
 
 logger:
   _target_: pytorch_lightning.loggers.WandbLogger
@@ -18,8 +18,8 @@ downstream_report: results/downstream_${name}.txt
 data_module:
   _target_: esp_horizon.data.ESPDataModule
   batch_size: 64
-  min_length: 1000
-  max_length: 1200
+  min_length: 196
+  max_length: 264
   num_workers: 4
   train_path: data/train.parquet
   val_path: data/val.parquet
@@ -27,25 +27,25 @@ data_module:
 
 metric:
   _target_: esp_horizon.metrics.HorizonMetric
-  horizon: 12  # 12 * 15 (scale) = 3 minutes.
+  horizon: 180  # 3 minutes.
   horizon_evaluation_step: 8
   max_time_delta: ${max_time_delta}
-  map_thresholds: [1, 6, 12]
+  map_thresholds: [1, 90, 180]
   map_target_length: 32
   otd_steps: 10
-  otd_insert_cost: 3
-  otd_delete_cost: 3
+  otd_insert_cost: 45
+  otd_delete_cost: 45
 
 module:
   seq_encoder:
     _target_: esp_horizon.nn.RnnEncoder
     embeddings:
       labels:
-        in: 3
+        in: ${num_classes}
         out: 16
     hidden_size: 512
-    max_inference_context: 1200
-    inference_context_step: 200
+    max_inference_context: 264
+    inference_context_step: 50
   head_partial:
     _target_: esp_horizon.nn.Head
     _partial_: true
@@ -66,12 +66,12 @@ module:
 trainer:
   accelerator: cuda
   devices: 1
-  max_epochs: 30
+  max_epochs: 60
   enable_checkpointing: true
   deterministic: true
   precision: 16-mixed
   gradient_clip_val: 1  # Increases training stability.
-  check_val_every_n_epoch: 3
+  check_val_every_n_epoch: 6
   model_selection:
     metric: val/detection-mAP
     mode: max
