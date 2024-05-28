@@ -18,7 +18,8 @@ class BaseEncoder(torch.nn.Module):
         super().__init__()
         self.embedder = TrxEncoder(
             embeddings=embeddings,
-            numeric_values={timestamps_field: "identity"}
+            numeric_values={timestamps_field: "identity"},
+            use_batch_norm_with_lens=True
         )
         self._timestamps_field = timestamps_field
 

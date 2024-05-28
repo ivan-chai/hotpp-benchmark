@@ -1,4 +1,5 @@
 import torch
+from esp_horizon.data import PaddedBatch
 
 
 class Head(torch.nn.Sequential):
@@ -6,11 +7,11 @@ class Head(torch.nn.Sequential):
 
     Args:
         input_size: Embedding size.
-        output_dim: Output dimension.
+        output_size: Output dimension.
         hidden_dims: Sizes of linear layers. If None, disable additional linear layers.
         use_batch_norm: Whether to use BatchNorm.
     """
-    def __init__(self, input_size, output_dim,
+    def __init__(self, input_size, output_size,
                  hidden_dims=None,
                  use_batch_norm=False):
         layers = []
@@ -26,15 +27,19 @@ class Head(torch.nn.Sequential):
             layers.append(torch.nn.ReLU())
             last_dim = dim
 
-        layers.append(torch.nn.Linear(last_dim, output_dim))
+        layers.append(torch.nn.Linear(last_dim, output_size))
         super().__init__(*layers)
         self.use_batch_norm = use_batch_norm
+        self.output_size = output_size
 
     def forward(self, x):
-        if self.use_batch_norm:
-            b, t, d = x.shape
-            x = x.reshape(b * t, d)
-        x = super().forward(x)
-        if self.use_batch_norm:
-            x = x.reshape(b, t, -1)
-        return x
+        if isinstance(x, torch.Tensor):
+            if x.ndim != 2:
+                raise ValueError("Head input must be either PaddedBatch or a matrix.")
+            return super().forward(x)
+        x, lengths, mask = x.payload, x.seq_lens, x.seq_len_mask.bool()
+        assert x.ndim == 3  # (B, L, D).
+        b, l, d = x.shape
+        x_new = torch.empty(b, l, self.output_size, dtype=x.dtype, device=x.device)
+        x_new[mask] = super().forward(x[mask])
+        return PaddedBatch(x_new, lengths)

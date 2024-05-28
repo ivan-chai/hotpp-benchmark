@@ -13,7 +13,7 @@ class Interpolator:
     def __call__(self, states, time_deltas):
         outputs = self._encoder.interpolate(states, time_deltas)  # (B, L, S, D).
         b, l, s, d = outputs.payload.shape
-        return PaddedBatch(self._head(outputs.payload.reshape(b * l, s, d)).reshape(b, l, s, -1),
+        return PaddedBatch(self._head(outputs.payload.reshape(b * l * s, d)).reshape(b, l, s, -1),
                            outputs.seq_lens)
 
 
@@ -74,7 +74,7 @@ class BaseModule(pl.LightningModule):
 
     def apply_head(self, hiddens):
         """Project hidden states to model outputs."""
-        return PaddedBatch(self._head(hiddens.payload), hiddens.seq_lens)
+        return self._head(hiddens)
 
     def predict_next(self, outputs, states, fields=None, logits_fields_mapping=None):
         """Predict events from head outputs.
@@ -144,7 +144,7 @@ class BaseModule(pl.LightningModule):
             self.log(f"val/loss_{k}", v, batch_size=len(x))
         for k, v in metrics.items():
             self.log(f"val/{k}", v, batch_size=len(x))
-        self.log("val/loss", loss, batch_size=len(x))
+        self.log("val/loss", loss, batch_size=len(x), prog_bar=True)
         if self._val_metric is not None:
             self._update_metric(self._val_metric, outputs, states, x)
 
@@ -160,7 +160,7 @@ class BaseModule(pl.LightningModule):
             self.log(f"test/loss_{k}", v, batch_size=len(x))
         for k, v in metrics.items():
             self.log(f"test/{k}", v, batch_size=len(x))
-        self.log("test/loss", loss, batch_size=len(x))
+        self.log("test/loss", loss, batch_size=len(x), prog_bar=True)
         if self._test_metric is not None:
             self._update_metric(self._test_metric, outputs, states, x)
 

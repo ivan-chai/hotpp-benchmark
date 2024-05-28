@@ -119,7 +119,7 @@ class RnnEncoder(BaseEncoder):
         initial_timestamps = initial_timestamps[mask].unsqueeze(1)  # (B * I, 1).
         initial_states = initial_states.masked_select(mask[None, :, :, None]).reshape(
             len(initial_states), -1, 1, initial_states.shape[-1])  # (N, B * I, 1, D).
-        lengths = torch.ones(len(initial_states), device=indices.device, dtype=torch.long)
+        lengths = torch.ones(initial_states.shape[1], device=indices.device, dtype=torch.long)
         initial_features = PaddedBatch({k: (v[mask].unsqueeze(1) if k in initial_features.seq_names else v)
                                         for k, v in initial_features.payload.items()},
                                        lengths, initial_features.seq_names)  # (B * I, 1).
