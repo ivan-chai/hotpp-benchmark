@@ -40,6 +40,7 @@ class Head(torch.nn.Sequential):
         x, lengths, mask = x.payload, x.seq_lens, x.seq_len_mask.bool()
         assert x.ndim == 3  # (B, L, D).
         b, l, d = x.shape
-        x_new = torch.empty(b, l, self.output_size, dtype=x.dtype, device=x.device)
-        x_new[mask] = super().forward(x[mask])
+        x_mapped = super().forward(x[mask])
+        x_new = torch.empty(b, l, self.output_size, dtype=x_mapped.dtype, device=x_mapped.device)
+        x_new[mask] = x_mapped
         return PaddedBatch(x_new, lengths)
