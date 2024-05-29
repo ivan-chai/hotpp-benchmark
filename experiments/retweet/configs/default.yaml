@@ -44,6 +44,7 @@ module:
         in: ${num_classes}
         out: 16
     hidden_size: 512
+    max_time_delta: ${max_time_delta}
     max_inference_context: 264
     inference_context_step: 50
   head_partial:
