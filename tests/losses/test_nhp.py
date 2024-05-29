@@ -19,6 +19,12 @@ class RMTPPInterpolator:
         payload = (payload.exp().exp() - 1).log()
         return PaddedBatch(payload, time_deltas.seq_lens)
 
+    def train(self):
+        pass
+
+    def eval(self):
+        pass
+
 
 class IdentityInterpolator:
     """Output make NHP similar to RMTPP."""

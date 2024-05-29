@@ -49,6 +49,8 @@ class NextItemMetric(torch.nn.Module):
         self._n_deltas = 0
 
     def compute(self):
+        if not self._delta_sums:
+            return {}
         return {
             "next-item-mean-time-step": torch.stack(self._delta_sums).sum() / self._n_deltas,
             "next-item-mae": torch.stack(self._ae_sums).sum() / self._n_labels,

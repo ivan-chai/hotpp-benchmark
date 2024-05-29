@@ -10,6 +10,14 @@ class Interpolator:
         self._encoder = encoder
         self._head = head
 
+    def eval(self):
+        self._encoder.eval()
+        self._head.eval()
+
+    def train(self):
+        self._encoder.train()
+        self._head.train()
+
     def __call__(self, states, time_deltas):
         outputs = self._encoder.interpolate(states, time_deltas)  # (B, L, S, D).
         return self._head(outputs)

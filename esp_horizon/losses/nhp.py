@@ -67,17 +67,7 @@ class NHPLoss(torch.nn.Module):
             intensities = intensities.clip(max=self._max_intensity)
         return intensities
 
-    def forward(self, inputs, outputs, states):
-        """Extract targets and compute loss between predictions and targets.
-
-        Args:
-            inputs: Input features with shape (B, L).
-            outputs (unused): Model outputs with shape (B, L, D).
-            states: Hidden model states with shape (N, B, L, D), where N is the number of layers.
-
-        Returns:
-            Losses dict and metrics dict.
-        """
+    def _forward_impl(self, inputs, outputs, states):
         # Align lengths.
         l = min(outputs.shape[1], inputs.shape[1])
         lengths = torch.minimum(outputs.seq_lens, inputs.seq_lens)
@@ -99,7 +89,8 @@ class NHPLoss(torch.nn.Module):
         betas = self.beta[None, None].take_along_dim(labels.unsqueeze(2), 2).squeeze(2)  # (B, L).
         log_intensities = self.intensity(outputs, betas).clip(min=1e-6).log()  # (B, L).
 
-        sample_deltas = torch.linspace(0, 1, self._likelihood_sample_size, dtype=states.dtype, device=states.device)  # (S).
+        sample_deltas = torch.rand(deltas.shape[0], deltas.shape[1], self._likelihood_sample_size,
+                                   dtype=states.dtype, device=states.device)  # (B, L, S).
         sample_deltas = deltas.unsqueeze(2) * sample_deltas  # (B, L, S).
         sample_outputs = self._interpolator(states, PaddedBatch(sample_deltas, lengths)).payload  # (B, L, S, D).
         sample_intensities = self.intensity(sample_outputs)  # (B, L, S, D).
@@ -110,6 +101,25 @@ class NHPLoss(torch.nn.Module):
             "nhp": loss
         }
         metrics = {}
+        return losses, metrics
+
+    def forward(self, inputs, outputs, states):
+        """Extract targets and compute loss between predictions and targets.
+
+        Args:
+            inputs: Input features with shape (B, L).
+            outputs (unused): Model outputs with shape (B, L, D).
+            states: Hidden model states with shape (N, B, L, D), where N is the number of layers.
+
+        Returns:
+            Losses dict and metrics dict.
+        """
+        # Don't hurt BatchNorm statistics during sampling.
+        # We expect, that head statistics are updated during outputs computation in the base module.
+        self._interpolator.eval()
+        losses, metrics = self._forward_impl(inputs, outputs, states)
+        if self.training:
+            self._interpolator.train()
         return losses, metrics
 
     def predict_next(self, outputs, states, fields=None, logits_fields_mapping=None):
