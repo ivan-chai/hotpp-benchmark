@@ -37,6 +37,7 @@ class NextItemMetric(torch.nn.Module):
         self._ae_sums.append(ae.float().mean().cpu() * ae.numel())
 
         deltas = predicted_timestamps[:, 1:] - predicted_timestamps[:, :-1]  # (B, L - 1).
+        deltas = deltas.clip(min=0, max=self.max_time_delta)
         deltas = deltas.masked_select(torch.logical_and(mask[:, 1:], mask[:, :-1]))  # (V).
         self._delta_sums.append(deltas.float().mean().cpu() * deltas.numel())
         self._n_deltas += deltas.numel()
