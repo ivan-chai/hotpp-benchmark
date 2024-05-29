@@ -55,8 +55,13 @@ class PaddedBatch:
         self._seq_names = seq_names
         self._left = left
 
+    def __getitem__(self, key):
+        if isinstance(self._payload, torch.Tensor):
+            raise TypeError("Items are supported for dictionary batches only.")
+        return PaddedBatch(self._payload[key], self._lengths, left=self._left)
+
     def clone(self):
-        return PaddedBatch(dict(self._payload), self._lengths, set(self.seq_names), self._left)
+        return PaddedBatch(dict(self._payload), self._lengths, set(self.seq_names), left=self._left)
 
     @property
     def left(self):

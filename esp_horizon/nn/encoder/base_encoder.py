@@ -11,10 +11,12 @@ class BaseEncoder(torch.nn.Module):
     Args:
         embeddings: Dict with categorical feature names. Values must be like this `{'in': dictionary_size, 'out': embedding_size}`.
         timestamps_field: The name of the timestamps field.
+        max_time_delta: Limit maximum time delta at the model input.
     """
     def __init__(self,
                  embeddings,
-                 timestamps_field="timestamps"):
+                 timestamps_field="timestamps",
+                 max_time_delta=None):
         super().__init__()
         self.embedder = TrxEncoder(
             embeddings=embeddings,
@@ -22,6 +24,7 @@ class BaseEncoder(torch.nn.Module):
             use_batch_norm_with_lens=True
         )
         self._timestamps_field = timestamps_field
+        self._max_time_delta = max_time_delta
 
     @abstractproperty
     def hidden_size(self):
@@ -33,7 +36,7 @@ class BaseEncoder(torch.nn.Module):
         deltas = x.payload[field].clone()
         deltas[:, 1:] -= x.payload[field][:, :-1]
         deltas[:, 0] = 0
-        deltas.clip_(min=0)
+        deltas.clip_(min=0, max=self._max_time_delta)
         x = x.clone()
         x.payload[field] = deltas
         return x

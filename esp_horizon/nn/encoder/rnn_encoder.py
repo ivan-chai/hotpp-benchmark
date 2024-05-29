@@ -15,6 +15,7 @@ class RnnEncoder(BaseEncoder):
     Args:
         embeddings: Dict with categorical feature names. Values must be like this `{'in': dictionary_size, 'out': embedding_size}`.
         timestamps_field: The name of the timestamps field.
+        max_time_delta: Limit maximum time delta at the model input.
         rnn_type: Type of the model (`gru` or `cont-lstm`).
         hidden_size: The size of the hidden layer.
         num_layers: The number of layers.
@@ -24,6 +25,7 @@ class RnnEncoder(BaseEncoder):
     def __init__(self,
                  embeddings,
                  timestamps_field="timestamps",
+                 max_time_delta=None,
                  rnn_type="gru",
                  hidden_size=None,
                  num_layers=1,
@@ -33,7 +35,8 @@ class RnnEncoder(BaseEncoder):
             raise ValueError("Hidden size must be provided.")
         super().__init__(
             embeddings=embeddings,
-            timestamps_field=timestamps_field
+            timestamps_field=timestamps_field,
+            max_time_delta=max_time_delta
         )
         self._hidden_size = hidden_size
         self._num_layers = num_layers
@@ -74,10 +77,10 @@ class RnnEncoder(BaseEncoder):
             Outputs is with shape (B, T, D) and states with shape (N, B, D) or (N, B, T, D).
         """
         x = self.compute_time_deltas(x)
-        time_deltas = x.payload[self._timestamps_field]
+        time_deltas = x[self._timestamps_field]
         embeddings = self.embed(x, compute_time_deltas=False)
-        outputs, states = self.rnn(embeddings.payload, time_deltas, return_full_states=return_full_states)
-        return PaddedBatch(outputs, embeddings.seq_lens), states
+        outputs, states = self.rnn(embeddings, time_deltas, return_full_states=return_full_states)
+        return outputs, states
 
     def interpolate(self, states, time_deltas):
         """Compute layer output for continous time.
@@ -89,8 +92,7 @@ class RnnEncoder(BaseEncoder):
         Returns:
             Outputs with shape (B, L, S, D).
         """
-        result = self.rnn.interpolate(states, time_deltas.payload)
-        return PaddedBatch(result, time_deltas.seq_lens)
+        return self.rnn.interpolate(states, time_deltas)
 
     def generate(self, x, indices, predict_fn, n_steps):
         """Use auto-regression to generate future sequence.
@@ -154,7 +156,7 @@ class RnnEncoder(BaseEncoder):
         # GRU states are equal to GRU outputs.
         embeddings = self.embed(batch, compute_time_deltas=False)  # (B, T, D).
         next_states = apply_windows((embeddings, time_deltas),
-                                    lambda xe, xt: PaddedBatch(self.rnn(xe.payload, xt.payload, return_full_states=True)[1].squeeze(0),
+                                    lambda xe, xt: PaddedBatch(self.rnn(xe, xt, return_full_states=True)[1].squeeze(0),
                                                                xe.seq_lens),
                                     self._max_context, self._context_step).payload[None]  # (N, B, T, D).
 
@@ -182,10 +184,9 @@ class RnnEncoder(BaseEncoder):
                           if k not in seq_names}
         outputs = defaultdict(list)
         for _ in range(n_steps):
-            time_deltas = features.payload[self._timestamps_field]
-            embeddings = self.embed(features, compute_time_deltas=False).payload  # (B, 1, D).
+            time_deltas = features[self._timestamps_field]
+            embeddings = self.embed(features, compute_time_deltas=False)  # (B, 1, D).
             embeddings, states = self.rnn(embeddings, time_deltas, states=states)  # (B, 1, D), (N, B, D).
-            embeddings = PaddedBatch(embeddings, features.seq_lens)
             features = predict_fn(embeddings, states.unsqueeze(2))  # (B, 1).
             for k, v in features.payload.items():
                 outputs[k].append(v.squeeze(1))  # (B).

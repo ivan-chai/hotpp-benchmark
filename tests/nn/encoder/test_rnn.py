@@ -3,6 +3,7 @@ from unittest import TestCase, main
 
 import torch
 
+from esp_horizon.data import PaddedBatch
 from esp_horizon.nn.encoder.rnn import ContTimeLSTM
 
 
@@ -60,17 +61,19 @@ class TestContTimeLSTM(TestCase):
             [o_0, cs_0, ce_0, d_0],
             [o_1, cs_1, ce_1, d_1],
         ]).reshape(1, 1, -1, 4)
-        outputs, output_states = rnn(x, dt, return_full_states=True)
-        self.assertTrue(outputs.allclose(outputs_gt))
+        lengths = torch.full([x.shape[0]], x.shape[1], dtype=torch.long)
+        outputs, output_states = rnn(PaddedBatch(x, lengths), PaddedBatch(dt, lengths), return_full_states=True)
+        self.assertTrue(outputs.payload.allclose(outputs_gt))
         self.assertTrue(output_states.allclose(output_states_gt))
 
     def test_gradients(self):
         rnn = ContTimeLSTM(3, 5)
         x = torch.randn(2, 4, 3, requires_grad=True)
         dt = torch.rand(2, 4, requires_grad=True)
-        outputs, output_states = rnn(x, dt, return_full_states=True)
-        outputs.mean().backward()
-        self.assertEqual(outputs.shape, (2, 4, 5))
+        lengths = torch.full([x.shape[0]], x.shape[1], dtype=torch.long)
+        outputs, output_states = rnn(PaddedBatch(x, lengths), PaddedBatch(dt, lengths), return_full_states=True)
+        outputs.payload.mean().backward()
+        self.assertEqual(outputs.payload.shape, (2, 4, 5))
         self.assertTrue((x.grad[:, :-1].abs() > EPS).all())
         # The last output doesn't depend on the last input, as it's computed as interpolation.
         self.assertTrue((x.grad[:, -1].abs() < EPS).all())
@@ -80,7 +83,7 @@ class TestContTimeLSTM(TestCase):
 
         x.grad = None
         dt.grad = None
-        outputs, output_states = rnn(x, dt, return_full_states=True)
+        outputs, output_states = rnn(PaddedBatch(x, lengths), PaddedBatch(dt, lengths), return_full_states=True)
         output_states.mean().backward()
         self.assertTrue((x.grad.abs() > EPS).all())
         self.assertTrue((dt.grad.abs() > EPS).all())
@@ -91,9 +94,10 @@ class TestContTimeLSTM(TestCase):
         rnn = ContTimeLSTM(3, 5)
         x = torch.randn(2, 4, 3, requires_grad=True)
         dt = torch.rand(2, 4, requires_grad=True)
-        outputs, output_states = rnn(x, dt, return_full_states=True)
-        int_outputs = rnn.interpolate(output_states[:, :, :-1], dt[:, 1:, None]).squeeze(2)  # (B, L - 1, D).
-        self.assertTrue(outputs[:, 1:].allclose(int_outputs))
+        lengths = torch.full([x.shape[0]], x.shape[1], dtype=torch.long)
+        outputs, output_states = rnn(PaddedBatch(x, lengths), PaddedBatch(dt, lengths), return_full_states=True)
+        int_outputs = rnn.interpolate(output_states[:, :, :-1], PaddedBatch(dt[:, 1:, None], lengths - 1)).payload.squeeze(2)  # (B, L - 1, D).
+        self.assertTrue(outputs.payload[:, 1:].allclose(int_outputs))
 
 
 if __name__ == "__main__":

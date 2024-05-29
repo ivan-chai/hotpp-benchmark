@@ -44,6 +44,7 @@ module:
         in: ${num_classes}
         out: 16
     hidden_size: 512
+    max_time_delta: ${max_time_delta}
     max_inference_context: 264
     inference_context_step: 50
   head_partial:
@@ -66,12 +67,12 @@ module:
 trainer:
   accelerator: cuda
   devices: 1
-  max_epochs: 60
+  max_epochs: 30
   enable_checkpointing: true
   deterministic: true
   precision: 16-mixed
   gradient_clip_val: 1  # Increases training stability.
-  check_val_every_n_epoch: 6
+  check_val_every_n_epoch: 3
   model_selection:
     metric: val/detection-mAP
     mode: max

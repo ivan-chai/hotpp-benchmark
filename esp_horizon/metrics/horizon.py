@@ -159,13 +159,15 @@ class HorizonMetric:
             )
 
     def compute(self):
-        target_lengths = torch.cat(self._target_lengths)
-        predicted_lengths = torch.cat(self._predicted_lengths)
-        values = {
-            "mean-target-length": target_lengths.sum().item() / target_lengths.numel(),
-            "mean-predicted-length":predicted_lengths.sum().item() / predicted_lengths.numel(),
-            "horizon-mean-time-step": torch.stack(self._horizon_predicted_deltas_sums).sum() / self._horizon_n_predicted_deltas
-        }
+        values = {}
+        if self._target_lengths:
+            target_lengths = torch.cat(self._target_lengths)
+            predicted_lengths = torch.cat(self._predicted_lengths)
+            values.update({
+                "mean-target-length": target_lengths.sum().item() / target_lengths.numel(),
+                "mean-predicted-length":predicted_lengths.sum().item() / predicted_lengths.numel(),
+                "horizon-mean-time-step": torch.stack(self._horizon_predicted_deltas_sums).sum() / self._horizon_n_predicted_deltas
+            })
         values.update(self.next_item.compute())
         if self.map is not None:
             values.update(self.map.compute())

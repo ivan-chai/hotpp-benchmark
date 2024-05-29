@@ -1,5 +1,9 @@
 import torch
 import torch.nn.functional as F
+from torch import Tensor
+from typing import Tuple, Optional
+
+from esp_horizon.data import PaddedBatch
 
 
 class GRU(torch.nn.GRU):
@@ -19,30 +23,34 @@ class GRU(torch.nn.GRU):
         p = next(iter(self.parameters()))
         return torch.zeros(1, self.hidden_size, dtype=p.dtype, device=p.device)  # (1, D).
 
-    def forward(self, x, time_deltas, states=None, return_full_states=False):
+    def forward(self, x: PaddedBatch, time_deltas: PaddedBatch,
+                states: Optional[Tensor]=None, return_full_states=False) -> Tuple[PaddedBatch, Tensor]:
         """Apply RNN.
 
         Args:
             x: Batch with shape (B, L, D).
             time_deltas (unused): Relative inputs timestamps.
             states: Initial states with shape (N, B, D), where N is the number of layers.
-            return_full_states: Whether to return full states with shape (B, T, D)
+            return_full_states: Whether to return full states with shape (B, L, D)
                 or only output states with shape (B, D).
 
         Returns:
-            Outputs with shape (B, T, D) and states with shape (N, B, D) or (N, B, T, D), where
+            Outputs with shape (B, L, D) and states with shape (N, B, D) or (N, B, L, D), where
             N is the number of layers.
         """
-        outputs, states = super().forward(x, states)
+        outputs, _ = super().forward(x.payload, states)  # (B, L, D).
+        outputs = PaddedBatch(outputs, x.seq_lens)
         if return_full_states:
             if self._num_layers == 1:
                 # In GRU output and states are equal.
                 states = outputs[None]  # (1, B, L, D).
             else:
                 raise NotImplementedError("Multilayer GRU states")
+        else:
+            states = outputs.take_along_dim((x.seq_lens - 1).clip(min=0)[:, None, None], 1).squeeze(1)[None]  # (1, B, D).
         return outputs, states
 
-    def interpolate(self, states, time_deltas):
+    def interpolate(self, states: Tensor, time_deltas: PaddedBatch) -> PaddedBatch:
         """Compute model outputs in continuous time.
 
         Args:
@@ -53,8 +61,9 @@ class GRU(torch.nn.GRU):
             Outputs with shape (B, L, S, D).
         """
         # GRU output is constant between events.
-        s = time_deltas.shape[2]
-        return states[-1].unsqueeze(2).repeat(1, 1, s, 1)  # (B, L, S, D).
+        s = time_deltas.payload.shape[2]
+        outputs = states[-1].unsqueeze(2).repeat(1, 1, s, 1)  # (B, L, S, D).
+        return PaddedBatch(outputs, time_deltas.seq_lens)
 
 
 # JIT increases memory usage without significant speedup.
@@ -131,11 +140,12 @@ class ContTimeLSTM(torch.nn.Module):
             self.start[None], self.d.weight[:, :len(self.start)], self.d.bias).squeeze(0)) / self.beta
         return torch.cat([o_state, cs_state, ce_state, d_state])[None]  # (1, 3D + 1).
 
-    def forward(self, x, time_deltas, states=None, return_full_states=False):
+    def forward(self, x: PaddedBatch, time_deltas: PaddedBatch,
+                states: Optional[Tensor]=None, return_full_states=False) -> Tuple[PaddedBatch, Tensor]:
         """Apply RNN.
 
         Args:
-            x: Batch with shape (B, L, D).
+            x: PaddedBatch with shape (B, L, D).
             time_deltas: Relative timestamps with shape (B, L).
             states: Initial states with shape (1, B, 3D + 1).
                 State output gate, context_start, context_end, and delta parameter.
@@ -147,13 +157,15 @@ class ContTimeLSTM(torch.nn.Module):
         """
         if self._num_layers != 1:
             raise NotImplementedError("Multiple layers.")
-        b, l, _ = x.shape
+        b, l = x.shape
         s = self._hidden_size
+        seq_lens, mask = x.seq_lens, x.seq_len_mask  # (B), (B, L).
+        x = x.payload * mask.unsqueeze(2)  # (B, L, D).
+        time_deltas = time_deltas.payload * mask  # (B, L).
         if states is None:
             states = self.init_state.repeat(b, 1)  # (B, 3D + 1)
         else:
-            states = states.squeeze(0)  # Remove layer dim.
-        # states: (B, 3D + 1).
+            states = states.squeeze(0)  # Remove layer dim, (B, 3D + 1).
         o_state = states[:, :s]
         cs_state = states[:, s:2 * s]
         ce_state = states[:, 2 * s:3 * s]
@@ -162,11 +174,12 @@ class ContTimeLSTM(torch.nn.Module):
                                                 o_state, cs_state, ce_state, d_state,
                                                 self.layer.weight, self.layer.bias,
                                                 self.d.weight, self.d.bias, self.beta)  # (B, L, D), (B, L, 3D + 1).
+        outputs = PaddedBatch(outputs, seq_lens)
         if not return_full_states:
-            output_states = output_states[:, -1]  # (B, 3D + 1).
+            output_states = output_states.take_along_dim((seq_lens - 1).clip(min=0)[:, None, None], 1).squeeze(1)  # (B, 3D + 1).
         return outputs, output_states[None]  # (1, B, 3D + 1) or (1, B, L, 3D + 1).
 
-    def interpolate(self, states, time_deltas):
+    def interpolate(self, states: Tensor, time_deltas: PaddedBatch) -> PaddedBatch:
         """Compute model outputs in continuous time.
 
         Args:
@@ -183,6 +196,6 @@ class ContTimeLSTM(torch.nn.Module):
         states_ce = states[..., 2 * s:3 * s]  # (B, L, 1, D).
         states_d = states[..., 3 * s:]  # (B, L, 1, 1).
 
-        c = states_cs + (states_ce - states_cs) * (-states_d * time_deltas.unsqueeze(3)).exp()  # (B, L, S, D).
+        c = states_cs + (states_ce - states_cs) * (-states_d * time_deltas.payload.unsqueeze(3)).exp()  # (B, L, S, D).
         h = states_o * (2 * torch.sigmoid(2 * c) - 1)  # (B, L, S, D).
-        return h
+        return PaddedBatch(h, time_deltas.seq_lens)

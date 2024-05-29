@@ -21,14 +21,14 @@ metric:
   goal: maximize
 early_terminate:
   type: hyperband
-  min_iter: 3
+  min_iter: 5
 parameters:
   module.seq_encoder.hidden_size:
     min: 4
     max: 512
   module/head_partial:
     values: [head_no, head_128, head_256, head_512, head_256_128, head_512_256, head_256_512_256]
-  module.seq_encoder.trx_encoder.embeddings.labels.out:
+  module.seq_encoder.embeddings.labels.out:
     min: 2
     max: 32
   module.optimizer_partial.lr:
@@ -38,9 +38,9 @@ parameters:
   module.lr_scheduler_partial.gamma:
     min: 0.1
     max: 1.0
-  module.loss.loss.max_intensity:
+  module.loss.max_intensity:
     min: 1
     max: 16
-  module.loss.loss.likelihood_sample_size:
+  module.loss.likelihood_sample_size:
     min: 1
     max: 4
