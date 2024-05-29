@@ -98,6 +98,7 @@ class ESPDataset(torch.utils.data.IterableDataset):
             features = {k: (v[offset:offset + out_length] if self.is_seq_feature(k, v) else v)
                         for k, v in features.items()}
             assert len(features[self.timestamps_field]) == out_length
+        features[self.timestamps_field] = features[self.timestamps_field].float()
         return features  # Tensors.
 
     def __len__(self):
