@@ -21,13 +21,13 @@ class SimpleRNN(torch.nn.GRU):
 
     def forward(self, x, timestamps, states=None, return_full_states=False):
         if states is None:
-            b, l, d = x.shape
+            b, l, d = x.payload.shape
             states = torch.zeros(1, b, l, d)
         else:
             states = states.unsqueeze(2).repeat(1, 1, x.shape[1], 1)
         if not return_full_states:
-            states = states[:, :, -1]
-        return x * 2 + 1, states
+            states = states.take_along_dim((x.seq_lens - 1).clip(min=0)[None, :, None, None], 2).squeeze(2)  # (N, B, D).
+        return PaddedBatch(x.payload * 2 + 1, x.seq_lens), states
 
 
 class SimpleSequenceEncoder(RnnEncoder):
