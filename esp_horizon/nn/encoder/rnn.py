@@ -39,7 +39,6 @@ class GRU(torch.nn.GRU):
             N is the number of layers.
         """
         outputs, _ = super().forward(x.payload, states)  # (B, L, D).
-        outputs = PaddedBatch(outputs, x.seq_lens)
         if return_full_states:
             if self._num_layers == 1:
                 # In GRU output and states are equal.
@@ -48,6 +47,7 @@ class GRU(torch.nn.GRU):
                 raise NotImplementedError("Multilayer GRU states")
         else:
             states = outputs.take_along_dim((x.seq_lens - 1).clip(min=0)[:, None, None], 1).squeeze(1)[None]  # (1, B, D).
+        outputs = PaddedBatch(outputs, x.seq_lens)
         return outputs, states
 
     def interpolate(self, states: Tensor, time_deltas: PaddedBatch) -> PaddedBatch:
