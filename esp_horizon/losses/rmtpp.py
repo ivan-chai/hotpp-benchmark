@@ -63,7 +63,8 @@ class TimeRMTPPLoss(BaseLoss):
         return value
 
     def _log_intensity(self, influence, biases, deltas):
-        log_intencities = influence * deltas + biases  # (B, L).
+        # deltas: B, L, S.
+        log_intencities = influence.unsqueeze(-1) * deltas + biases.unsqueeze(-1)  # (B, L, S).
         if self.max_intensity is not None:
             log_intencities = log_intencities.clip(max=math.log(self.max_intensity))
         return log_intencities
@@ -85,7 +86,7 @@ class TimeRMTPPLoss(BaseLoss):
         predictions = predictions[:, :-1].squeeze(2)  # (B, L - 1).
         deltas, mask = compute_delta(inputs, mask, delta=self.delta, max_delta=self.max_delta)
 
-        log_intencities = self._log_intensity(self.get_current_influence(deltas.shape[1]), predictions, deltas)  # (B, L).
+        log_intencities = self._log_intensity(self.get_current_influence(deltas.shape[1]), predictions, deltas.unsqueeze(2)).squeeze(2)  # (B, L).
         log_densities = log_intencities - (log_intencities.exp() - predictions.exp()) / self.get_current_influence()  # (B, L).
         losses = -log_densities  # (B, L).
 

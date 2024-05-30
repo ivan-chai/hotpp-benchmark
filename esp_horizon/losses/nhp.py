@@ -140,10 +140,10 @@ class NHPLoss(torch.nn.Module):
         seq_lens = outputs.seq_lens
 
         def intensity_fn(deltas):
-            result = self._interpolator(states, PaddedBatch(deltas.unsqueeze(2), outputs.seq_lens)).payload.squeeze(2)  # (B, L, D).
-            assert result.ndim == 3
-            intensities = self.intensity(result)  # (B, L, D).
-            return intensities.sum(2)  # (B, L).
+            result = self._interpolator(states, PaddedBatch(deltas, outputs.seq_lens)).payload  # (B, L, S, D).
+            assert result.ndim == 4
+            intensities = self.intensity(result)  # (B, L, S, D).
+            return intensities.sum(3)  # (B, L, S).
 
         timestamps = thinning_expectation(b, l,
                                           intensity_fn=intensity_fn,
