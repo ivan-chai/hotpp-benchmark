@@ -9,7 +9,7 @@ def get_horizon_lengths(dataset, horizon):
         ts = features[field]
         indices = torch.arange(len(ts))
         end_indices = torch.searchsorted(ts, ts + horizon, side="left")
-        lengths.append(end_indices - indices)
+        lengths.append((end_indices - indices - 1).clip(min=0))
     return torch.cat(lengths)
 
 
@@ -45,25 +45,46 @@ def main(conf):
     print("======== MODEL ========")
     print(model)
     print("======== DATASET ========")
+    total_size = 0
+    total_events = 0
     for split in ["train", "val", "test"]:
         if not hasattr(dm, f"{split}_data"):
             continue
         dataset = getattr(dm, f"{split}_data")
-        field = dataset.timestamps_field
+        ts_field = dataset.timestamps_field
+        labels_field = dataset.labels_field
         print(f"SPLIT {split}")
         print(f"  Size: {len(dataset)}")
 
+        lengths = []
+        labels = set()
         length_metric = Metric()
         time_delta_metric = Metric()
+        duration_metric = Metric()
         for v in dataset:
-            length_metric.update(len(v[field]))
-            time_delta_metric.update(v[field][1:] - v[field][:-1])
+            l = len(v[ts_field])
+            lengths.append(l)
+            length_metric.update(l)
+            time_delta_metric.update(v[ts_field][1:] - v[ts_field][:-1])
+            duration_metric.update(v[ts_field][-1] - v[ts_field][0])
+            labels.update(v[labels_field].tolist())
+
+        total_size += len(dataset)
+        total_events += sum(lengths)
+        print(f"  Num Events: {sum(lengths)}")
+        print(f"  Num Labels: {len(labels)}")
 
         metrics = length_metric.compute()
         print(f"  Min seq. length: {metrics['min']}")
         print(f"  Max seq. length: {metrics['max']}")
         print(f"  Avg seq. length: {metrics['avg']}")
         print(f"  Median seq. length: {metrics['median']}")
+
+        metrics = duration_metric.compute()
+        print(f"  Min duration: {metrics['min']}")
+        print(f"  Max duration: {metrics['max']}")
+        print(f"  Avg duration: {metrics['avg']}")
+        print(f"  Median duration: {metrics['median']}")
 
         metrics = time_delta_metric.compute()
         print(f"  Min time delta: {metrics['min']}")
@@ -80,6 +101,8 @@ def main(conf):
             print(f"  Median horizon length: {hor_lens.float().median().item()}")
         except AttributeError:
             pass
+    print(f"TOTAL Size: {total_size}")
+    print(f"TOTAL Events: {total_events}")
 
 
 if __name__ == "__main__":

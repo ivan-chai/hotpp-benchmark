@@ -1,6 +1,5 @@
 defaults:
   - default
-  - module/head_partial: head_256
   - _self_
 
 name: next_k

@@ -40,6 +40,7 @@ class ESPDataset(torch.utils.data.IterableDataset):
     def __init__(self, data, min_length=0, max_length=None,
                  id_field="id",
                  timestamps_field="timestamps",
+                 labels_field="labels",
                  global_target_field="global_target",
                  local_targets_field="local_targets",
                  local_targets_indices_field="local_targets_indices"):
@@ -55,6 +56,7 @@ class ESPDataset(torch.utils.data.IterableDataset):
         self.max_length = max_length
         self.id_field = id_field
         self.timestamps_field = timestamps_field
+        self.labels_field = labels_field
         self.global_target_field = global_target_field
         self.local_targets_field = local_targets_field
         self.local_targets_indices_field = local_targets_indices_field

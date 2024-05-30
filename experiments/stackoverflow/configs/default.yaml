@@ -17,7 +17,7 @@ downstream_report: results/downstream_${name}.txt
 
 data_module:
   _target_: esp_horizon.data.ESPDataModule
-  batch_size: 16
+  batch_size: 64
   min_length: 80
   max_length: 101
   num_workers: 4
@@ -43,7 +43,7 @@ module:
       labels:
         in: ${num_classes}
         out: 32
-    hidden_size: 512
+    hidden_size: 64
     max_time_delta: ${max_time_delta}
     max_inference_context: 101
     inference_context_step: 30
@@ -51,6 +51,7 @@ module:
     _target_: esp_horizon.nn.Head
     _partial_: true
     use_batch_norm: true
+    hidden_dims: [64]
   optimizer_partial:
     _partial_: true
     _target_: torch.optim.Adam
