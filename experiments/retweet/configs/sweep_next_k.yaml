@@ -26,8 +26,6 @@ parameters:
   module.seq_encoder.hidden_size:
     min: 4
     max: 512
-  module/head_partial:
-    values: [head_no, head_128, head_256, head_512, head_256_128, head_512_256, head_256_512_256]
   module.seq_encoder.embeddings.labels.out:
     min: 2
     max: 32

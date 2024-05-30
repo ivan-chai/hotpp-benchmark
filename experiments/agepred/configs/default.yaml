@@ -51,6 +51,7 @@ module:
     _target_: esp_horizon.nn.Head
     _partial_: true
     use_batch_norm: true
+    hidden_dims: [512, 256]
   optimizer_partial:
     _partial_: true
     _target_: torch.optim.Adam
