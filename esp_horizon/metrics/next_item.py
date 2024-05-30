@@ -5,7 +5,7 @@ class NextItemMetric(torch.nn.Module):
     """Next item (event) prediction evaluation metrics.
 
     Args:
-        max_time_delta: Limit the maximum difference to stabilize MAE estimation.
+        max_time_delta: Limit the maximum difference to stabilize MAE and RMSE estimation.
     """
 
     def __init__(self, max_time_delta=None):
@@ -35,6 +35,7 @@ class NextItemMetric(torch.nn.Module):
         if self.max_time_delta is not None:
             ae = ae.clip(max=self.max_time_delta)
         self._ae_sums.append(ae.float().mean().cpu() * ae.numel())
+        self._se_sums.append(ae.square().float().mean().cpu() * ae.numel())
 
         deltas = predicted_timestamps[:, 1:] - predicted_timestamps[:, :-1]  # (B, L - 1).
         deltas = deltas.clip(min=0, max=self.max_time_delta)
@@ -46,6 +47,7 @@ class NextItemMetric(torch.nn.Module):
         self._n_correct_labels = 0
         self._n_labels = 0
         self._ae_sums = []
+        self._se_sums = []
         self._delta_sums = []
         self._n_deltas = 0
 
@@ -55,5 +57,6 @@ class NextItemMetric(torch.nn.Module):
         return {
             "next-item-mean-time-step": torch.stack(self._delta_sums).sum() / self._n_deltas,
             "next-item-mae": torch.stack(self._ae_sums).sum() / self._n_labels,
+            "next-item-rmse": (torch.stack(self._se_sums).sum() / self._n_labels).sqrt(),
             "next-item-accuracy": self._n_correct_labels / self._n_labels
         }

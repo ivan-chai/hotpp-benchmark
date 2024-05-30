@@ -1,8 +1,10 @@
 import argparse
 import os
+import numpy as np
 import pyspark.sql.functions as F
 from datasets import load_dataset
 from pyspark.sql import SparkSession
+from pyspark.sql.types import LongType
 
 
 SPLITS = {
@@ -10,6 +12,11 @@ SPLITS = {
     "validation": "val",
     "test": "test"
 }
+
+
+MAX_DURATION = 2200
+MIN_LENGTH = 10
+MAX_LENGTH = 100
 
 
 def parse_args():
@@ -43,6 +50,14 @@ def main(args):
         df = df.selectExpr("seq_idx as id",
                            "time_since_start as timestamps",
                            "type_event as labels").persist()
+
+        udf = F.udf(lambda x: int(np.searchsorted(x, x[0] + MAX_DURATION)), LongType())
+        df = df.withColumn("length", udf("timestamps"))
+        df = df.withColumn("length", F.when(F.col("length") > MAX_LENGTH, MAX_LENGTH).otherwise(F.col("length")))
+        df = df.filter(F.col("length") >= MIN_LENGTH)
+        df = df.withColumn("timestamps", F.slice(F.col("timestamps"), 1, F.col("length")))
+        df = df.withColumn("labels", F.slice(F.col("labels"), 1, F.col("length")))
+        df = df.drop("length")
         path = os.path.join(args.root, f"{name}.parquet")
         n_partitions = 32 if part == "train" else 1
         print(f"Dump {name} with {df.count()} records and {n_partitions} partitions to {path}")

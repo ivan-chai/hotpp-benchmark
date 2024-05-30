@@ -62,5 +62,7 @@ class NextItemModule(BaseModule):
         """
         def predict_fn(hiddens, states):
             outputs = self.apply_head(hiddens)  # (B, L, D).
-            return self.predict_next(outputs, states, logits_fields_mapping={self._labels_field: self._labels_logits_field})  # (B, L).
+            return self.predict_next(None, outputs, states,
+                                     predict_delta=True,
+                                     logits_fields_mapping={self._labels_field: self._labels_logits_field})  # (B, L).
         return self._seq_encoder.generate(x, indices, predict_fn, self._autoreg_max_steps)  # (B, I, N).

@@ -82,17 +82,25 @@ class BaseModule(pl.LightningModule):
         """Project hidden states to model outputs."""
         return self._head(hiddens)
 
-    def predict_next(self, outputs, states, fields=None, logits_fields_mapping=None):
+    def predict_next(self, inputs, outputs, states, fields=None, logits_fields_mapping=None, predict_delta=False):
         """Predict events from head outputs.
 
-        NOTE: Predicted time is relative to the last event.
+        Args:
+            inputs: Input features with shape (B, L).
+            outputs: Output of the head module with shape (B, L, D).
+            states: Sequence model states with shape (N, B, L, D), where N is the number of layers.
+            predict_delta: If True, return delta times. Generate absolute timestamps otherwise.
         """
-        return self._loss.predict_next(outputs, states, fields=fields, logits_fields_mapping=logits_fields_mapping)  # (B, L) or (B, L, C).
+        results = self._loss.predict_next(outputs, states, fields=fields, logits_fields_mapping=logits_fields_mapping)  # (B, L) or (B, L, C).
+        if not predict_delta:
+            # Convert delta time to time.
+            results.payload[self._timestamps_field] += inputs.payload[self._timestamps_field]
+        return results
 
     def forward(self, x):
         hiddens, states = self.encode(x)
         outputs = self.apply_head(hiddens)
-        predictions = self.predict_next(outputs, states)
+        predictions = self.predict_next(x, outputs, states)
         return predictions
 
     @abstractmethod
@@ -152,7 +160,7 @@ class BaseModule(pl.LightningModule):
             self.log(f"val/{k}", v, batch_size=len(x))
         self.log("val/loss", loss, batch_size=len(x), prog_bar=True)
         if self._val_metric is not None:
-            self._update_metric(self._val_metric, outputs, states, x)
+            self._update_metric(self._val_metric, x, outputs, states)
 
     def test_step(self, batch, _):
         x, _ = batch
@@ -168,7 +176,7 @@ class BaseModule(pl.LightningModule):
             self.log(f"test/{k}", v, batch_size=len(x))
         self.log("test/loss", loss, batch_size=len(x), prog_bar=True)
         if self._test_metric is not None:
-            self._update_metric(self._test_metric, outputs, states, x)
+            self._update_metric(self._test_metric, x, outputs, states)
 
     def on_validation_epoch_end(self):
         if self._val_metric is not None:
@@ -198,15 +206,13 @@ class BaseModule(pl.LightningModule):
     def on_before_optimizer_step(self, optimizer=None, optimizer_idx=None):
         self.log("grad_norm", self._get_grad_norm(), prog_bar=True)
 
-    def _update_metric(self, metric, outputs, states, features):
+    def _update_metric(self, metric, features, outputs, states):
         lengths = torch.minimum(outputs.seq_lens, features.seq_lens)
-        next_items = self.predict_next(outputs, states,
+        next_items = self.predict_next(features, outputs, states,
                                        fields=[self._timestamps_field],
                                        logits_fields_mapping={self._labels_field: self._labels_logits_field})
         predicted_timestamps = next_items.payload[self._timestamps_field]  # (B, L).
         predicted_logits = next_items.payload[self._labels_logits_field]  # (B, L, C).
-        # Time is predicted as delta. Convert it to real time.
-        predicted_timestamps += features.payload[self._timestamps_field]  # (B, L).
 
         metric.update_next_item(lengths,
                                 features.payload[self._timestamps_field],

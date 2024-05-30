@@ -3,7 +3,7 @@ num_evaluation_seeds: 5
 
 max_predictions: 16
 num_classes: 3
-max_time_delta: 200  # Larger than horizon, but not too large.
+max_time_delta: 100  # Larger than horizon, but not too large.
 
 logger:
   _target_: pytorch_lightning.loggers.WandbLogger

@@ -33,12 +33,31 @@ class NextKModule(BaseModule):
         """Returns the type of time delta computation: `last` or `start`."""
         return self._loss.get_delta_type(self._timestamps_field)
 
-    def predict_next_k(self, outputs, states, fields=None, logits_fields_mapping=None):
-        """Predict events from head outputs.
+    def predict_next_k(self, inputs, outputs, states, fields=None, logits_fields_mapping=None, predict_delta=False, sort=True):
+        """Predict K next events from head outputs.
 
-        NOTE: Predicted time is relative to the last event.
+        Args:
+            inputs: Input features with shape (B, L).
+            outputs: Output of the head module with shape (B, L, D).
+            states: Sequence model states with shape (N, B, L, D), where N is the number of layers.
+            predict_delta: If True, return delta times. Generate absolute timestamps otherwise.
+            sort: Whether to sort outputs by timestamps.
         """
-        return self._loss.predict_next_k(outputs, states, fields=fields, logits_fields_mapping=logits_fields_mapping)  # (B, L) or (B, L, C).
+        results = self._loss.predict_next_k(outputs, states, fields=fields, logits_fields_mapping=logits_fields_mapping)  # (B, L, K) or (B, L, K, C).
+        if self.delta_type == "last":
+            with deterministic(False):
+                results.payload[self._timestamps_field].cumsum_(2)
+        elif self.delta_type != "start":
+            raise ValueError(f"Unknown delta type: {self.delta_type}.")
+        if sort:
+            order = results.payload[self._timestamps_field].argsort(dim=2)  # (B, I, N).
+            for k in results.seq_names:
+                shaped_order = order.reshape(*(list(order.shape) + [1] * (results.payload[k].ndim - order.ndim)))  # (B, I, N, *).
+                results.payload[k] = results.payload[k].take_along_dim(shaped_order, dim=2)  # (B, I, N, *).
+        if not predict_delta:
+            # Convert delta time to time.
+            results.payload[self._timestamps_field] += inputs.payload[self._timestamps_field].unsqueeze(2)
+        return results
 
     def generate_sequences(self, x, indices):
         """Generate future events.
@@ -51,24 +70,11 @@ class NextKModule(BaseModule):
             Predicted sequences with shape (B, I, N).
         """
         hiddens, states = self.encode(x)  # (B, L, D), (N, B, L, D).
+        init_times = x.payload[self._timestamps_field].take_along_dim(indices.payload, 1)  # (B, I).
+        init_times = PaddedBatch({self._timestamps_field: init_times}, indices.seq_lens)
         outputs = self.apply_head(hiddens)  # (B, L, D).
         outputs = PaddedBatch(outputs.payload.take_along_dim(indices.payload.unsqueeze(2), 1),
                               indices.seq_lens)  # (B, I, D).
         states = states.take_along_dim(indices.payload[None, :, :, None], 2)  # (N, B, I, D).
-        sequences = self.predict_next_k(outputs, states, logits_fields_mapping={self._labels_field: self._labels_logits_field})  # (B, I, N)
-
-        # Deltas to times.
-        init_times = x.payload[self._timestamps_field].take_along_dim(indices.payload, 1)  # (B, I).
-        if self.delta_type == "last":
-            with deterministic(False):
-                sequences.payload[self._timestamps_field].cumsum_(2)
-        elif self.delta_type != "start":
-            raise ValueError(f"Unknown delta type: {self.delta_type}.")
-        sequences.payload[self._timestamps_field] += init_times.unsqueeze(2)  # (B, I, N).
-
-        # Sort sequences.
-        order = sequences.payload[self._timestamps_field].argsort(dim=2)  # (B, I, N).
-        for k in sequences.seq_names:
-            shaped_order = order.reshape(*(list(order.shape) + [1] * (sequences.payload[k].ndim - order.ndim)))  # (B, I, N, *).
-            sequences.payload[k] = sequences.payload[k].take_along_dim(shaped_order, dim=2)  # (B, I, N, *).
-        return sequences
+        sequences = self.predict_next_k(init_times, outputs, states, logits_fields_mapping={self._labels_field: self._labels_logits_field})  # (B, I, K) or (B, I, K, C).
+        return sequences  # (B, I, K) or (B, I, K, C).

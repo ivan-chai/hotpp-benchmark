@@ -113,7 +113,7 @@ class TimeRMTPPLoss(BaseLoss):
                             torch.zeros_like(biases),
                             (clipped_influence.log() - biases) / clipped_influence)  # (*, L).
         # Delta is always positive.
-        return modes.unsqueeze(-1).clip(min=0)  # (*, L, 1).
+        return modes.unsqueeze(-1).clip(min=0, max=self.max_delta)  # (*, L, 1).
 
     def predict_means(self, predictions):
         """Predict distributions means.
