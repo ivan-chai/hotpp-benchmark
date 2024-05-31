@@ -32,6 +32,7 @@ class HyproModule(NextItemModule):
         val_metric: Validation set metric.
         test_metric: Test set metric.
         autoreg_max_steps: The maximum number of future predictions.
+        hypro_logits_prediction: Either `best` or `mean-prob`.
     """
     def __init__(self, seq_encoder, loss,
                  base_checkpoint,
@@ -46,7 +47,8 @@ class HyproModule(NextItemModule):
                  test_metric=None,
                  autoreg_max_steps=None,
                  hypro_context=20,
-                 hypro_sample_size=20):
+                 hypro_sample_size=20,
+                 hypro_logits_prediction="best"):
         if hypro_context < autoreg_max_steps:
             raise ValueError("HYPRO context must be not less than autoreg steps.")
         super().__init__(
@@ -68,6 +70,7 @@ class HyproModule(NextItemModule):
         self._hypro_loss_step = hypro_loss_step
         self._hypro_context = hypro_context
         self._hypro_sample_size = hypro_sample_size
+        self._hypro_logits_prediction = hypro_logits_prediction
 
     def on_fit_start(self):
         checkpoint = torch.load(self._base_checkpoint)
@@ -166,10 +169,17 @@ class HyproModule(NextItemModule):
                               for k, v in sequences.payload.items()
                               if (k in sequences.seq_names) and (k != self._labels_logits_field)},
                              indices.seq_lens)  # (B, I, N).
+
         # Gather logits.
-        logits = sequences.payload[self._labels_logits_field]  # (B, I, S, N, C).
-        probs = torch.nn.functional.softmax(logits, -1)  # (B, I, S, N, C).
-        result.payload[self._labels_logits_field] = (probs * weights.unsqueeze(3).unsqueeze(4)).sum(2).clip(min=1e-6).log()  # (B, I, N, C).
+        if self._hypro_logits_prediction == "best":
+            logits_indices = best_indices.unsqueeze(3).unsqueeze(4)  # (B, I, 1, 1, 1).
+            result.payload[self._labels_logits_field] = sequences.payload[self._labels_logits_field].take_along_dim(logits_indices, 2).squeeze(2)  # (B, I, N, C).
+        elif self._hypro_logits_prediction == "mean-prob":
+            logits = sequences.payload[self._labels_logits_field]  # (B, I, S, N, C).
+            probs = torch.nn.functional.softmax(logits, -1)  # (B, I, S, N, C).
+            result.payload[self._labels_logits_field] = (probs * weights.unsqueeze(3).unsqueeze(4)).sum(2).clip(min=1e-6).log()  # (B, I, N, C).
+        else:
+            raise ValueError(f"Unknown logits prediction mode: {self._hypro_logits_prediction}")
 
         # Truncate to max steps.
         result = PaddedBatch({k: v[:, :, :self._autoreg_max_steps] for k, v in result.payload.items()},
