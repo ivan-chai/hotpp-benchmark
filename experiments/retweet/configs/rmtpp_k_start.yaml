@@ -19,7 +19,6 @@ module:
           init_influence: -0.1
           influence_dim: ${max_predictions}
           max_intensity: 10
-          grad_scale: 0.05
           expectation_steps: 100
         labels:
           _target_: esp_horizon.losses.CrossEntropyLoss

@@ -30,11 +30,11 @@ metric:
   horizon: 180  # 3 minutes.
   horizon_evaluation_step: 8
   max_time_delta: ${max_time_delta}
-  map_thresholds: [1, 90, 180]
+  map_thresholds: [30]
   map_target_length: 32
   otd_steps: 10
-  otd_insert_cost: 45
-  otd_delete_cost: 45
+  otd_insert_cost: 15
+  otd_delete_cost: 15
 
 module:
   seq_encoder:
