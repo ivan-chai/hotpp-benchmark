@@ -47,6 +47,8 @@ class HyproModule(NextItemModule):
                  autoreg_max_steps=None,
                  hypro_context=20,
                  hypro_sample_size=20):
+        if hypro_context < autoreg_max_steps:
+            raise ValueError("HYPRO context must be not less than autoreg steps.")
         super().__init__(
             seq_encoder=seq_encoder,
             loss=loss,
@@ -76,15 +78,28 @@ class HyproModule(NextItemModule):
         if missing_keys:
             raise RuntimeError(f"Missing base checkpoint keys: {missing_keys}")
 
+    def training_step(self, batch, _):
+        is_training = self.training
+        # Don't hurn batchnorm statistics in the autoreg model.
+        self.eval()
+        if is_training:
+            self._hypro_encoder.train()
+            self._hypro_head.train()
+            self._hypro_loss.train()
+        result = super(HyproModule, self).training_step(batch, None)
+        if is_training:
+            self.train()
+        return result
+
     def _select_indices_targets(self, x):
         step = self._hypro_loss_step
         l = x.seq_lens.max().item()
         # Skip first `step` events.
-        indices = torch.arange(step, l - self._hypro_context, step, device=x.device)  # (I).
+        indices = torch.arange(step, l - self._hypro_context - 1, step, device=x.device)  # (I).
         indices_lens = (indices[None] < x.seq_lens[:, None]).sum(1)  # (B).
         indices = PaddedBatch(indices[None].repeat(len(x), 1), indices_lens)  # (B, I).
 
-        target_indices = indices.payload.unsqueeze(2) + torch.arange(self._hypro_context, device=x.device)  # (B, I, N).
+        target_indices = 1 + indices.payload.unsqueeze(2) + torch.arange(self._hypro_context, device=x.device)  # (B, I, N).
         targets = {k: x.payload[k].unsqueeze(1).take_along_dim(target_indices, 2)  # (B, I, N).
                    for k in x.seq_names}
         targets = PaddedBatch(targets, indices_lens)  # (B, I, N).
@@ -99,7 +114,8 @@ class HyproModule(NextItemModule):
         sequences = PaddedBatch(payload, torch.full([len(next(iter(payload.values())))], n, device=sequences.device, dtype=torch.long))
         hiddens, _ = self._hypro_encoder(sequences)  # (V, N, D).
         energies = self._hypro_head(hiddens)  # (V, N, 1) or (V, 1).
-        energies = energies.payload.mean(1)  # (V, 1) or (V).
+        # Take the output from the last step.
+        energies = energies.payload[:, -1]  # (V, 1) or (V).
         if energies.numel() != len(energies):
             raise ValueError("Unexpected HYPRO head output shape")
         payload = torch.zeros(b, i, device=energies.device, dtype=energies.dtype)  # (B, I).
@@ -154,6 +170,10 @@ class HyproModule(NextItemModule):
         logits = sequences.payload[self._labels_logits_field]  # (B, I, S, N, C).
         probs = torch.nn.functional.softmax(logits, -1)  # (B, I, S, N, C).
         result.payload[self._labels_logits_field] = (probs * weights.unsqueeze(3).unsqueeze(4)).sum(2).clip(min=1e-6).log()  # (B, I, N, C).
+
+        # Truncate to max steps.
+        result = PaddedBatch({k: v[:, :, :self._autoreg_max_steps] for k, v in result.payload.items()},
+                             indices.seq_lens)  # (B, I, N', *).
         return result  # (B, I, N) or (B, I, N, C).
 
     @torch.no_grad()
