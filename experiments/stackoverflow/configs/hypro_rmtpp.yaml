@@ -4,6 +4,9 @@ defaults:
 
 name: hypro_rmtpp
 
+data_module:
+  batch_size: 256
+
 module:
   _target_: esp_horizon.modules.hypro.HyproModule
   loss:
@@ -39,3 +42,4 @@ module:
   hypro_loss:
     _target_: esp_horizon.losses.hypro.HyproBCELoss
   hypro_loss_step: 8
+  hypro_context: ${max_predictions}
