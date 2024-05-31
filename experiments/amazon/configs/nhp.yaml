@@ -16,3 +16,6 @@ module:
     likelihood_sample_size: 1
     expectation_steps: 100
   autoreg_max_steps: ${max_predictions}
+
+trainer:
+  precision: 32  # Prevent explosion.

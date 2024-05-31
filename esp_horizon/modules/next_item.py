@@ -25,7 +25,7 @@ class NextItemModule(BaseModule):
             scheduler init partial. Optimizer are missed.
         val_metric: Validation set metric.
         test_metric: Test set metric.
-        autoreg_max_step: The maximum number of future predictions.
+        autoreg_max_steps: The maximum number of future predictions.
     """
     def __init__(self, seq_encoder, loss,
                  timestamps_field="timestamps",
@@ -50,19 +50,22 @@ class NextItemModule(BaseModule):
         )
         self._autoreg_max_steps = autoreg_max_steps
 
-    def generate_sequences(self, x, indices):
+    def generate_sequences(self, x, indices, n_steps=None):
         """Generate future events.
 
         Args:
             x: Features with shape (B, L).
             indices: Indices with positions to start generation from with shape (B, I).
+            n_steps: The number of steps to generate. Use autoreg_max_steps by default.
 
         Returns:
             Predicted sequences with shape (B, I, N).
         """
+        if n_steps is None:
+            n_steps = self._autoreg_max_steps
         def predict_fn(hiddens, states):
             outputs = self.apply_head(hiddens)  # (B, L, D).
             return self.predict_next(None, outputs, states,
                                      predict_delta=True,
                                      logits_fields_mapping={self._labels_field: self._labels_logits_field})  # (B, L).
-        return self._seq_encoder.generate(x, indices, predict_fn, self._autoreg_max_steps)  # (B, I, N).
+        return self._seq_encoder.generate(x, indices, predict_fn, n_steps)  # (B, I, N).
