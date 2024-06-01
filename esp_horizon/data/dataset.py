@@ -51,6 +51,8 @@ class ESPDataset(torch.utils.data.IterableDataset):
             self.filenames = data
         else:
             raise ValueError(f"Unknown data type: {type(data)}")
+        if not self.filenames:
+            raise RuntimeError("Empty dataset")
         self.total_length = sum(map(get_parquet_length, self.filenames))
         self.min_length = min_length
         self.max_length = max_length

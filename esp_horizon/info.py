@@ -73,6 +73,7 @@ def main(conf):
         total_events += sum(lengths)
         print(f"  Num Events: {sum(lengths)}")
         print(f"  Num Labels: {len(labels)}")
+        print(f"  Max label: {max(labels)}")
 
         metrics = length_metric.compute()
         print(f"  Min seq. length: {metrics['min']}")
