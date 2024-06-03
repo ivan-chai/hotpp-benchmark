@@ -29,7 +29,7 @@ class SlidingEncoder(torch.nn.Module):
         x.payload[self._timestamps_field] = deltas
         merged = torch.stack([x.payload[name].float() for name in self._fields], 2)  # (B, L, D).
         b, l, d = merged.shape
-        windows = torch.stack([merged.roll(1 + i, 1) for i in range(self._k)], 2)  # (B, L, K, D).
+        windows = torch.stack([merged.roll(i, 1) for i in range(self._k - 1, -1, -1)], 2)  # (B, L, K, D).
         hiddens = PaddedBatch(windows.reshape(b, l, -1), x.seq_lens)
         return hiddens, hiddens.payload[None]  # (B, L, KD), (N, B, L, KD).
 
@@ -71,6 +71,14 @@ class RecentHistoryModule(BaseModule):
         self.dummy = torch.nn.Parameter(torch.zeros(1))
 
     def predict_next(self, inputs, outputs, states, fields=None, logits_fields_mapping=None, predict_delta=False):
+        """Predict events from head outputs.
+
+        Args:
+            inputs: Input features with shape (B, L).
+            outputs: Output of the head module with shape (B, L, D).
+            states: Sequence model states with shape (N, B, L, D), where N is the number of layers.
+            predict_delta: If True, return delta times. Generate absolute timestamps otherwise.
+        """
         b, l = inputs.shape
         next_k = outputs.payload.reshape(b, l, self._k, -1)
         next_1 = next_k[:, :, 0]  # (B, L, D).

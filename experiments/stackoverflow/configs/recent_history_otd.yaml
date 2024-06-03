@@ -1,0 +1,13 @@
+defaults:
+  - default
+  - _self_
+
+name: recent_history_otd
+
+module:
+  _target_: esp_horizon.modules.RecentHistoryModule
+  k: 10  # OTD steps.
+  num_classes: ${num_classes}
+
+trainer:
+  max_epochs: 0
