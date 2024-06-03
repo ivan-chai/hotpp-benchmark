@@ -22,6 +22,7 @@ def main(conf):
     OmegaConf.set_struct(conf, False)
     conf.pop("logger")
     conf.pop("report")  # Don't overwrite single-seed test results.
+    conf.pop("model_path")  # Don't overwrite single-seed checkpoint.
     by_metric = defaultdict(list)
     for seed in range(conf.num_evaluation_seeds):
         conf["seed_everything"] = seed

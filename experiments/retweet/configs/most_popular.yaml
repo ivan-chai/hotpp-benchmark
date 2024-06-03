@@ -1,0 +1,13 @@
+defaults:
+  - default
+  - _self_
+
+name: most_popular
+
+module:
+  _target_: esp_horizon.modules.MostPopularModule
+  k: ${max_predictions}
+  num_classes: ${num_classes}
+
+trainer:
+  max_epochs: 0
