@@ -10,6 +10,7 @@ import pyarrow.parquet as pq
 from random import Random
 
 import pyspark.sql.functions as F
+from icdmappings import Mapper
 from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType, StructField, FloatType, LongType, IntegerType, StringType
 from ptls.preprocessing import PysparkDataPreprocessor
@@ -19,8 +20,10 @@ from ptls.preprocessing.pyspark.frequency_encoder import FrequencyEncoder
 logger = logging.getLogger()
 
 
-FILENAME = "events_df.parquet"
-SIMPLE_FILENAME = "events_df_simple.parquet"
+EVENTS_FILENAME = "events_df.parquet"
+EVENTS_SIMPLE = "events_df_simple.parquet"
+MEASUREMENTS_FILENAME = "dynamic_measurements_df.parquet"
+MEASUREMENTS_SIMPLE = "dynamic_measurements_df_simple.parquet"
 
 
 def parse_args():
@@ -29,11 +32,32 @@ def parse_args():
     return parser.parse_args()
 
 
-def simplify_parquet(src, dst):
+def simplify_events(src, dst):
     df = pq.read_table(source=src).select(["subject_id", "event_id", "event_type", "timestamp"])
     df = df.append_column("label", pc.cast(df["event_type"], "str"))
     df = df.drop("event_type")
     pa.parquet.write_table(df, dst)
+
+
+def simplify_measurements(src, dst):
+    df = pq.read_table(source=src, columns=["measurement_id", "event_id", "icd_code"], filters=pc.is_valid(pc.field("icd_code")))
+    df = df.append_column("label", pc.cast(df["icd_code"], "str"))
+    df = df.drop("icd_code")
+    pa.parquet.write_table(df, dst)
+
+
+def map_codes(df):
+    """Convert ICD 9 to ICD 10 where possible."""
+    mapper = Mapper()
+    def map_icd(name):
+        if name == "UNK":
+            return name
+        src, value = name.split()
+        src = src.lower().replace("_", "")
+        return "CH-" + mapper.map(value, source=src, target="chapter")
+    icd_mapper = F.udf(map_icd, returnType=StringType())
+    df = df.withColumn("labels", icd_mapper(F.col("label"))).drop("label")
+    return df
 
 
 def time2unix(df, time_col, time_fmt):
@@ -89,6 +113,13 @@ def split_train_val_test(df):
     return train, val, test
 
 
+def put_diagnoses(df_e, df_m):
+    df_e_non_diag = df_e.filter(F.col("labels") != "DIAGNOSIS")
+    df_e_diag = df_e.filter(F.col("labels") == "DIAGNOSIS").drop("labels")
+    df_e_diag = df_e_diag.join(df_m.select("event_id", "labels"), on="event_id", how="left").fillna("UNK", subset=["labels"])
+    return df_e_non_diag.union(df_e_diag).filter(F.col("labels") != "UNK")
+
+
 def postprocess(part):
     part = part.select("id", "labels", "timestamps")
     part = part.filter(F.size(F.col("labels")) > 20)
@@ -107,12 +138,19 @@ def main(root):
     spark = SparkSession.builder.getOrCreate()
     spark.sparkContext.setLogLevel("WARN")
 
-    #simplify_parquet(os.path.join(root, FILENAME), os.path.join(root, SIMPLE_FILENAME))
-    df = spark.read.parquet(os.path.join(root, SIMPLE_FILENAME)).select("subject_id", "event_id", "timestamp", "label")
-    df = extract_time(df)
-    df = extract_label(df)
-    df = df.withColumnRenamed("subject_id", "id")
-    df = df.persist()
+    simplify_events(os.path.join(root, EVENTS_FILENAME), os.path.join(root, EVENTS_SIMPLE))
+    simplify_measurements(os.path.join(root, MEASUREMENTS_FILENAME), os.path.join(root, MEASUREMENTS_SIMPLE))
+
+    df_e = spark.read.parquet(os.path.join(root, EVENTS_SIMPLE)).select("subject_id", "event_id", "timestamp", "label")
+    df_e = extract_time(df_e)
+    df_e = extract_label(df_e)
+    df_e = df_e.withColumnRenamed("subject_id", "id")
+    df_e = df_e.persist()
+
+    df_m = spark.read.parquet(os.path.join(root, MEASUREMENTS_SIMPLE)).select("event_id", "label")
+    df_m = map_codes(df_m).persist()
+
+    df = put_diagnoses(df_e, df_m).persist()
 
     df_train, df_val, df_test = split_train_val_test(df)
 
