@@ -13,6 +13,7 @@ import pyspark.sql.functions as F
 from icdmappings import Mapper
 from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType, StructField, FloatType, LongType, IntegerType, StringType
+from pyspark.sql import Window
 from ptls.preprocessing import PysparkDataPreprocessor
 from ptls.preprocessing.pyspark.frequency_encoder import FrequencyEncoder
 
@@ -25,8 +26,12 @@ EVENTS_SIMPLE = "events_df_simple.parquet"
 MEASUREMENTS_FILENAME = "dynamic_measurements_df.parquet"
 MEASUREMENTS_SIMPLE = "dynamic_measurements_df_simple.parquet"
 
-MIN_EVENTS = 20
+MIN_EVENTS = 10
 DAY_SECS = 3600 * 24
+
+# Events to remove duplicates between diagnoses for.
+REM_DUP_EVENTS = ["LAB", "INFUSION", "INFUSION_START", "INFUSION_END", "MEDICATION", "PROCEDURE_START", "PROCEDURE_END",
+                  "ADMISSION", "DISCHARGE", "ICU_STAY_START", "ICU_STAY_END", "VISIT"]
 
 
 def parse_args():
@@ -65,16 +70,34 @@ def map_codes(df):
 
 def extract_time(df):
     """Extract day (float)."""
-    spark = SparkSession.builder.getOrCreate()
-    spark.conf.set("spark.sql.session.timeZone", "UTC")
-    df = df.withColumn("timestamps", F.unix_timestamp(F.to_date(F.col("timestamp"))).cast("double") / DAY_SECS).drop("timestamp")
+    df = df.withColumn("timestamps", F.unix_timestamp(F.to_timestamp(F.col("timestamp"))).cast("double") / DAY_SECS).drop("timestamp")
     return df
 
 
 def extract_label(df):
-    spark = SparkSession.builder.getOrCreate()
     df = df.withColumn("labels", F.explode(F.split(F.col("label"), "&"))).drop("label")
-    df = df.filter(F.col("labels") != "LAB")
+    return df
+
+
+def remove_duplicates(df):
+    parts = []
+    # The first part is events with diagnosis.
+    part = df
+    for event in REM_DUP_EVENTS:
+        part = part.filter(F.col("labels") != event)
+    parts.append(part)
+    # Other parts include filtered events of the specific type.
+    window = Window.partitionBy("id").orderBy("timestamps")
+    for event in REM_DUP_EVENTS:
+        part = df.filter(F.col("is_diagnosis") | (F.col("labels") == event))  # Keep only diagnoses end event type.
+        # Keep only the first event after each diagnosis.
+        part = part.withColumn("keep", F.lag(F.col("labels"), 1, "DIAGNOSIS").over(window) != F.col("labels"))
+        part = part.filter(F.col("keep")).filter(F.col("labels") == event).drop("keep")
+        parts.append(part)
+    # Merge parts.
+    df = parts[0]
+    for part in parts[1:]:
+        df = df.union(part)
     return df
 
 
@@ -84,18 +107,19 @@ def put_diagnoses(df_e, df_m):
     df_e_diag = df_e.filter(F.col("labels") == "DIAGNOSIS").drop("labels")
     df_m = df_m.select("event_id", "labels").filter(F.col("labels") != "UNK")
     df_m = df_m.distinct()  # Remove duplicates.
-    df_e_diag = df_e_diag.join(df_m, on="event_id", how="inner")
+    df_e_diag = df_e_diag.join(df_m, on="event_id", how="inner").select("id", "event_id", "timestamps", "labels", "is_diagnosis")
     return df_e_non_diag.union(df_e_diag)
 
 
 def perturbe_time_with_label(df):
     """Ensure sorting is done by both time and label for reprodicibility."""
-    df = df.withColumn("timestamps", F.col("timestamps") + (F.hash("labels") % 99 - 49).cast("double") / 100)
+    df = df.withColumn("timestamps", F.col("timestamps") + (F.hash("labels") % 199 - 99).cast("double") / 100 / 60 / 24)  # Perturbe no more than by minute.
     return df
 
 
 def split_train_val_test(df):
     spark = SparkSession.builder.getOrCreate()
+    spark.conf.set("spark.sql.session.timeZone", "UTC")
 
     users = list(sorted({cl[0] for cl in df.select("id").distinct().collect()}))
     Random(0).shuffle(users)
@@ -148,13 +172,15 @@ def main(root):
     df_e = extract_time(df_e)
     df_e = extract_label(df_e)
     df_e = df_e.withColumnRenamed("subject_id", "id")
+    df_e = df_e.withColumn("is_diagnosis", F.col("labels") == "DIAGNOSIS")
     df_e = df_e.persist()
 
     df_m = spark.read.parquet(os.path.join(root, MEASUREMENTS_SIMPLE)).select("event_id", "label")
     df_m = map_codes(df_m).persist()
 
     df = put_diagnoses(df_e, df_m)
-    df = perturbe_time_with_label(df).persist()
+    df = perturbe_time_with_label(df)
+    df = remove_duplicates(df).drop("is_diagnosis").persist()
 
     df_train, df_val, df_test = split_train_val_test(df)
 
