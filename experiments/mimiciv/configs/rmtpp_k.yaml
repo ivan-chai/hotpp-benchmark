@@ -1,0 +1,23 @@
+defaults:
+  - default
+  - _self_
+
+name: rmtpp_k
+
+module:
+  _target_: esp_horizon.modules.NextKModule
+  loss:
+    _target_: esp_horizon.losses.NextKLoss
+    k: ${max_predictions}
+    next_item_loss:
+      _target_: esp_horizon.losses.NextItemLoss
+      losses:
+        timestamps:
+          _target_: esp_horizon.losses.TimeRMTPPLoss
+          max_delta: ${max_time_delta}
+          init_influence: -0.1
+          max_intensity: 10
+          expectation_steps: 100
+        labels:
+          _target_: esp_horizon.losses.CrossEntropyLoss
+          num_classes: ${num_classes}

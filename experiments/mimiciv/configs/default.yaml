@@ -1,0 +1,78 @@
+seed_everything: 42
+num_evaluation_seeds: 5
+
+max_predictions: 16
+num_classes: 35  # Zero is excluded by PTLS.
+max_time_delta: 32  # Larger than horizon, but not too large.
+
+logger:
+  _target_: pytorch_lightning.loggers.WandbLogger
+  project: esp-mimiciv
+  name: ${name}
+  save_dir: lightning_logs
+model_path: checkpoints/${name}.ckpt
+report: results/${name}.yaml
+multiseed_report: results/multiseed_${name}.txt
+
+data_module:
+  _target_: esp_horizon.data.ESPDataModule
+  batch_size: 64
+  min_length: 10
+  max_length: 64
+  num_workers: 4
+  train_path: data/train.parquet
+  val_path: data/val.parquet
+  test_path: data/test.parquet
+
+metric:
+  _target_: esp_horizon.metrics.HorizonMetric
+  horizon: 28  # 4 weeks.
+  horizon_evaluation_step: 4
+  max_time_delta: ${max_time_delta}
+  map_thresholds: [4]  # Days
+  map_target_length: 16
+  otd_steps: 5  # Half the minimum length.
+  otd_insert_cost: 2
+  otd_delete_cost: 2
+
+module:
+  seq_encoder:
+    _target_: esp_horizon.nn.RnnEncoder
+    embeddings:
+      labels:
+        in: ${num_classes}
+        out: 16
+    hidden_size: 64
+    max_time_delta: ${max_time_delta}
+    max_inference_context: 64
+    inference_context_step: 32
+  head_partial:
+    _target_: esp_horizon.nn.Head
+    _partial_: true
+    use_batch_norm: true
+    hidden_dims: [64]
+  optimizer_partial:
+    _partial_: true
+    _target_: torch.optim.Adam
+    lr: 0.001
+    weight_decay: 0.0
+  lr_scheduler_partial:
+    _partial_: true
+    _target_: torch.optim.lr_scheduler.StepLR
+    step_size: 5
+    gamma: 0.8
+  val_metric: ${metric}
+  test_metric: ${metric}
+
+trainer:
+  accelerator: cuda
+  devices: 1
+  max_epochs: 30
+  enable_checkpointing: true
+  deterministic: true
+  precision: 16-mixed
+  gradient_clip_val: 1  # Increases training stability.
+  check_val_every_n_epoch: 3
+  model_selection:
+    metric: val/detection-mAP
+    mode: max
