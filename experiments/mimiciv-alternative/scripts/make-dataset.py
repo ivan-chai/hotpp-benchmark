@@ -25,7 +25,7 @@ EVENTS_SIMPLE = "events_df_simple.parquet"
 MEASUREMENTS_FILENAME = "dynamic_measurements_df.parquet"
 MEASUREMENTS_SIMPLE = "dynamic_measurements_df_simple.parquet"
 
-MIN_EVENTS = 10
+MIN_EVENTS = 20
 DAY_SECS = 3600 * 24
 
 
