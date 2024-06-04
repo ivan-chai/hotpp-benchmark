@@ -1,4 +1,4 @@
-date: '2024-05-31 16:48:51'
+date: '2024-06-03 18:31:59'
 num_seeds: 5
 test/detection-mAP (mean): 0.06490967124700546
 test/detection-mAP (std): 0.0016535775421035797
