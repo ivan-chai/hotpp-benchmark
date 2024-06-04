@@ -25,6 +25,8 @@ EVENTS_SIMPLE = "events_df_simple.parquet"
 MEASUREMENTS_FILENAME = "dynamic_measurements_df.parquet"
 MEASUREMENTS_SIMPLE = "dynamic_measurements_df_simple.parquet"
 
+DAY_SECS = 3600 * 24
+
 
 def parse_args():
     parser = argparse.ArgumentParser("Format fields and split train/test.")
@@ -60,27 +62,34 @@ def map_codes(df):
     return df
 
 
-def time2unix(df, time_col, time_fmt):
-    if time_fmt in HORIZON_UNITS:
-        df = df.withColumn(time_col, F.col(time_col) * HORIZON_UNITS[time_fmt])
-    else:
-        spark = SparkSession.builder.getOrCreate()
-        spark.conf.set("spark.sql.session.timeZone", "UTC")
-        df = df.withColumn(time_col, F.unix_timestamp(time_col, time_fmt))
-    return df
-
-
 def extract_time(df):
     """Extract day (float)."""
     spark = SparkSession.builder.getOrCreate()
     spark.conf.set("spark.sql.session.timeZone", "UTC")
-    df = df.withColumn("timestamps", F.unix_timestamp(F.to_date(F.col("timestamp"))) / 86400).drop("timestamp")
+    df = df.withColumn("timestamps", F.unix_timestamp(F.to_date(F.col("timestamp"))).cast("double") / DAY_SECS).drop("timestamp")
     return df
 
 
 def extract_label(df):
     spark = SparkSession.builder.getOrCreate()
     df = df.withColumn("labels", F.explode(F.split(F.col("label"), "&"))).drop("label")
+    df = df.filter(F.col("labels") != "LAB")
+    return df
+
+
+def put_diagnoses(df_e, df_m):
+    df_e = df_e.filter(F.col("labels") != "UNK")
+    df_e_non_diag = df_e.filter(F.col("labels") != "DIAGNOSIS")
+    df_e_diag = df_e.filter(F.col("labels") == "DIAGNOSIS").drop("labels")
+    df_m = df_m.select("event_id", "labels").filter(F.col("labels") != "UNK")
+    df_m = df_m.distinct()  # Remove duplicates.
+    df_e_diag = df_e_diag.join(df_m, on="event_id", how="inner")
+    return df_e_non_diag.union(df_e_diag)
+
+
+def perturbe_time_with_label(df):
+    """Ensure sorting is done by both time and label for reprodicibility."""
+    df = df.withColumn("timestamps", F.col("timestamps") + (F.hash("labels") % 99 - 49).cast("double") / 100)
     return df
 
 
@@ -113,13 +122,6 @@ def split_train_val_test(df):
     return train, val, test
 
 
-def put_diagnoses(df_e, df_m):
-    df_e_non_diag = df_e.filter(F.col("labels") != "DIAGNOSIS")
-    df_e_diag = df_e.filter(F.col("labels") == "DIAGNOSIS").drop("labels")
-    df_e_diag = df_e_diag.join(df_m.select("event_id", "labels"), on="event_id", how="left").fillna("UNK", subset=["labels"])
-    return df_e_non_diag.union(df_e_diag).filter(F.col("labels") != "UNK")
-
-
 def postprocess(part):
     part = part.select("id", "labels", "timestamps")
     part = part.filter(F.size(F.col("labels")) > 20)
@@ -150,16 +152,16 @@ def main(root):
     df_m = spark.read.parquet(os.path.join(root, MEASUREMENTS_SIMPLE)).select("event_id", "label")
     df_m = map_codes(df_m).persist()
 
-    df = put_diagnoses(df_e, df_m).persist()
+    df = put_diagnoses(df_e, df_m)
+    df = perturbe_time_with_label(df).persist()
 
     df_train, df_val, df_test = split_train_val_test(df)
 
     preprocessor = PysparkDataPreprocessor(
         col_id="id",
-        col_event_time="event_id",
+        col_event_time="timestamps",
         event_time_transformation="none",
-        cols_category=["labels"],
-        cols_identity=["timestamps"]
+        cols_category=["labels"]
     )
     df_train = postprocess(preprocessor.fit_transform(df_train))
     df_val = postprocess(preprocessor.transform(df_val))
@@ -173,6 +175,12 @@ def main(root):
     write(df_train, os.path.join(root, "train.parquet"), n_partitions=32)
     write(df_val, os.path.join(root, "val.parquet"))
     write(df_test, os.path.join(root, "test.parquet"))
+
+    logger.info("Dump category mappings.")
+    for encoder in preprocessor.cts_category:
+        if isinstance(encoder, FrequencyEncoder):
+            with open(os.path.join(root, f"mapping-{encoder.col_name_original.replace(' ', '_')}.json"), "w") as fp:
+                json.dump(encoder.mapping, fp)
 
 
 if __name__ == "__main__":
