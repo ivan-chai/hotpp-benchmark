@@ -1,0 +1,18 @@
+defaults:
+  - default
+  - _self_
+
+name: next_item
+
+module:
+  _target_: esp_horizon.modules.NextItemModule
+  loss:
+    _target_: esp_horizon.losses.NextItemLoss
+    losses:
+      timestamps:
+        _target_: esp_horizon.losses.TimeMAELoss
+        max_delta: ${max_time_delta}
+      labels:
+        _target_: esp_horizon.losses.CrossEntropyLoss
+        num_classes: ${num_classes}
+  autoreg_max_steps: ${max_predictions}

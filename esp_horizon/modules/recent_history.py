@@ -25,6 +25,7 @@ class SlidingEncoder(torch.nn.Module):
         deltas = timestamps.clone()
         deltas[:, 1:] -= timestamps[:, :-1]
         deltas[:, 0] = 0
+        deltas.clip_(min=0)
         x = x.clone()
         x.payload[self._timestamps_field] = deltas
         merged = torch.stack([x.payload[name].float() for name in self._fields], 2)  # (B, L, D).
