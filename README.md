@@ -1,4 +1,5 @@
 <img src="./docs/logo.png" width="200">
+
 # HoTPP: A Long-Horizon Event Sequence Prediction Benchmark
 The benchmark is focused on the long-horizon prediction of event sequences, aka Marked Temporal Point Processes (MTPPs).
 
