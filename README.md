@@ -58,6 +58,9 @@ There is a special script in the library to analyze tuning results:
 python3 -m hotpp.parse_wandb_hopt ./configs/<sweep-configuration-file> <sweep-id>
 ```
 
+# Reproducibility
+To achieve reproducible results it is highly recommended to use the provided Dockerfile. However, there can be minor differences depending on a particular GPU model.
+
 # Tests
 To run tests, use the following command:
 ```
