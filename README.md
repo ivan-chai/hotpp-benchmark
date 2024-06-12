@@ -49,11 +49,17 @@ python3 -m esp_horizon.parse_wandb_hopt ./configs/<sweep-configuration-file> <sw
 
 HoTPP exploits high-level decomposition from PyTorch Lightning.
 
-**Data.** All datasets are converted to a set of Parquet files. Each record in a Parquet file contains three main fields: *id*, *timestamps* and *labels*. The *id* field is a number representing identity associated with a sequence (user, client etc.). *Timestamps* are stored as an array of floating point numbers with a dataset-specific unit of measure. *Labels* is an array of integers representing a sequence of events types. Dataloader generates *PaddedBatch* object containing dictionary of padded sequences.
+**DataModule.** All datasets are converted to a set of Parquet files. Each record in a Parquet file contains three main fields: *id*, *timestamps* and *labels*. The *id* field is a number representing identity associated with a sequence (user, client etc.). *Timestamps* are stored as an array of floating point numbers with a dataset-specific unit of measure. *Labels* is an array of integers representing a sequence of events types. Dataloader generates *PaddedBatch* object containing dictionary of padded sequences.
 
 **Module.** *Module* implements high-level logic, specific for each group of methods. For example, there is a module for autoregressive models and another module for next-k approaches. *Module* incorporates a loss function, metric evaluator, and sequence encoder. Sequence encoder can produce discrete outputs, as in traditional RNNs, or it can be continous-time, like in NHP method.
 
-The *Trainer* object is typically should not be modified, except by a configuration file. *Trainer* uses *Module* and *DataModule* to train the model and evaluate metrics.
+**Trainer.** The *Trainer* object is typically should not be modified, except by a configuration file. *Trainer* uses *Module* and *DataModule* to train the model and evaluate metrics.
 
 # Configuration files
 HoTPP uses Hydra for configuration. The easiest way to make a new configuration file is to start from one in the experiments folder. Configuration file includes sections for logger, data_module, module, and trainer. There are also some required top-level fields like `model_path` and `report`. It is also highly recommended to specify a random seed (`seed_everything`).
+
+# Tests
+To run tests, use the following command:
+```
+pytest tests
+```
