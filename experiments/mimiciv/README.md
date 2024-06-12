@@ -19,6 +19,7 @@ Alternatively, access the container interactively and follow the [mimic-code's g
 
 4. Run EventStreamGPT data preprocessing to obtain intermediate parquet files
 ```
+docker exec esgpt psql -c "CREATE USER admin WITH SUPERUSER PASSWORD 'admin';"
 docker exec -w /var/lib/postgresql/MIMICIV_FMs_public esgpt ./scripts/build_dataset.sh cohort_name=hotpp_cohort
 docker cp esgpt:/var/lib/postgresql/MIMICIV_FMs_public/data/hotpp_cohort/events_df.parquet data/
 docker cp esgpt:/var/lib/postgresql/MIMICIV_FMs_public/data/hotpp_cohort/dynamic_measurements_df.parquet data/

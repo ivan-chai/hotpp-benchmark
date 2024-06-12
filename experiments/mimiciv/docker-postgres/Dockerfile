@@ -52,6 +52,7 @@ RUN git clone https://github.com/MIT-LCP/mimic-code.git
 RUN git clone https://github.com/mmcdermott/EventStreamGPT.git
 RUN git clone https://github.com/mmcdermott/MIMICIV_FMs_public.git
 
+COPY --chown=postgres:postgres mimic.env MIMICIV_FMs_public/.env
 COPY --chown=postgres:postgres dataset.yaml MIMICIV_FMs_public/configs/dataset.yaml
 COPY --chown=postgres:postgres createdb.sh createdb.sh
 RUN chmod +x createdb.sh
@@ -60,4 +61,4 @@ ENV PATH="/var/lib/postgresql/.local/bin:${PATH}"
 
 RUN cd EventStreamGPT && pip install -e .
 
-RUN pip install rootutils
+RUN pip install rootutils connectorx>=0.3.1
