@@ -1,3 +1,4 @@
+<img src="./docs/logo.png" width="200">
 # HoTPP: A Long-Horizon Event Sequence Prediction Benchmark
 The benchmark is focused on the long-horizon prediction of event sequences, aka Marked Temporal Point Processes (MTPPs).
 
@@ -30,7 +31,7 @@ python3 -m hotpp.train_multiseed --config-dir configs --config-name <model>
 
 # Library architecture
 <p align="center">
-<img src="https://github.com/ivan-chai/hotpp-benchmark/blob/main/.misc/hotpp-arch.png?raw=true" alt="Accuracy" width="75%"/>
+<img src="./docs/hotpp-arch.png?raw=true" alt="Accuracy" width="75%"/>
 </p>
 
 HoTPP exploits high-level decomposition from PyTorch Lightning.
