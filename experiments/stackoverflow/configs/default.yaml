@@ -7,7 +7,7 @@ max_time_delta: 15  # Larger than horizon, but not too large.
 
 logger:
   _target_: pytorch_lightning.loggers.WandbLogger
-  project: esp-stackoverflow
+  project: hotpp-stackoverflow
   name: ${name}
   save_dir: lightning_logs
 model_path: checkpoints/${name}.ckpt
@@ -16,7 +16,7 @@ multiseed_report: results/multiseed_${name}.txt
 downstream_report: results/downstream_${name}.txt
 
 data_module:
-  _target_: esp_horizon.data.ESPDataModule
+  _target_: hotpp.data.HotppDataModule
   batch_size: 64
   min_length: 80
   max_length: 101
@@ -26,7 +26,7 @@ data_module:
   test_path: data/test.parquet
 
 metric:
-  _target_: esp_horizon.metrics.HorizonMetric
+  _target_: hotpp.metrics.HorizonMetric
   horizon: 10  # minutes.
   horizon_evaluation_step: 4
   max_time_delta: ${max_time_delta}
@@ -38,7 +38,7 @@ metric:
 
 module:
   seq_encoder:
-    _target_: esp_horizon.nn.RnnEncoder
+    _target_: hotpp.nn.RnnEncoder
     embeddings:
       labels:
         in: ${num_classes}
@@ -48,7 +48,7 @@ module:
     max_inference_context: 101
     inference_context_step: 30
   head_partial:
-    _target_: esp_horizon.nn.Head
+    _target_: hotpp.nn.Head
     _partial_: true
     use_batch_norm: true
     hidden_dims: [64]

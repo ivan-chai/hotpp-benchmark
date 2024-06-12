@@ -5,7 +5,7 @@ defaults:
 name: recent_history_otd
 
 module:
-  _target_: esp_horizon.modules.RecentHistoryModule
+  _target_: hotpp.modules.RecentHistoryModule
   k: 5  # OTD steps.
   num_classes: ${num_classes}
 

@@ -1,7 +1,7 @@
-# Event Sequence Prediction Benchmark
-The benchmark is focused on the long-horizon prediction of event sequences.
+# HoTPP: A Long-Horizon Event Sequence Prediction Benchmark
+The benchmark is focused on the long-horizon prediction of event sequences, aka Marked Temporal Point Processes (MTPPs).
 
-Each event is characterized by its time, label and possible extra structured data.
+Each event is characterized by its timestamp, label and possible extra structured data.
 
 # Installation
 Sometimes the following parameters are necessary for a successful dependency installation:
@@ -17,20 +17,20 @@ Dataset-specific part is located in the experiments folder. Each subfolder inclu
 # Training and evaluation
 To train the model use the following command:
 ```
-python3 -m esp_horizon.train --config-dir configs --config-name <model>
+python3 -m hotpp.train --config-dir configs --config-name <model>
 ```
 A particular checkpoint can be evaluated with the following command:
 ```
-python3 -m esp_horizon.evaluate --config-dir configs --config-name <model>
+python3 -m hotpp.evaluate --config-dir configs --config-name <model>
 ```
 To run multiseed training and evaluation:
 ```
-python3 -m esp_horizon.train_multiseed --config-dir configs --config-name <model>
+python3 -m hotpp.train_multiseed --config-dir configs --config-name <model>
 ```
 
 # Library architecture
 <p align="center">
-<img src="https://github.com/ivan-chai/esp-horizon/blob/main/.misc/hotpp-arch.png?raw=true" alt="Accuracy" width="75%"/>
+<img src="https://github.com/ivan-chai/hotpp-benchmark/blob/main/.misc/hotpp-arch.png?raw=true" alt="Accuracy" width="75%"/>
 </p>
 
 HoTPP exploits high-level decomposition from PyTorch Lightning.
@@ -55,7 +55,7 @@ wandb agent <sweep-id>
 ```
 There is a special script in the library to analyze tuning results:
 ```
-python3 -m esp_horizon.parse_wandb_hopt ./configs/<sweep-configuration-file> <sweep-id>
+python3 -m hotpp.parse_wandb_hopt ./configs/<sweep-configuration-file> <sweep-id>
 ```
 
 # Tests

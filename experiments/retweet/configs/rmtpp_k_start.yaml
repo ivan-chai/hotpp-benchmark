@@ -5,15 +5,15 @@ defaults:
 name: rmtpp_k_start
 
 module:
-  _target_: esp_horizon.modules.NextKModule
+  _target_: hotpp.modules.NextKModule
   loss:
-    _target_: esp_horizon.losses.NextKLoss
+    _target_: hotpp.losses.NextKLoss
     k: ${max_predictions}
     next_item_loss:
-      _target_: esp_horizon.losses.NextItemLoss
+      _target_: hotpp.losses.NextItemLoss
       losses:
         timestamps:
-          _target_: esp_horizon.losses.TimeRMTPPLoss
+          _target_: hotpp.losses.TimeRMTPPLoss
           delta: start
           max_delta: ${max_time_delta}
           init_influence: -0.1
@@ -21,5 +21,5 @@ module:
           max_intensity: 10
           expectation_steps: 100
         labels:
-          _target_: esp_horizon.losses.CrossEntropyLoss
+          _target_: hotpp.losses.CrossEntropyLoss
           num_classes: ${num_classes}

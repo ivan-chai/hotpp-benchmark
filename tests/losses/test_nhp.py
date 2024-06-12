@@ -5,8 +5,8 @@ from unittest import TestCase, main
 import torch
 from torch import Tensor
 
-from esp_horizon.data import PaddedBatch
-from esp_horizon.losses import NHPLoss, TimeRMTPPLoss
+from hotpp.data import PaddedBatch
+from hotpp.losses import NHPLoss, TimeRMTPPLoss
 
 
 class RMTPPInterpolator:

@@ -2,12 +2,12 @@ import setuptools
 
 
 setuptools.setup(
-    name="esp-horizon",
+    name="hotpp-benchmark",
     version="0.0.1",
     author="Ivan Karpukhin",
     author_email="karpuhini@yandex.ru",
-    description="Evaluate generative event sequence models on the horizon prediction task.",
-    packages=setuptools.find_packages(include=["esp_horizon", "esp_horizon.*"]),
+    description="Evaluate generative event sequence models on the long horizon prediction task.",
+    packages=setuptools.find_packages(include=["hotpp", "hotpp.*"]),
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: Apache Software License",
