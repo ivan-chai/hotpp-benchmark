@@ -3,6 +3,7 @@
 ## 1. Build MIMIC dataset via EventStream-GPT
 
 1. Download MIMIC-IV dataset from the [official site](https://mimic.mit.edu/) and place it in the `hotpp-benchmark/experiments/mimiciv/data` directory.
+
 2. Clone the repos to `hotpp-benchmark/experiments/mimiciv` (this directory), build a docker image and spin up a container:
 ```
 git clone https://github.com/MIT-LCP/mimic-code.git
@@ -18,6 +19,7 @@ docker exec esgpt createdb.sh <format>
 where `<format>` specifies the dataset format, either `raw`, `gz`, or `7z`.
 
 Alternatively, access the container interactively and follow the [mimic-code's guide](https://github.com/MIT-LCP/mimic-code/tree/main/mimic-iv/buildmimic/postgres) to create the database manually.
+
 4. Run EventStreamGPT data preprocessing to obtain the intermediate parquet files
 ```
 docker exec -w /var/lib/postgresql/MIMICIV_FMs_public esgpt ./scripts/build_dataset.sh cohort_name=hotpp_cohort
