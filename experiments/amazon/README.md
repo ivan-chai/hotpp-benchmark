@@ -5,7 +5,7 @@ spark-submit <spark-options> scripts/make-dataset.py
 
 Run training and evalutaion on sequences:
 ```
-python3 -m esp_horizon.train --config-dir configs --config-name <model>
+python3 -m hotpp.train --config-dir configs --config-name <model>
 ```
 
 ### Useful Spark options
