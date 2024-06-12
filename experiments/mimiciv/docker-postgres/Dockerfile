@@ -48,9 +48,10 @@ RUN pip install --upgrade pip
 USER postgres
 WORKDIR /var/lib/postgresql
 
-COPY --chown=postgres:postgres EventStreamGPT EventStreamGPT/
-COPY --chown=postgres:postgres mimic-code mimic-code/
-COPY --chown=postgres:postgres MIMICIV_FMs_public MIMICIV_FMs_public/
+RUN git clone https://github.com/MIT-LCP/mimic-code.git
+RUN git clone https://github.com/mmcdermott/EventStreamGPT.git
+RUN git clone https://github.com/mmcdermott/MIMICIV_FMs_public.git
+
 COPY --chown=postgres:postgres dataset.yaml MIMICIV_FMs_public/configs/dataset.yaml
 COPY --chown=postgres:postgres createdb.sh createdb.sh
 RUN chmod +x createdb.sh

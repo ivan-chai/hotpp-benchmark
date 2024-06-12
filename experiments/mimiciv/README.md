@@ -4,12 +4,9 @@
 
 1. Download MIMIC-IV dataset from the [official site](https://mimic.mit.edu/) and place it in the `hotpp-benchmark/experiments/mimiciv/data` directory.
 
-2. Clone the repos to `hotpp-benchmark/experiments/mimiciv` (this directory), build a docker image and spin up a container:
+2. Build a docker image and spin up a container:
 ```
-git clone https://github.com/MIT-LCP/mimic-code.git
-git clone https://github.com/mmcdermott/EventStreamGPT.git
-git clone https://github.com/mmcdermott/MIMICIV_FMs_public.git
-docker build -t esgpt .
+docker build -t esgpt docker-postgres
 docker run -d -v "$(pwd)/data:/data" --name esgpt esgpt tail -f /dev/null
 ```
 3. Run a script to create a postgres database:
@@ -23,8 +20,8 @@ Alternatively, access the container interactively and follow the [mimic-code's g
 4. Run EventStreamGPT data preprocessing to obtain the intermediate parquet files
 ```
 docker exec -w /var/lib/postgresql/MIMICIV_FMs_public esgpt ./scripts/build_dataset.sh cohort_name=hotpp_cohort
-docker cp esgpt:/var/lib/postgresql/MIMICIV_FMs_public/data/hotpp_cohort/events_df.parquet ./data
-docker cp esgpt:/var/lib/postgresql/MIMICIV_FMs_public/data/hotpp_cohort/dynamic_measurements_df.parquet ./data
+docker cp esgpt:/var/lib/postgresql/MIMICIV_FMs_public/data/hotpp_cohort/events_df.parquet data
+docker cp esgpt:/var/lib/postgresql/MIMICIV_FMs_public/data/hotpp_cohort/dynamic_measurements_df.parquet data
 ```
 
 ## 2. Convert to the HOTPP format
