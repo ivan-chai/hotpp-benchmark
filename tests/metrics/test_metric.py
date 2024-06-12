@@ -4,7 +4,7 @@ from unittest import TestCase, main
 
 import torch
 
-from esp_horizon.metrics import NextItemMetric, MAPMetric, OTDMetric, HorizonMetric
+from hotpp.metrics import NextItemMetric, MAPMetric, OTDMetric, HorizonMetric
 
 
 class TestMetrics(TestCase):

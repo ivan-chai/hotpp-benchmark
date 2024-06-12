@@ -1,0 +1,20 @@
+defaults:
+  - default
+  - _self_
+
+name: next_k_start
+
+module:
+  _target_: hotpp.modules.NextKModule
+  loss:
+    _target_: hotpp.losses.NextKLoss
+    k: ${max_predictions}
+    next_item_loss:
+      _target_: hotpp.losses.NextItemLoss
+      losses:
+        timestamps:
+          _target_: hotpp.losses.TimeMAELoss
+          delta: start
+        labels:
+          _target_: hotpp.losses.CrossEntropyLoss
+          num_classes: ${num_classes}

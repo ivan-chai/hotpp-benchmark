@@ -8,23 +8,23 @@ data_module:
   batch_size: 256
 
 module:
-  _target_: esp_horizon.modules.hypro.HyproModule
+  _target_: hotpp.modules.hypro.HyproModule
   loss:
-    _target_: esp_horizon.losses.NextItemLoss
+    _target_: hotpp.losses.NextItemLoss
     losses:
       timestamps:
-        _target_: esp_horizon.losses.TimeRMTPPLoss
+        _target_: hotpp.losses.TimeRMTPPLoss
         max_delta: ${max_time_delta}
         init_influence: -0.1
         max_intensity: 10
         expectation_steps: 100
       labels:
-        _target_: esp_horizon.losses.CrossEntropyLoss
+        _target_: hotpp.losses.CrossEntropyLoss
         num_classes: ${num_classes}
   autoreg_max_steps: ${max_predictions}
   base_checkpoint: checkpoints/rmtpp.ckpt
   hypro_encoder:
-    _target_: esp_horizon.nn.RnnEncoder
+    _target_: hotpp.nn.RnnEncoder
     embeddings:
       labels:
         in: ${num_classes}
@@ -32,11 +32,11 @@ module:
     hidden_size: 32
     max_time_delta: ${max_time_delta}
   hypro_head_partial:
-    _target_: esp_horizon.nn.Head
+    _target_: hotpp.nn.Head
     _partial_: true
     use_batch_norm: true
     hidden_dims: [64]
   hypro_loss:
-    _target_: esp_horizon.losses.hypro.HyproBCELoss
+    _target_: hotpp.losses.hypro.HyproBCELoss
   hypro_loss_step: 8
   hypro_context: ${max_predictions}

@@ -2,8 +2,8 @@ from unittest import TestCase, main
 
 import torch
 
-from esp_horizon.data import PaddedBatch
-from esp_horizon.modules import RecentHistoryModule, MostPopularModule
+from hotpp.data import PaddedBatch
+from hotpp.modules import RecentHistoryModule, MostPopularModule
 
 
 class TestStatisticalBaselines(TestCase):

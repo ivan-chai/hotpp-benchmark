@@ -3,8 +3,8 @@ from unittest import TestCase, main
 
 import torch
 
-from esp_horizon.data import PaddedBatch
-from esp_horizon.nn.encoder.rnn import ContTimeLSTM
+from hotpp.data import PaddedBatch
+from hotpp.nn.encoder.rnn import ContTimeLSTM
 
 
 EPS = 1e-10

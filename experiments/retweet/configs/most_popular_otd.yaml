@@ -5,7 +5,7 @@ defaults:
 name: most_popular_otd
 
 module:
-  _target_: esp_horizon.modules.MostPopularModule
+  _target_: hotpp.modules.MostPopularModule
   k: 10
   num_classes: ${num_classes}
 

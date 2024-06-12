@@ -5,7 +5,7 @@ defaults:
 name: most_popular
 
 module:
-  _target_: esp_horizon.modules.MostPopularModule
+  _target_: hotpp.modules.MostPopularModule
   k: ${max_predictions}
   num_classes: ${num_classes}
 

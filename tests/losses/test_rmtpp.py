@@ -5,7 +5,7 @@ from unittest import TestCase, main
 import torch
 from torch import Tensor
 
-from esp_horizon.losses import TimeRMTPPLoss
+from hotpp.losses import TimeRMTPPLoss
 
 
 class TestRMTPPLoss(TestCase):

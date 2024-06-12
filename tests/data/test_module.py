@@ -4,7 +4,7 @@ import tempfile
 import torch
 from unittest import TestCase, main
 
-from esp_horizon.data import ESPDataModule
+from hotpp.data import HotppDataModule
 
 
 def gather_distributed_dataset(data, split, world_size=1, epoch=1):
@@ -42,12 +42,12 @@ class TestDDPDataLoader(TestCase):
     def test_workers(self):
         # 15 items, drop last, world 1, 0 / 1 worker.
         for num_workers in [0, 1]:
-            data = ESPDataModule(train_path=self.data15_path,
-                                 train_params={
-                                     "batch_size": 4,
-                                     "num_workers": num_workers,
-                                     "cache_size": None  # Disable shuffle.
-                                 })
+            data = HotppDataModule(train_path=self.data15_path,
+                                   train_params={
+                                       "batch_size": 4,
+                                       "num_workers": num_workers,
+                                       "cache_size": None  # Disable shuffle.
+                                   })
             items = gather_distributed_dataset(data, "train")
             items = sum(items, [])
             ids = torch.cat([v.payload["id"] for v, _ in items]).tolist()
@@ -55,12 +55,12 @@ class TestDDPDataLoader(TestCase):
             self.assertEqual(set(ids), set(range(15)) - {12, 13, 14})
 
         # 15 items, drop last, world 1, 2 workers.
-        data = ESPDataModule(train_path=self.data15_path,
-                             train_params={
-                                 "batch_size": 4,
-                                 "num_workers": 2,
-                                 "cache_size": None  # Disable shuffle.
-                             })
+        data = HotppDataModule(train_path=self.data15_path,
+                               train_params={
+                                   "batch_size": 4,
+                                   "num_workers": 2,
+                                   "cache_size": None  # Disable shuffle.
+                               })
         items = gather_distributed_dataset(data, "train")
         items = sum(items, [])
         ids = torch.cat([v.payload["id"] for v, _ in items]).tolist()
@@ -69,12 +69,12 @@ class TestDDPDataLoader(TestCase):
 
     def test_ddp(self):
         # 15 items, drop last, world 2.
-        data = ESPDataModule(train_path=self.data15_path,
-                             train_params={
-                                 "batch_size": 4,
-                                 "num_workers": 2,
-                                 "cache_size": None  # Disable shuffle.
-                             })
+        data = HotppDataModule(train_path=self.data15_path,
+                               train_params={
+                                   "batch_size": 4,
+                                   "num_workers": 2,
+                                   "cache_size": None  # Disable shuffle.
+                               })
         items = gather_distributed_dataset(data, "train", world_size=2)
         items = sum(items, [])
         ids = torch.cat([v.payload["id"] for v, _ in items]).tolist()
@@ -83,11 +83,11 @@ class TestDDPDataLoader(TestCase):
 
         for world_size in [1, 2]:
             # 15 items, without drop last.
-            data = ESPDataModule(test_path=self.data15_path,
-                                 test_params={
-                                     "batch_size": 4,
-                                     "num_workers": 2
-                                 })
+            data = HotppDataModule(test_path=self.data15_path,
+                                   test_params={
+                                       "batch_size": 4,
+                                       "num_workers": 2
+                                   })
             items = gather_distributed_dataset(data, "test", world_size)
             items = sum(items, [])
             ids = torch.cat([v.payload["id"] for v, _ in items]).tolist()
@@ -95,12 +95,12 @@ class TestDDPDataLoader(TestCase):
             self.assertEqual(set(ids), set(range(15)))
 
             # 16 items, last will not be dropped.
-            data = ESPDataModule(train_path=self.data16_path,
-                                 train_params={
-                                     "batch_size": 4,
-                                     "num_workers": 2,
-                                     "cache_size": 4
-                                 })
+            data = HotppDataModule(train_path=self.data16_path,
+                                   train_params={
+                                       "batch_size": 4,
+                                       "num_workers": 2,
+                                       "cache_size": 4
+                                   })
             items = gather_distributed_dataset(data, "train", world_size)
             items = sum(items, [])
             ids = torch.cat([v.payload["id"] for v, _ in items]).tolist()
@@ -110,12 +110,12 @@ class TestDDPDataLoader(TestCase):
     def test_seed(self):
         for world_size in [1, 2]:
             # 16 items, last will not be dropped.
-            data = ESPDataModule(train_path=self.data16_path,
-                                train_params={
-                                    "cache_size": 4,
-                                    "batch_size": 4,
-                                    "num_workers": 2
-                                })
+            data = HotppDataModule(train_path=self.data16_path,
+                                   train_params={
+                                       "cache_size": 4,
+                                       "batch_size": 4,
+                                       "num_workers": 2
+                                   })
             items = gather_distributed_dataset(data, "train", world_size)
             items = sum(items, [])
             ids1 = torch.cat([v.payload["id"] for v, _ in items]).tolist()
@@ -129,12 +129,12 @@ class TestDDPDataLoader(TestCase):
     def test_shuffle(self):
         for world_size in [1, 2]:
             # 16 items, last will not be dropped.
-            data = ESPDataModule(train_path=self.data16_path,
-                                train_params={
-                                    "cache_size": 4,
-                                    "batch_size": 4,
-                                    "num_workers": 2
-                                })
+            data = HotppDataModule(train_path=self.data16_path,
+                                   train_params={
+                                       "cache_size": 4,
+                                       "batch_size": 4,
+                                       "num_workers": 2
+                                   })
             items = gather_distributed_dataset(data, "train", world_size, epoch=1)
             items = sum(items, [])
             ids1 = torch.cat([v.payload["id"] for v, _ in items]).tolist()

@@ -7,7 +7,7 @@ max_time_delta: 32  # Larger than horizon, but not too large.
 
 logger:
   _target_: pytorch_lightning.loggers.WandbLogger
-  project: esp-mimiciv
+  project: hotpp-mimiciv
   name: ${name}
   save_dir: lightning_logs
 model_path: checkpoints/${name}.ckpt
@@ -15,7 +15,7 @@ report: results/${name}.yaml
 multiseed_report: results/multiseed_${name}.txt
 
 data_module:
-  _target_: esp_horizon.data.ESPDataModule
+  _target_: hotpp.data.HotppDataModule
   batch_size: 64
   min_length: 10
   max_length: 64
@@ -25,7 +25,7 @@ data_module:
   test_path: data/test.parquet
 
 metric:
-  _target_: esp_horizon.metrics.HorizonMetric
+  _target_: hotpp.metrics.HorizonMetric
   horizon: 28  # 4 weeks.
   horizon_evaluation_step: 4
   max_time_delta: ${max_time_delta}
@@ -37,7 +37,7 @@ metric:
 
 module:
   seq_encoder:
-    _target_: esp_horizon.nn.RnnEncoder
+    _target_: hotpp.nn.RnnEncoder
     embeddings:
       labels:
         in: ${num_classes}
@@ -47,7 +47,7 @@ module:
     max_inference_context: 64
     inference_context_step: 32
   head_partial:
-    _target_: esp_horizon.nn.Head
+    _target_: hotpp.nn.Head
     _partial_: true
     use_batch_norm: true
     hidden_dims: [64]

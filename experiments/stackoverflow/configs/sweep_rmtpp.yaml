@@ -1,11 +1,11 @@
-project: esp-sweep-stackoverflow
+project: hotpp-sweep-stackoverflow
 run_cap: 100
 name: rmtpp
 command:
   - ${env}
   - python3
   - -m
-  - esp_horizon.train
+  - hotpp.train
   - --config-dir
   - configs
   - --config-name
