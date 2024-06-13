@@ -65,6 +65,8 @@ python3 -m hotpp.parse_wandb_hopt ./configs/<sweep-configuration-file> <sweep-id
 # Reproducibility
 To achieve reproducible results, it is highly recommended to use the provided Dockerfile. However, there may be minor differences depending on the specific GPU model.
 
+The reference evaluation results are stored in the `results` subfolder within each dataset directory in the `experiments` folder.
+
 # Tests
 To run tests, use the following command:
 ```sh
