@@ -72,3 +72,15 @@ To run tests, use the following command:
 ```sh
 pytest tests
 ```
+
+# Citation
+If you use HoTPP in your project, please cite the following paper:
+```
+@article{karpukhin2024hotppbenchmark,
+  title={HoTPP Benchmark: Are We Good at the Long Horizon Events Forecasting?},
+  author={Karpukhin, Ivan and Shipilov, Foma and Savchenko, Andrey},
+  journal={arXiv preprint arXiv:2406.14341},
+  year={2024},
+  url ={https://arxiv.org/abs/2406.14341}
+}
+```
