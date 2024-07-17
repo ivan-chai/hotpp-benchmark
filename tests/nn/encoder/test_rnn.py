@@ -39,7 +39,7 @@ class TestContTimeLSTM(TestCase):
         cs__, ce__ = [i__ * z__] * 2
 
         # First step.
-        c_0 = cs__ + (ce__ - cs__) * math.exp(-d__ * 2)
+        c_0 = ce__ + (cs__ - ce__) * math.exp(-d__ * 2)
         h_0 = o__ * tanh(c_0)
         i_0, f_0, o_0 = [sigm(1.5 + h_0)] * 3
         d_0 = softp(1.5 + h_0)
@@ -48,7 +48,7 @@ class TestContTimeLSTM(TestCase):
         ce_0 = f_0 * ce__ + i_0 * z_0
 
         # Second step
-        c_1 = cs_0 + (ce_0 - cs_0) * math.exp(-d_0 * 3)
+        c_1 = ce_0 + (cs_0 - ce_0) * math.exp(-d_0 * 3)
         h_1 = o_0 * tanh(c_1)
         i_1, f_1, o_1 = [sigm(-1 + 0.5 + h_1)] * 3
         d_1 = softp(-1 + 0.5 + h_1)

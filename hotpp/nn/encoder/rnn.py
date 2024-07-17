@@ -85,7 +85,7 @@ def cont_time_lstm(x, time_deltas, o_state, cs_state, ce_state, d_state,
     output_states = []
     b, s = o_state.shape
     for step in range(len(x)):
-        c = cs_state + (ce_state - cs_state) * (-d_state * time_deltas[step]).exp()  # (B, D).
+        c = ce_state + (cs_state - ce_state) * (-d_state * time_deltas[step]).exp()  # (B, D).
         h = o_state * torch.tanh(c)  # (B, D).
         x_s = torch.cat([x[step], h], dim=1)  # (B, 2D).
         proj = F.linear(x_s, weight, bias)  # (B, 7D).
@@ -193,6 +193,6 @@ class ContTimeLSTM(torch.nn.Module):
         states_ce = states[..., 2 * s:3 * s]  # (B, L, 1, D).
         states_d = states[..., 3 * s:]  # (B, L, 1, D).
 
-        c = states_cs + (states_ce - states_cs) * (-states_d * time_deltas.payload.unsqueeze(3)).exp()  # (B, L, S, D).
+        c = states_ce + (states_cs - states_ce) * (-states_d * time_deltas.payload.unsqueeze(3)).exp()  # (B, L, S, D).
         h = states_o * torch.tanh(c)  # (B, L, S, D).
         return PaddedBatch(h, time_deltas.seq_lens)
