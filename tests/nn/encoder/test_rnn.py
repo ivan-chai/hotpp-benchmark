@@ -13,6 +13,9 @@ EPS = 1e-10
 def sigm(x):
     return 1 / (1 + math.exp(-x))
 
+def tanh(x):
+    return math.tanh(x)
+
 def softp(x):
     return math.log(1 + math.exp(x))
 
@@ -23,8 +26,6 @@ class TestContTimeLSTM(TestCase):
         rnn.start.data.fill_(0)
         rnn.layer.weight.data.fill_(1)
         rnn.layer.bias.data.fill_(0.5)
-        rnn.d.weight.data.fill_(1)
-        rnn.d.bias.data.fill_(0.5)
         x = torch.tensor([
             1, -1
         ]).reshape(1, -1, 1)  # (B, L, D).
@@ -34,24 +35,24 @@ class TestContTimeLSTM(TestCase):
         # Init.
         i__, o__ = [sigm(0.5)] * 2
         d__ = softp(0.5)
-        z__ = 2 * sigm(0.5) - 1
+        z__ = tanh(0.5)
         cs__, ce__ = [i__ * z__] * 2
 
         # First step.
         c_0 = cs__ + (ce__ - cs__) * math.exp(-d__ * 2)
-        h_0 = o__ * (2 * sigm(2 * c_0) - 1)
+        h_0 = o__ * tanh(c_0)
         i_0, f_0, o_0 = [sigm(1.5 + h_0)] * 3
         d_0 = softp(1.5 + h_0)
-        z_0 = 2 * sigm(1.5 + h_0) - 1
+        z_0 = tanh(1.5 + h_0)
         cs_0 = f_0 * c_0 + i_0 * z_0
         ce_0 = f_0 * ce__ + i_0 * z_0
 
         # Second step
         c_1 = cs_0 + (ce_0 - cs_0) * math.exp(-d_0 * 3)
-        h_1 = o_0 * (2 * sigm(2 * c_1) - 1)
+        h_1 = o_0 * tanh(c_1)
         i_1, f_1, o_1 = [sigm(-1 + 0.5 + h_1)] * 3
         d_1 = softp(-1 + 0.5 + h_1)
-        z_1 = 2 * sigm(-1 + 0.5 + h_1) - 1
+        z_1 = tanh(-1 + 0.5 + h_1)
         cs_1 = f_1 * c_1 + i_1 * z_1
         ce_1 = f_1 * ce_0 + i_1 * z_1
         outputs_gt = torch.tensor([
@@ -79,7 +80,6 @@ class TestContTimeLSTM(TestCase):
         self.assertTrue((x.grad[:, -1].abs() < EPS).all())
         self.assertTrue((dt.grad.abs() > EPS).all())
         self.assertTrue((rnn.start.grad.abs() > EPS).all())
-        self.assertTrue((rnn.beta.grad.abs() > EPS).all())
 
         x.grad = None
         dt.grad = None
@@ -88,7 +88,6 @@ class TestContTimeLSTM(TestCase):
         self.assertTrue((x.grad.abs() > EPS).all())
         self.assertTrue((dt.grad.abs() > EPS).all())
         self.assertTrue((rnn.start.grad.abs() > EPS).all())
-        self.assertTrue((rnn.beta.grad.abs() > EPS).all())
 
     def test_interpolation(self):
         rnn = ContTimeLSTM(3, 5)
