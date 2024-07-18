@@ -68,26 +68,31 @@ class GRU(torch.nn.GRU):
 
 # JIT increases memory usage without significant speedup.
 #@torch.jit.script
-def cont_time_lstm(x, time_deltas, o_state, cs_state, ce_state, d_state,
-                   weight, bias):
-    """Apply ContTimeLSTM.
+def cont_time_lstm(x, time_deltas, states, weight, bias):
+    """Apply continuos-time LSTM using a simple PyTorch loop.
 
     Args:
-        x: Batch with shape (L, B, D).
-        time_deltas: Relative timestamps with shape (L, B, 1).
-        o_state, cs_state, ce_state, d_state: States, each with shape (B, D).
-        weight, bias: Layer parameters.
+        x: Batch with shape (B, L, I).
+        time_deltas: Relative timestamps with shape (B, L).
+        states: States, each with shape (B, 4D).
+        weight: Layer weight matrix with shape (I + D, 7D).
+        bias: Layer bias vector with shape (7D).
 
     Returns:
         Model outputs with shape (B, L, D) and states with shape (B, L, 4D).
     """
+    b, l, _ = x.shape
+    s = states.shape[-1] // 4
     outputs = []
     output_states = []
-    b, s = o_state.shape
-    for step in range(len(x)):
-        c = ce_state + (cs_state - ce_state) * (-d_state * time_deltas[step]).exp()  # (B, D).
+    o_state = states[:, :s]
+    cs_state = states[:, s:2 * s]
+    ce_state = states[:, 2 * s:3 * s]
+    d_state = states[:, 3 * s:4 * s]
+    for step in range(l):
+        c = ce_state + (cs_state - ce_state) * (-d_state * time_deltas[:, step, None]).exp()  # (B, D).
         h = o_state * torch.tanh(c)  # (B, D).
-        x_s = torch.cat([x[step], h], dim=1)  # (B, 2D).
+        x_s = torch.cat([x[:, step], h], dim=1)  # (B, 2D).
         proj = F.linear(x_s, weight, bias)  # (B, 7D).
         sigmoid_proj = torch.sigmoid(proj[:, :5 * s])  # (B, 5D).
         i_gate = sigmoid_proj[:, :s]  # (B, D).
@@ -119,24 +124,18 @@ class ContTimeLSTM(torch.nn.Module):
             raise NotImplementedError("Cont-LSTM with multiple layers")
         self._hidden_size = hidden_size
         self._num_layers = num_layers
-        self.start = torch.nn.Parameter(torch.randn(input_size))  # (D).
-        self.layer = torch.nn.Linear(input_size + hidden_size, 7 * hidden_size)  # i, f, ie, fe, o, z, d.
+        self.bos = torch.nn.Parameter(torch.randn(input_size))  # (D).
+        layer = torch.nn.Linear(input_size + hidden_size, 7 * hidden_size)  # i, f, ie, fe, o, z, d.
+        self.weight = layer.weight
+        self.bias = layer.bias
 
     @property
     def init_state(self):
-        s = self._hidden_size
-        proj = F.linear(self.start[None], self.layer.weight[:, :len(self.start)], self.layer.bias).squeeze(0)  # (7D).
-        sigmoid_proj = torch.sigmoid(proj[:5 * s])  # (6D).
-        i_gate = sigmoid_proj[:s]  # (D).
-        f_gate = sigmoid_proj[s:2 * s]  # (D).
-        ie_gate = sigmoid_proj[2 * s:3 * s]  # (D).
-        fe_gate = sigmoid_proj[3 * s:4 * s]  # (D).
-        o_state = sigmoid_proj[4 * s:5 * s]  # (D).
-        z = torch.tanh(proj[5 * s:6 * s])  # (D).
-        cs_state = i_gate * z
-        ce_state = ie_gate * z
-        d_state = torch.nn.functional.softplus(proj[6 * s:7 * s])
-        return torch.cat([o_state, cs_state, ce_state, d_state])[None]  # (1, 4D).
+        bos = self.bos[None, None]  # (1, 1, D).
+        zero_s = torch.zeros(1, 4 * self._hidden_size, dtype=self.bos.dtype, device=self.bos.device)  # (1, D).
+        zero_dt = torch.zeros(1, 1, dtype=self.bos.dtype, device=self.bos.device)  # (1, 1).
+        _, states = cont_time_lstm(bos, zero_dt, zero_s, self.weight, self.bias)  # (1, 1, 4D).
+        return states.squeeze(1)  # (1, 4D).
 
     def forward(self, x: PaddedBatch, time_deltas: PaddedBatch,
                 states: Optional[Tensor]=None, return_full_states=False) -> Tuple[PaddedBatch, Tensor]:
@@ -164,13 +163,7 @@ class ContTimeLSTM(torch.nn.Module):
             states = self.init_state.repeat(b, 1)  # (B, 4D).
         else:
             states = states.squeeze(0)  # Remove layer dim, (B, 4D).
-        o_state = states[:, :s]
-        cs_state = states[:, s:2 * s]
-        ce_state = states[:, 2 * s:3 * s]
-        d_state = states[:, 3 * s:]
-        outputs, output_states = cont_time_lstm(x.permute(1, 0, 2), time_deltas.T.unsqueeze(2),  # (L, B, D), (L, B, 1).
-                                                o_state, cs_state, ce_state, d_state,
-                                                self.layer.weight, self.layer.bias)  # (B, L, D), (B, L, 4D).
+        outputs, output_states = cont_time_lstm(x, time_deltas, states, self.weight, self.bias)  # (B, L, D), (B, L, 4D).
         outputs = PaddedBatch(outputs, seq_lens)
         if not return_full_states:
             output_states = output_states.take_along_dim((seq_lens - 1).clip(min=0)[:, None, None], 1).squeeze(1)  # (B, 4D).

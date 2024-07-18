@@ -23,9 +23,9 @@ def softp(x):
 class TestContTimeLSTM(TestCase):
     def test_simple_parameters(self):
         rnn = ContTimeLSTM(1, 1)
-        rnn.start.data.fill_(0)
-        rnn.layer.weight.data.fill_(1)
-        rnn.layer.bias.data.fill_(0.5)
+        rnn.bos.data.fill_(0)
+        rnn.weight.data.fill_(1)
+        rnn.bias.data.fill_(0.5)
         x = torch.tensor([
             1, -1
         ]).reshape(1, -1, 1)  # (B, L, D).
@@ -79,7 +79,7 @@ class TestContTimeLSTM(TestCase):
         # The last output doesn't depend on the last input, as it's computed as interpolation.
         self.assertTrue((x.grad[:, -1].abs() < EPS).all())
         self.assertTrue((dt.grad.abs() > EPS).all())
-        self.assertTrue((rnn.start.grad.abs() > EPS).all())
+        self.assertTrue((rnn.bos.grad.abs() > EPS).all())
 
         x.grad = None
         dt.grad = None
@@ -87,7 +87,7 @@ class TestContTimeLSTM(TestCase):
         output_states.mean().backward()
         self.assertTrue((x.grad.abs() > EPS).all())
         self.assertTrue((dt.grad.abs() > EPS).all())
-        self.assertTrue((rnn.start.grad.abs() > EPS).all())
+        self.assertTrue((rnn.bos.grad.abs() > EPS).all())
 
     def test_interpolation(self):
         rnn = ContTimeLSTM(3, 5)
