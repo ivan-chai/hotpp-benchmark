@@ -82,24 +82,23 @@ def cont_time_lstm(x, time_deltas, states, weight, bias):
         Model outputs with shape (B, L, D) and states with shape (B, L, 4D).
     """
     b, l, _ = x.shape
-    s = states.shape[-1] // 4
     outputs = []
     output_states = []
-    o_state, cs_state, ce_state, d_state = states.chunk(4, 1)
+    o_gate, cs_state, ce_state, decay = states.chunk(4, 1)
+    s = o_gate.shape[1]
     for step in range(l):
-        c = ce_state + (cs_state - ce_state) * (-d_state * time_deltas[:, step, None]).exp()  # (B, D).
-        h = o_state * torch.tanh(c)  # (B, D).
+        c = ce_state + (cs_state - ce_state) * (-decay * time_deltas[:, step, None]).exp()  # (B, D).
+        h = o_gate * torch.tanh(c)  # (B, D).
         x_s = torch.cat([x[:, step], h], dim=1)  # (B, 2D).
         proj = F.linear(x_s, weight, bias)  # (B, 7D).
         sigmoid_proj = torch.sigmoid(proj[:, :5 * s])  # (B, 5D).
-        i_gate, f_gate, ie_gate, fe_gate, o_state = sigmoid_proj.chunk(5, 1)  # (B, D).
+        i_gate, f_gate, ie_gate, fe_gate, o_gate = sigmoid_proj.chunk(5, 1)  # (B, D).
         z = torch.tanh(proj[:, 5 * s:6 * s])  # (B, D).
         cs_state = f_gate * c + i_gate * z
         ce_state = fe_gate * ce_state + ie_gate * z
-        d_state = torch.nn.functional.softplus(proj[:, 6 * s:7 * s])
-        # Layer output: i, f, ie, fe, z, o, d: 6D + 1.
+        decay = torch.nn.functional.softplus(proj[:, 6 * s:7 * s])
         outputs.append(h)  # (B, D).
-        output_states.append(torch.cat([o_state, cs_state, ce_state, d_state], 1))  # (B, 4D).
+        output_states.append(torch.cat([o_gate, cs_state, ce_state, decay], 1))  # (B, 4D).
     return torch.stack(outputs, 1), torch.stack(output_states, 1)  # (B, L, D), (B, L, 4D).
 
 
@@ -110,6 +109,9 @@ class ContTimeLSTM(torch.nn.Module):
 
     Mei, Hongyuan, and Jason M. Eisner. "The neural hawkes process: A neurally self-modulating
     multivariate point process." Advances in neural information processing systems 30 (2017).
+
+    NOTE: Our implementation is slightly different because our first time_delta is always zero.
+    This way we encode time from a previous event rather than time to a future event.
     """
     def __init__(self, input_size, hidden_size, num_layers=1):
         super().__init__()
@@ -172,13 +174,8 @@ class ContTimeLSTM(torch.nn.Module):
         Returns:
             Outputs with shape (B, L, S, D).
         """
-        s = self._hidden_size
         states = states[-1].unsqueeze(2)  # (B, L, 1, 4D).
-        states_o = states[..., :s]  # (B, L, 1, D).
-        states_cs = states[..., s:2 * s]  # (B, L, 1, D).
-        states_ce = states[..., 2 * s:3 * s]  # (B, L, 1, D).
-        states_d = states[..., 3 * s:]  # (B, L, 1, D).
-
-        c = states_ce + (states_cs - states_ce) * (-states_d * time_deltas.payload.unsqueeze(3)).exp()  # (B, L, S, D).
-        h = states_o * torch.tanh(c)  # (B, L, S, D).
+        o_gate, cs_state, ce_state, decay = states.chunk(4, 3)  # (B, L, 1, D).
+        c = ce_state + (cs_state - ce_state) * (-decay * time_deltas.payload.unsqueeze(3)).exp()  # (B, L, S, D).
+        h = o_gate * torch.tanh(c)  # (B, L, S, D).
         return PaddedBatch(h, time_deltas.seq_lens)
