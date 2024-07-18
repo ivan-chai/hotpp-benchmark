@@ -85,21 +85,14 @@ def cont_time_lstm(x, time_deltas, states, weight, bias):
     s = states.shape[-1] // 4
     outputs = []
     output_states = []
-    o_state = states[:, :s]
-    cs_state = states[:, s:2 * s]
-    ce_state = states[:, 2 * s:3 * s]
-    d_state = states[:, 3 * s:4 * s]
+    o_state, cs_state, ce_state, d_state = states.chunk(4, 1)
     for step in range(l):
         c = ce_state + (cs_state - ce_state) * (-d_state * time_deltas[:, step, None]).exp()  # (B, D).
         h = o_state * torch.tanh(c)  # (B, D).
         x_s = torch.cat([x[:, step], h], dim=1)  # (B, 2D).
         proj = F.linear(x_s, weight, bias)  # (B, 7D).
         sigmoid_proj = torch.sigmoid(proj[:, :5 * s])  # (B, 5D).
-        i_gate = sigmoid_proj[:, :s]  # (B, D).
-        f_gate = sigmoid_proj[:, s:2 * s]  # (B, D).
-        ie_gate = sigmoid_proj[:, 2 * s:3 * s]  # (B, D).
-        fe_gate = sigmoid_proj[:, 3 * s:4 * s]  # (B, D).
-        o_state = sigmoid_proj[:, 4 * s:5 * s]  # (B, D).
+        i_gate, f_gate, ie_gate, fe_gate, o_state = sigmoid_proj.chunk(5, 1)  # (B, D).
         z = torch.tanh(proj[:, 5 * s:6 * s])  # (B, D).
         cs_state = f_gate * c + i_gate * z
         ce_state = fe_gate * ce_state + ie_gate * z
