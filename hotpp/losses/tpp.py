@@ -7,7 +7,7 @@ def thinning(b, l, intensity_fn, max_steps, max_delta, bound_samples=5, bound_fa
     Args:
         b: Batch size.
         l: Length.
-        intensity_fn: The mapping from timestamps with shape (B, L) to intensity values with shape (B, L).
+        intensity_fn: The mapping from time offsets with shape (B, L) to intensity values with shape (B, L).
         max_steps: The maximum number of steps in thinning algorithm.
         max_delta: The maximum time step size.
 

@@ -91,7 +91,7 @@ class NHPLoss(torch.nn.Module):
 
         sample_deltas = torch.rand(deltas.shape[0], deltas.shape[1], self._likelihood_sample_size,
                                    dtype=states.dtype, device=states.device)  # (B, L, S).
-        sample_deltas = deltas.unsqueeze(2) * sample_deltas  # (B, L, S).
+        sample_deltas *= deltas.unsqueeze(2)  # (B, L, S).
         sample_outputs = self._interpolator(states, PaddedBatch(sample_deltas, lengths)).payload  # (B, L, S, D).
         sample_intensities = self.intensity(sample_outputs)  # (B, L, S, D).
         integrals = sample_intensities.sum(3).mean(2) * deltas  # (B, L).
