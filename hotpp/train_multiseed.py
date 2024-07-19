@@ -1,3 +1,4 @@
+import os
 import logging
 from collections import defaultdict
 
@@ -13,6 +14,11 @@ from .train import train, dump_report
 logger = logging.getLogger(__name__)
 
 
+def update_model_path(path, seed):
+    base, ext = os.path.splitext(path)
+    return base + f"-seed-{seed}" + ext
+
+
 @hydra.main(version_base="1.2", config_path=None)
 def main(conf):
     if "num_evaluation_seeds" not in conf:
@@ -20,12 +26,13 @@ def main(conf):
     if "multiseed_report" not in conf:
         raise ValueError("Need the path to the multiseed evaluation report.")
     OmegaConf.set_struct(conf, False)
+    base_model_path = conf["model_path"]
     conf.pop("logger")
     conf.pop("report")  # Don't overwrite single-seed test results.
-    conf.pop("model_path")  # Don't overwrite single-seed checkpoint.
     by_metric = defaultdict(list)
     for seed in range(conf.num_evaluation_seeds):
         conf["seed_everything"] = seed
+        conf["model_path"] = update_model_path(base_model_path, seed)
         _, metrics = train(conf)
         for k, v in metrics.items():
             if isinstance(v, torch.Tensor):
