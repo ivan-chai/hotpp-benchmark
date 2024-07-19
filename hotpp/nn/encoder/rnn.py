@@ -66,8 +66,7 @@ class GRU(torch.nn.GRU):
         return PaddedBatch(outputs, time_deltas.seq_lens)
 
 
-# JIT increases memory usage without significant speedup.
-#@torch.jit.script
+@torch.jit.script
 def cont_time_lstm(x, time_deltas, states, weight, bias):
     """Apply continuos-time LSTM using a simple PyTorch loop.
 
@@ -75,30 +74,33 @@ def cont_time_lstm(x, time_deltas, states, weight, bias):
         x: Batch with shape (B, L, I).
         time_deltas: Relative timestamps with shape (B, L).
         states: States, each with shape (B, 4D).
-        weight: Layer weight matrix with shape (I + D, 7D).
+        weight: Layer weight matrix with shape (7D, I + D).
         bias: Layer bias vector with shape (7D).
 
     Returns:
         Model outputs with shape (B, L, D) and states with shape (B, L, 4D).
     """
-    b, l, _ = x.shape
+    b, l, x_dim = x.shape
+    assert states.shape[1] % 4 == 0
+    cs_state, ce_state, decay, o_gate = states.chunk(4, 1)
+    h_dim = o_gate.shape[1]
+    x_proj = F.linear(x, weight[:, :x_dim])  # (B, L, 7D).
+    h_weight = weight[:, x_dim:]  # (7D, D).
+
     outputs = []
     output_states = []
-    o_gate, cs_state, ce_state, decay = states.chunk(4, 1)
-    s = o_gate.shape[1]
     for step in range(l):
         c = ce_state + (cs_state - ce_state) * (-decay * time_deltas[:, step, None]).exp()  # (B, D).
         h = o_gate * torch.tanh(c)  # (B, D).
-        x_s = torch.cat([x[:, step], h], dim=1)  # (B, 2D).
-        proj = F.linear(x_s, weight, bias)  # (B, 7D).
-        sigmoid_proj = torch.sigmoid(proj[:, :5 * s])  # (B, 5D).
+        proj = x_proj[:, step] + F.linear(h, h_weight, bias)  # (B, 7D).
+        sigmoid_proj = torch.sigmoid(proj[:, :5 * h_dim])  # (B, 5D).
         i_gate, f_gate, ie_gate, fe_gate, o_gate = sigmoid_proj.chunk(5, 1)  # (B, D).
-        z = torch.tanh(proj[:, 5 * s:6 * s])  # (B, D).
+        z = torch.tanh(proj[:, 5 * h_dim:6 * h_dim])  # (B, D).
         cs_state = f_gate * c + i_gate * z
         ce_state = fe_gate * ce_state + ie_gate * z
-        decay = torch.nn.functional.softplus(proj[:, 6 * s:7 * s])
+        decay = torch.nn.functional.softplus(proj[:, 6 * h_dim:7 * h_dim])
         outputs.append(h)  # (B, D).
-        output_states.append(torch.cat([o_gate, cs_state, ce_state, decay], 1))  # (B, 4D).
+        output_states.append(torch.cat([cs_state, ce_state, decay, o_gate], 1))  # (B, 4D).
     return torch.stack(outputs, 1), torch.stack(output_states, 1)  # (B, L, D), (B, L, 4D).
 
 
@@ -127,9 +129,9 @@ class ContTimeLSTM(torch.nn.Module):
     @property
     def init_state(self):
         bos = self.bos[None, None]  # (1, 1, D).
-        zero_s = torch.zeros(1, 4 * self._hidden_size, dtype=self.bos.dtype, device=self.bos.device)  # (1, D).
+        zero_state = torch.zeros(1, 4 * self._hidden_size, dtype=self.bos.dtype, device=self.bos.device)  # (1, 4D).
         zero_dt = torch.zeros(1, 1, dtype=self.bos.dtype, device=self.bos.device)  # (1, 1).
-        _, states = cont_time_lstm(bos, zero_dt, zero_s, self.weight, self.bias)  # (1, 1, 4D).
+        _, states = cont_time_lstm(bos, zero_dt, zero_state, self.weight, self.bias)  # (1, 1, 4D).
         return states.squeeze(1)  # (1, 4D).
 
     def forward(self, x: PaddedBatch, time_deltas: PaddedBatch,
@@ -175,7 +177,7 @@ class ContTimeLSTM(torch.nn.Module):
             Outputs with shape (B, L, S, D).
         """
         states = states[-1].unsqueeze(2)  # (B, L, 1, 4D).
-        o_gate, cs_state, ce_state, decay = states.chunk(4, 3)  # (B, L, 1, D).
+        cs_state, ce_state, decay, o_gate = states.chunk(4, -1)  # (B, L, 1, D).
         c = ce_state + (cs_state - ce_state) * (-decay * time_deltas.payload.unsqueeze(3)).exp()  # (B, L, S, D).
         h = o_gate * torch.tanh(c)  # (B, L, S, D).
         return PaddedBatch(h, time_deltas.seq_lens)

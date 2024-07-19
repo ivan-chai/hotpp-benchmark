@@ -28,7 +28,7 @@ class TestContTimeLSTM(TestCase):
         rnn.bias.data.fill_(0.5)
         x = torch.tensor([
             1, -1
-        ]).reshape(1, -1, 1)  # (B, L, D).
+        ]).reshape(1, -1, 1).float()  # (B, L, D).
         dt = torch.tensor([
             2, 3
         ]).reshape(1, -1)  # (B, L).
@@ -59,8 +59,8 @@ class TestContTimeLSTM(TestCase):
             h_0, h_1
         ]).reshape(1, -1, 1)
         output_states_gt = torch.tensor([
-            [o_0, cs_0, ce_0, d_0],
-            [o_1, cs_1, ce_1, d_1],
+            [cs_0, ce_0, d_0, o_0],
+            [cs_1, ce_1, d_1, o_1],
         ]).reshape(1, 1, -1, 4)
         lengths = torch.full([x.shape[0]], x.shape[1], dtype=torch.long)
         outputs, output_states = rnn(PaddedBatch(x, lengths), PaddedBatch(dt, lengths), return_full_states=True)
