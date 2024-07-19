@@ -2,7 +2,7 @@ import math
 import torch
 
 from .common import BaseLoss, compute_delta
-from .tpp import thinning_expectation
+from .tpp import thinning_expectation, thinning_sample
 
 
 class TimeRMTPPLoss(BaseLoss):
@@ -142,3 +142,30 @@ class TimeRMTPPLoss(BaseLoss):
                                             max_delta=self.max_delta,
                                             dtype=biases.dtype, device=biases.device)  # (B, L).
         return expectations.unsqueeze(2)
+
+    def predict_samples(self, predictions):
+        """Sample from distributions.
+
+        Args:
+            predictions: Parameters with shape (*, L, 1).
+
+        Returns:
+            Means with shape (*, L, 1).
+        """
+        if self.expectation_steps is None:
+            raise ValueError("Need maximum expectation steps for the mean estimation.")
+        if self.max_delta is None:
+            raise ValueError("Need maximum time delta for sampling.")
+        assert predictions.shape[-1] == 1
+        biases = predictions.squeeze(-1).flatten(0, -2)  # (B, L).
+
+        b, l = biases.shape
+        influence = self.get_current_influence(l)
+        if (influence > 0).any():
+            raise RuntimeError("Can't sample with positive current influence.")
+        samples = thinning_sample(b, l,
+                                  intensity_fn=lambda deltas: self._log_intensity(influence, biases, deltas).exp(),
+                                  max_steps=self.expectation_steps,
+                                  max_delta=self.max_delta,
+                                  dtype=biases.dtype, device=biases.device)  # (B, L).
+        return samples.unsqueeze(2)

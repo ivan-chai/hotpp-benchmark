@@ -45,3 +45,21 @@ def thinning_expectation(b, l, intensity_fn, max_steps, max_delta, bound_samples
     expectations = (sample * mask).sum(1) / mask.sum(1)  # (BL).
     # Delta is always positive.
     return expectations.reshape(b, l).clip(min=0)  # (B, L).
+
+
+def thinning_sample(b, l, intensity_fn, max_steps, max_delta, bound_samples=5, bound_factor=2, device=None, dtype=None):
+    """Sample with thinning algorithm."""
+    sample, mask = thinning(b, l,
+                            intensity_fn=intensity_fn,
+                            max_steps=max_steps,
+                            max_delta=max_delta,
+                            bound_samples=bound_samples,
+                            bound_factor=bound_factor,
+                            dtype=dtype, device=device)  # (B, L, N), (B, L, N).
+    sample, mask = sample.flatten(0, 1), mask.flatten(0, 1)  # (BL, N), (BL, N).
+    empty = ~mask.any(-1)  # (BL).
+    if empty.any():
+        sample[empty, 0] = max_delta
+        mask[empty, 0] = True
+    mask = torch.logical_and(mask, mask.cumsum(1) == 2)  # (BL, N).
+    return sample.masked_select(mask).reshape(b, l).clip(min=0)  # (B, L).
