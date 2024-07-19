@@ -22,6 +22,8 @@ class HyproModule(NextItemModule):
         hypro_head_partial: A model head for energy computation.
         hypro_loss: Energy training loss.
         hypro_loss_step: The loss computation step.
+        hypro_context: The size of a prefix attached to the hypothesis before energy computation.
+            By default equal to the autoreg_max_steps.
         timestamps_field: The name of the timestamps field.
         labels_field: The name of the labels field.
         head_partial: FC head model class which accepts input and output dimensions.
@@ -46,11 +48,11 @@ class HyproModule(NextItemModule):
                  val_metric=None,
                  test_metric=None,
                  autoreg_max_steps=None,
-                 hypro_context=20,
+                 hypro_context=None,
                  hypro_sample_size=20,
                  hypro_logits_prediction="best"):
-        if hypro_context < autoreg_max_steps:
-            raise ValueError("HYPRO context must be not less than autoreg steps.")
+        if hypro_context is None:
+            hypro_context = autoreg_max_steps
         super().__init__(
             seq_encoder=seq_encoder,
             loss=loss,
@@ -98,17 +100,52 @@ class HyproModule(NextItemModule):
         step = self._hypro_loss_step
         l = x.seq_lens.max().item()
         # Skip first `step` events.
-        indices = torch.arange(step, l - self._hypro_context - 1, step, device=x.device)  # (I).
+        indices = torch.arange(step, l - self._autoreg_max_steps - 1, step, device=x.device)  # (I).
         indices_lens = (indices[None] < x.seq_lens[:, None]).sum(1)  # (B).
         indices = PaddedBatch(indices[None].repeat(len(x), 1), indices_lens)  # (B, I).
 
-        target_indices = 1 + indices.payload.unsqueeze(2) + torch.arange(self._hypro_context, device=x.device)  # (B, I, N).
+        target_indices = 1 + indices.payload.unsqueeze(2) + torch.arange(self._autoreg_max_steps, device=x.device)  # (B, I, N).
         targets = {k: x.payload[k].unsqueeze(1).take_along_dim(target_indices, 2)  # (B, I, N).
                    for k in x.seq_names}
         targets = PaddedBatch(targets, indices_lens)  # (B, I, N).
         return indices, targets
 
-    def _compute_energies(self, sequences):
+    def _attach_prefixes(self, x, indices, sequences):
+        """Attach input prefix to each sequence.
+
+        NOTE. For some indices there is no prefix with the required size.
+        We therefore pad missing events with zeros.
+
+        Args:
+            x: An input sequence with shape (B, L).
+            indices: Positions from which sequences were generated with shape (B, I).
+            sequences: Generated sequences with shape (B, I, N).
+
+        Returns:
+            Joined sequences with shape (B, I, P + N).
+        """
+        # Join fields before windowing.
+        b, l = x.shape
+        device = x.device
+        fields = [field for field in sequences.seq_names if field != self._labels_logits_field]
+        joined = torch.stack([x.payload[field] for field in fields], -1)  # (B, L, D).
+
+        # Extract prefixes.
+        prefixes = [joined.roll(i, 1) for i in reversed(range(self._hypro_context))]  # P x (B, L, D).
+        prefixes = torch.stack(prefixes, 2)  # (B, L, P, D).
+        invalid = (torch.arange(self._hypro_context, device=device)[None] <
+                   self._hypro_context - 1 - torch.arange(l, device=device)[:, None])  # (L, P).
+        prefixes.masked_fill_(invalid[None, :, :, None], 0)
+        prefixes = prefixes.take_along_dim(indices.payload[:, :, None, None], 1)  # (B, I, P, D).
+
+        # Split and cat fields.
+        payload = {}
+        for i, field in enumerate(fields):
+            payload[field] = torch.cat([prefixes[..., i].to(sequences.payload[field].dtype), sequences.payload[field]], 2)  # (B, I, P + N).
+        return PaddedBatch(payload, indices.seq_lens)  # (B, I, P + N).
+
+    def _compute_energies(self, x, indices, sequences):
+        sequences = self._attach_prefixes(x, indices, sequences)  # (B, I, P + N).
         b, i, n = sequences.payload[next(iter(sequences.seq_names))].shape[:3]
         lengths = sequences.seq_lens
         mask = sequences.seq_len_mask  # (B, I).
@@ -138,10 +175,10 @@ class HyproModule(NextItemModule):
         """
         with torch.no_grad():
             indices, targets = self._select_indices_targets(x)  # (B, I), (B, I, N).
-            sequences = [super(HyproModule, self).generate_sequences(x, indices, n_steps=self._hypro_context)
+            sequences = [super(HyproModule, self).generate_sequences(x, indices)
                          for _ in range(self._hypro_sample_size)]  # S * (B, I, N).
-        target_energies = self._compute_energies(targets)  # (B, I).
-        noise_energies = [self._compute_energies(s).payload for s in sequences]
+        target_energies = self._compute_energies(x, indices, targets)  # (B, I).
+        noise_energies = [self._compute_energies(x, indices, s).payload for s in sequences]
         noise_energies = PaddedBatch(torch.stack(noise_energies, 2), indices.seq_lens)  # (B, I, S).
         losses, metrics = self._hypro_loss(target_energies, noise_energies)
         return losses, metrics
@@ -156,8 +193,8 @@ class HyproModule(NextItemModule):
         Returns:
             Predicted sequences with shape (B, I, N).
         """
-        sequences = [super(HyproModule, self).generate_sequences(x, indices, n_steps=self._hypro_context) for _ in range(self._hypro_sample_size)]  # S * (B, I, N, *).
-        energies = [self._compute_energies(s).payload for s in sequences]
+        sequences = [super(HyproModule, self).generate_sequences(x, indices) for _ in range(self._hypro_sample_size)]  # S * (B, I, N, *).
+        energies = [self._compute_energies(x, indices, s).payload for s in sequences]
         energies = PaddedBatch(torch.stack(energies, 2), indices.seq_lens)  # (B, I, S).
         weights = self._hypro_loss.get_weights(energies).payload  # (B, I, S).
         best_indices = weights.argmax(2).unsqueeze(2)  # (B, I, 1).
