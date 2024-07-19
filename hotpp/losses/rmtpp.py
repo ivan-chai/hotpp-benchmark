@@ -143,11 +143,12 @@ class TimeRMTPPLoss(BaseLoss):
                                             dtype=biases.dtype, device=biases.device)  # (B, L).
         return expectations.unsqueeze(2)
 
-    def predict_samples(self, predictions):
+    def predict_samples(self, predictions, temperature=1):
         """Sample from distributions.
 
         Args:
             predictions: Parameters with shape (*, L, 1).
+            temperature (unused): Sampling temperature can't be applied to thinning.
 
         Returns:
             Means with shape (*, L, 1).

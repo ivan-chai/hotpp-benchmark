@@ -10,12 +10,14 @@ class NextItemLoss(torch.nn.Module):
     Args:
         losses: Mapping from the feature name to the loss function.
         prediction: The type of prediction (either `mean`, `mode` or `sample`).
+        temperature: Temperature for the `sample` mode.
     """
-    def __init__(self, losses, prediction="mean"):
+    def __init__(self, losses, prediction="mean", temperature=1):
         super().__init__()
         self._losses = torch.nn.ModuleDict(losses)
         self._order = list(sorted(losses))
         self._prediction = prediction
+        self._temperature = temperature
         self._interpolator = None
 
     @property
@@ -97,7 +99,7 @@ class NextItemLoss(torch.nn.Module):
             elif self._prediction == "mode":
                 result[name] = self._losses[name].predict_modes(outputs[name]).squeeze(-1)  # (B, L).
             elif self._prediction == "sample":
-                result[name] = self._losses[name].predict_samples(outputs[name]).squeeze(-1)  # (B, L).
+                result[name] = self._losses[name].predict_samples(outputs[name], temperature=self._temperature).squeeze(-1)  # (B, L).
             else:
                 raise ValueError(f"Unknown prediction type: {self._prediction}.")
         for name, target_name in (logits_fields_mapping or {}).items():

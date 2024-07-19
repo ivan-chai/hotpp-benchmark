@@ -125,7 +125,7 @@ class BaseLoss(ABC, torch.nn.Module):
         pass
 
     @abstractmethod
-    def predict_samples(self, predictions):
+    def predict_samples(self, predictions, temperature=1):
         """Sample outputs.
 
         Args:
@@ -176,7 +176,7 @@ class TimeMAELoss(BaseLoss):
         # Delta is always positive.
         return predictions.clip(min=0)  # (B, L, 1).
 
-    def predict_samples(self, predictions):
+    def predict_samples(self, predictions, temperature=1):
         # Delta is always positive.
         return predictions.clip(min=0)  # (B, L, 1).
 
@@ -226,6 +226,6 @@ class CrossEntropyLoss(BaseLoss):
         # There is no mean for a categorical distribution. Return modes.
         return self.predict_modes(predictions)
 
-    def predict_samples(self, predictions):
-        probs = torch.nn.functional.softmax(predictions, dim=-1)  # (B, L, C).
+    def predict_samples(self, predictions, temperature=1):
+        probs = torch.nn.functional.softmax(predictions / temperature, dim=-1)  # (B, L, C).
         return torch.distributions.categorical.Categorical(probs).sample().unsqueeze(-1)  # (B, L, 1).
