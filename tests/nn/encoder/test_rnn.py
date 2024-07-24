@@ -4,10 +4,14 @@ from unittest import TestCase, main
 import torch
 
 from hotpp.data import PaddedBatch
-from hotpp.nn.encoder.rnn import ContTimeLSTM
+from hotpp.nn.encoder.rnn import ContTimeLSTM, ODEGRU
 
 
 EPS = 1e-10
+
+
+def exp(x):
+    return math.exp(x)
 
 
 def sigm(x):
@@ -96,6 +100,81 @@ class TestContTimeLSTM(TestCase):
         lengths = torch.full([x.shape[0]], x.shape[1], dtype=torch.long)
         outputs, output_states = rnn(PaddedBatch(x, lengths), PaddedBatch(dt, lengths), return_full_states=True)
         int_outputs = rnn.interpolate(output_states[:, :, :-1], PaddedBatch(dt[:, 1:, None], lengths - 1)).payload.squeeze(2)  # (B, L - 1, D).
+        self.assertTrue(outputs.payload[:, 1:].allclose(int_outputs))
+
+
+class TestODEGRU(TestCase):
+    def test_simple_parameters(self):
+        rnn = ODEGRU(1, 1, num_diff_layers=1, method="euler")
+        rnn.h0.data.fill_(0)
+        rnn.cell.weight_ih.data.fill_(1)
+        rnn.cell.weight_hh.data.fill_(1)
+        rnn.cell.bias_ih.data.fill_(0.5)
+        rnn.cell.bias_hh.data.fill_(0.5)
+        rnn.diff_func[0].weight.data.fill_(2)
+        rnn.diff_func[0].bias.data.fill_(1)
+        x = torch.tensor([
+            1, -1
+        ]).reshape(1, -1, 1).float()  # (B, L, D).
+        dt = torch.tensor([
+            2, 3
+        ]).reshape(1, -1)  # (B, L).
+        # Init.
+        h__ = 0
+
+        # First step.
+        hode_0 = h__ + 2 * (2 * h__ + 1) # Euler approximation.
+        z_0 = sigm(hode_0 + 0.5 + 1 + 0.5)
+        r_0 = sigm(hode_0 + 0.5 + 1 + 0.5)
+        hbar_0 = tanh(r_0 * (hode_0 + 0.5) + 1 + 0.5)
+        h_0 = (1 - z_0) * hbar_0 + z_0 * hode_0
+
+        # Second step
+        hode_1 = h_0 + 3 * (2 * h_0 + 1) # Euler approximation.
+        z_1 = sigm(hode_1 + 0.5 - 1 + 0.5)
+        r_1 = sigm(hode_1 + 0.5 - 1 + 0.5)
+        hbar_1 = tanh(r_1 * (hode_1 + 0.5) - 1 + 0.5)
+        h_1 = (1 - z_1) * hbar_1 + z_1 * hode_1
+
+        outputs_gt = torch.tensor([
+            h_0, h_1
+        ]).reshape(1, -1, 1)
+        output_states_gt = torch.tensor([
+            h_0, h_1
+        ]).reshape(1, 1, -1, 1)
+        lengths = torch.full([x.shape[0]], x.shape[1], dtype=torch.long)
+        outputs, output_states = rnn(PaddedBatch(x, lengths), PaddedBatch(dt, lengths), return_full_states=True)
+        self.assertTrue(outputs.payload.allclose(outputs_gt))
+        self.assertTrue(output_states.allclose(output_states_gt))
+
+    def test_gradients(self):
+        rnn = ODEGRU(3, 5)
+        x = torch.randn(2, 4, 3, requires_grad=True)
+        dt = torch.rand(2, 4, requires_grad=True)
+        lengths = torch.full([x.shape[0]], x.shape[1], dtype=torch.long)
+        outputs, output_states = rnn(PaddedBatch(x, lengths), PaddedBatch(dt, lengths), return_full_states=True)
+        outputs.payload.mean().backward()
+        self.assertEqual(outputs.payload.shape, (2, 4, 5))
+        self.assertTrue((x.grad.abs() > EPS).all())
+        self.assertTrue((dt.grad.abs() > EPS).all())
+        self.assertTrue((rnn.h0.grad.abs() > EPS).all())
+
+        x.grad = None
+        dt.grad = None
+        outputs, output_states = rnn(PaddedBatch(x, lengths), PaddedBatch(dt, lengths), return_full_states=True)
+        output_states.mean().backward()
+        self.assertTrue((x.grad.abs() > EPS).all())
+        self.assertTrue((dt.grad.abs() > EPS).all())
+        self.assertTrue((rnn.h0.grad.abs() > EPS).all())
+
+    def test_interpolation(self):
+        rnn = ODEGRU(3, 5)
+        x = torch.randn(2, 4, 3, requires_grad=True)
+        dt = torch.rand(2, 4, requires_grad=True)
+        lengths = torch.full([x.shape[0]], x.shape[1], dtype=torch.long)
+        outputs, output_states = rnn(PaddedBatch(x, lengths), PaddedBatch(dt, lengths), return_full_states=True)
+        int_outputs = rnn.interpolate(output_states[:, :, :-1], PaddedBatch(dt[:, 1:, None], lengths - 1)).payload.squeeze(2)  # (B, L - 1, D).
+        int_outputs = rnn.cell(x[:, 1:].flatten(0, 1), int_outputs.flatten(0, 1)).reshape(*int_outputs.shape)
         self.assertTrue(outputs.payload[:, 1:].allclose(int_outputs))
 
 
