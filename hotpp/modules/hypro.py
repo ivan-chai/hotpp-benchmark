@@ -1,6 +1,7 @@
 import warnings
 import torch
 from hotpp.data import PaddedBatch
+from hotpp.utils.torch import module_mode, BATCHNORM_TYPES
 from .next_item import NextItemModule
 
 
@@ -84,16 +85,10 @@ class HyproModule(NextItemModule):
             raise RuntimeError(f"Missing base checkpoint keys: {missing_keys}")
 
     def training_step(self, batch, _):
-        is_training = self.training
         # Don't hurn batchnorm statistics in the autoreg model.
-        self.eval()
-        if is_training:
-            self._hypro_encoder.train()
-            self._hypro_head.train()
-            self._hypro_loss.train()
-        result = super(HyproModule, self).training_step(batch, None)
-        if is_training:
-            self.train()
+        with module_mode(self, training=False, layer_types=BATCHNORM_TYPES):
+            with module_mode(self._hypro_encoder, self._hypro_head, training=True):
+                result = super(HyproModule, self).training_step(batch, None)
         return result
 
     def _select_indices_targets(self, x):
@@ -177,7 +172,10 @@ class HyproModule(NextItemModule):
             indices, targets = self._select_indices_targets(x)  # (B, I), (B, I, N).
             sequences = [super(HyproModule, self).generate_sequences(x, indices)
                          for _ in range(self._hypro_sample_size)]  # S * (B, I, N).
-        target_energies = self._compute_energies(x, indices, targets)  # (B, I).
+
+        # Don't hurt batchnorm statistics with GT events.
+        with module_mode(self._hypro_encoder, self._hypro_head, training=False, layer_types=BATCHNORM_TYPES):
+            target_energies = self._compute_energies(x, indices, targets)  # (B, I).
         noise_energies = [self._compute_energies(x, indices, s).payload for s in sequences]
         noise_energies = PaddedBatch(torch.stack(noise_energies, 2), indices.seq_lens)  # (B, I, S).
         losses, metrics = self._hypro_loss(target_energies, noise_energies)
