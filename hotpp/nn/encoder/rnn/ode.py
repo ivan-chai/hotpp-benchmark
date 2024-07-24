@@ -38,7 +38,7 @@ def odernn(x, time_deltas, states, cell, diff_func, method="euler", rtol=1e-3, a
         # t = Ts, s in [0, 1].
         # x'_s(Ts) = T x'_t(Ts) = T f(Ts, x(Ts)).
         step_diff_func = lambda t, h: diff_func(h) * time_deltas[:, step:step + 1]  # (B, D) -> (B, D).
-        h = odeint(step_diff_func, states, times, method=method, rtol=rtol, atol=atol)  # (1, B, D).
+        h = odeint(step_diff_func, states, times, method=method, rtol=rtol, atol=atol)  # (2, B, D).
         assert len(h) == 2
         h = h[1]  # (B, D).
         # Apply RNN cell.
@@ -74,11 +74,14 @@ class ODEGRU(torch.nn.Module):
         self.cell = torch.nn.GRUCell(input_size, hidden_size)
         diff_layers = []
         for _ in range(num_diff_layers - 1):
-            diff_layers.append(torch.nn.Linear(hidden_size, hidden_size))
+            layer = torch.nn.Linear(hidden_size, hidden_size)
+            torch.nn.init.normal_(layer.weight, mean=0, std=0.1)
+            torch.nn.init.constant_(layer.bias, val=0)
+            diff_layers.append(layer)
             diff_layers.append(torch.nn.Tanh())
         diff_layers.append(torch.nn.Linear(hidden_size, hidden_size))
         self.diff_func = torch.nn.Sequential(*diff_layers)
-        self.h0 = torch.nn.Parameter(torch.randn(hidden_size))  # (D).
+        self.h0 = torch.nn.Parameter(torch.randn(num_layers, hidden_size))  # (N, D).
 
     @property
     def init_state(self):
@@ -129,17 +132,22 @@ class ODEGRU(torch.nn.Module):
         """
         if self._num_layers != 1:
             raise NotImplementedError("Multiple layers.")
+        seq_lens, mask = time_deltas.seq_lens, time_deltas.seq_len_mask  # (B), (B, L).
+
         assert len(states) == 1
-        states = states.squeeze(0).unsqueeze(2).repeat(1, 1, time_deltas.payload.shape[-1], 1)  # (B, L, S, D).
+        states = states.squeeze(0)  # (B, L, D).
+        states = states * mask.unsqueeze(2)
+        states = states.unsqueeze(2).repeat(1, 1, time_deltas.payload.shape[-1], 1)  # (B, L, S, D).
         b, l, s, d = states.shape
+        time_deltas = time_deltas.payload * mask.unsqueeze(2)  # (B, L, S).
+
         states = states.flatten(0, 2)  # (BLS, D).
-        assert states.ndim == 2
-        time_deltas, seq_lens = time_deltas.payload.flatten(), time_deltas.seq_lens  # (BLS), (B, L).
+        time_deltas = time_deltas.flatten()  # (BLS).
         times = torch.ones([2], device=states.device, dtype=states.dtype)
         times[0] = 0
 
         step_diff_func = lambda t, h: self.diff_func(h) * time_deltas[:, None]  # (B, D) -> (B, D).
-        h = odeint(step_diff_func, states, times, method=self._method, rtol=self._rtol, atol=self._atol)  # (1, BLS, D).
+        h = odeint(step_diff_func, states, times, method=self._method, rtol=self._rtol, atol=self._atol)  # (2, BLS, D).
         assert len(h) == 2
         h = h[1]  # (BLS, D).
         return PaddedBatch(h.reshape(b, l, s, d), seq_lens)

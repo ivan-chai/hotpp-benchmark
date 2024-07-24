@@ -6,7 +6,7 @@ from .base_encoder import BaseEncoder
 from hotpp.data import PaddedBatch
 from hotpp.utils.torch import deterministic
 from .window import apply_windows
-from .rnn import GRU, ContTimeLSTM
+from .rnn import GRU, ContTimeLSTM, ODEGRU
 
 
 class RnnEncoder(BaseEncoder):
@@ -16,6 +16,7 @@ class RnnEncoder(BaseEncoder):
         embeddings: Dict with categorical feature names. Values must be like this `{'in': dictionary_size, 'out': embedding_size}`.
         timestamps_field: The name of the timestamps field.
         max_time_delta: Limit maximum time delta at the model input.
+        scale_time: Improve stability by scaling time by the inverse of max_time_delta.
         rnn_type: Type of the model (`gru` or `cont-lstm`).
         hidden_size: The size of the hidden layer.
         num_layers: The number of layers.
@@ -26,6 +27,7 @@ class RnnEncoder(BaseEncoder):
                  embeddings,
                  timestamps_field="timestamps",
                  max_time_delta=None,
+                 scale_time=False,
                  rnn_type="gru",
                  hidden_size=None,
                  num_layers=1,
@@ -38,6 +40,7 @@ class RnnEncoder(BaseEncoder):
             timestamps_field=timestamps_field,
             max_time_delta=max_time_delta
         )
+        self._time_scale = 1 / (max_time_delta or 1) if scale_time else 1
         self._hidden_size = hidden_size
         self._num_layers = num_layers
         self._max_context = max_inference_context
@@ -50,6 +53,12 @@ class RnnEncoder(BaseEncoder):
             )
         elif rnn_type == "cont-time-lstm":
             self.rnn = ContTimeLSTM(
+                self.embedder.output_size,
+                hidden_size,
+                num_layers=num_layers
+            )
+        elif rnn_type == "ode-gru":
+            self.rnn = ODEGRU(
                 self.embedder.output_size,
                 hidden_size,
                 num_layers=num_layers
@@ -79,7 +88,7 @@ class RnnEncoder(BaseEncoder):
         x = self.compute_time_deltas(x)
         time_deltas = x[self._timestamps_field]
         embeddings = self.embed(x, compute_time_deltas=False)
-        outputs, states = self.rnn(embeddings, time_deltas, return_full_states=return_full_states)
+        outputs, states = self.rnn(embeddings, self._scale_time(time_deltas), return_full_states=return_full_states)
         return outputs, states
 
     def interpolate(self, states, time_deltas):
@@ -92,7 +101,7 @@ class RnnEncoder(BaseEncoder):
         Returns:
             Outputs with shape (B, L, S, D).
         """
-        return self.rnn.interpolate(states, time_deltas)
+        return self.rnn.interpolate(states, self._scale_time(time_deltas))
 
     def generate(self, x, indices, predict_fn, n_steps):
         """Use auto-regression to generate future sequence.
@@ -156,7 +165,7 @@ class RnnEncoder(BaseEncoder):
         # GRU states are equal to GRU outputs.
         embeddings = self.embed(batch, compute_time_deltas=False)  # (B, T, D).
         next_states = apply_windows((embeddings, time_deltas),
-                                    lambda xe, xt: PaddedBatch(self.rnn(xe, xt, return_full_states=True)[1].squeeze(0),
+                                    lambda xe, xt: PaddedBatch(self.rnn(xe, self._scale_time(xt), return_full_states=True)[1].squeeze(0),
                                                                xe.seq_lens),
                                     self._max_context, self._context_step).payload[None]  # (N, B, T, D).
 
@@ -186,7 +195,7 @@ class RnnEncoder(BaseEncoder):
         for _ in range(n_steps):
             time_deltas = features[self._timestamps_field]
             embeddings = self.embed(features, compute_time_deltas=False)  # (B, 1, D).
-            embeddings, states = self.rnn(embeddings, time_deltas, states=states)  # (B, 1, D), (N, B, D).
+            embeddings, states = self.rnn(embeddings, self._scale_time(time_deltas), states=states)  # (B, 1, D), (N, B, D).
             features = predict_fn(embeddings, states.unsqueeze(2))  # (B, 1).
             for k, v in features.payload.items():
                 outputs[k].append(v.squeeze(1))  # (B).
@@ -195,3 +204,11 @@ class RnnEncoder(BaseEncoder):
         lengths = torch.full([batch_size], n_steps, device=device)  # (B).
         outputs = PaddedBatch(static_outputs | dict(outputs), lengths, seq_names=list(outputs))
         return outputs
+
+    def _scale_time(self, batch):
+        batch = batch.clone()
+        if isinstance(batch.payload, torch.Tensor):
+            batch.payload = batch.payload * self._time_scale
+        else:
+            batch.payload[self._timestamps_field] = batch.payload[self._timestamps_field] * self._time_scale
+        return batch

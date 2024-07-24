@@ -61,7 +61,13 @@ class PaddedBatch:
         return PaddedBatch(self._payload[key], self._lengths, left=self._left)
 
     def clone(self):
-        return PaddedBatch(dict(self._payload), self._lengths, set(self.seq_names), left=self._left)
+        if isinstance(self._payload, torch.Tensor):
+            payload = self._payload
+            seq_names = None
+        else:
+            payload = dict(self._payload)
+            seq_names = set(self.seq_names)
+        return PaddedBatch(payload, self._lengths, seq_names, left=self._left)
 
     @property
     def left(self):
@@ -70,6 +76,12 @@ class PaddedBatch:
     @property
     def payload(self):
         return self._payload
+
+    @payload.setter
+    def payload(self, value):
+        if not isinstance(value, type(self._payload)):
+            raise ValueError("Incompatible types.")
+        self._payload = value
 
     @property
     def seq_lens(self):
