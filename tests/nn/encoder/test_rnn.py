@@ -149,6 +149,7 @@ class TestODEGRU(TestCase):
 
     def test_gradients(self):
         rnn = ODEGRU(3, 5)
+        torch.nn.init.normal_(rnn.h0)
         x = torch.randn(2, 4, 3, requires_grad=True)
         dt = torch.rand(2, 4, requires_grad=True)
         lengths = torch.full([x.shape[0]], x.shape[1], dtype=torch.long)

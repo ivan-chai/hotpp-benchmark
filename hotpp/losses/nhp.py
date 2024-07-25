@@ -27,7 +27,7 @@ class NHPLoss(torch.nn.Module):
                  timestamps_field="timestamps",
                  labels_field="labels",
                  max_delta=None, max_intensity=None,
-                 likelihood_sample_size=1, expectation_steps=None):
+                 likelihood_sample_size=1, expectation_steps=100):
         super().__init__()
         self._num_classes = num_classes
         self._timestamps_field = timestamps_field
@@ -126,7 +126,7 @@ class NHPLoss(torch.nn.Module):
         """Predict next events.
 
         Args:
-            outputs: Model outputs with shape (B, L, D).
+            outputs: Model outputs with shape (B, L, D). It is used only for sequence lengths extraction.
             states: Hidden model states with shape (N, B, L, D), where N is the number of layers.
             fields: The fields to predict next values for. By default, predict all fields.
             logits_fields_mapping: A mapping from field to the output logits field to predict logits for.
@@ -136,11 +136,11 @@ class NHPLoss(torch.nn.Module):
         """
         if (set(fields or []) | set(logits_fields_mapping or {})) - {self._timestamps_field, self._labels_field}:
             raise ValueError("Unexepcted field names")
-        b, l = outputs.shape
         seq_lens = outputs.seq_lens
+        _, b, l, _ = states.shape
 
         def intensity_fn(deltas):
-            result = self._interpolator(states, PaddedBatch(deltas, outputs.seq_lens)).payload  # (B, L, S, D).
+            result = self._interpolator(states, PaddedBatch(deltas, seq_lens)).payload  # (B, L, S, D).
             assert result.ndim == 4
             intensities = self.intensity(result)  # (B, L, S, D).
             return intensities.sum(3)  # (B, L, S).
@@ -151,8 +151,8 @@ class NHPLoss(torch.nn.Module):
                                           max_delta=self._max_delta,
                                           dtype=states.dtype, device=states.device)  # (B, L).
 
-        outputs = self.interpolator(states, PaddedBatch(timestamps.unsqueeze(2), seq_lens)).payload.squeeze(2)  # (B, L, D).
-        intensities = self.intensity(outputs)  # (B, L, D).
+        hiddens = self.interpolator(states, PaddedBatch(timestamps.unsqueeze(2), seq_lens)).payload.squeeze(2)  # (B, L, D).
+        intensities = self.intensity(hiddens)  # (B, L, D).
 
         result = {}
         if (fields is None) or (self._timestamps_field in fields):

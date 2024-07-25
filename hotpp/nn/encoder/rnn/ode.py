@@ -88,7 +88,10 @@ class ODEGRU(torch.nn.Module):
         self.cell = torch.nn.GRUCell(input_size, hidden_size)
         diff_layers = []
         for i in range(num_diff_layers):
-            diff_layers.append(torch.nn.Linear(hidden_size, hidden_size))
+            layer = torch.nn.Linear(hidden_size, hidden_size)
+            torch.nn.init.xavier_uniform_(layer.weight)
+            torch.nn.init.constant_(layer.bias, 0)
+            diff_layers.append(layer)
             diff_layers.append(torch.nn.Tanh())
         if lipschitz is None:
             # Remove last Tanh.
@@ -96,7 +99,7 @@ class ODEGRU(torch.nn.Module):
         else:
             diff_layers.append(Scale(lipschitz))
         self.diff_func = torch.nn.Sequential(*diff_layers)
-        self.h0 = torch.nn.Parameter(torch.randn(num_layers, hidden_size))  # (N, D).
+        self.h0 = torch.nn.Parameter(torch.zeros(num_layers, hidden_size))  # (N, D).
 
     @property
     def init_state(self):
@@ -148,6 +151,8 @@ class ODEGRU(torch.nn.Module):
         """
         if self._num_layers != 1:
             raise NotImplementedError("Multiple layers.")
+        if time_deltas.payload.ndim != 3:
+            raise ValueError("Expected time_deltas with shape (B, L, S).")
         seq_lens, mask = time_deltas.seq_lens, time_deltas.seq_len_mask  # (B), (B, L).
 
         assert len(states) == 1
