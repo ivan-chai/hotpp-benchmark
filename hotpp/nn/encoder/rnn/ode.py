@@ -7,7 +7,16 @@ from typing import Tuple, Optional
 from hotpp.data import PaddedBatch
 
 
-def odernn(x, time_deltas, states, cell, diff_func, method="euler", rtol=1e-3, atol=1e-4):
+class Scale(torch.nn.Module):
+    def __init__(self, scale):
+        super().__init__()
+        self.scale = scale
+
+    def forward(self, x):
+        return x * self.scale
+
+
+def odernn(x, time_deltas, states, cell, diff_func, method="rk4", grid_size=5, rtol=1e-3, atol=1e-4):
     """Apply ODE RNN.
 
     Args:
@@ -18,16 +27,18 @@ def odernn(x, time_deltas, states, cell, diff_func, method="euler", rtol=1e-3, a
         diff_func: Model for estimating derivatives: state (B, D) -> derivatives (B, D).
             We don't use timestamp in this model, following the original implementation.
         method: ODE solver (`euler` or `rk4`).
+        grid_size: The grid size for ODE solving.
 
     Returns:
         Model outputs with shape (B, L, D) and states with shape (B, L, D).
     """
+    if grid_size < 2:
+        raise ValueError("Grid size must be greater or equal to 2 to include starting and end points.")
     b, l, _ = x.shape
 
     outputs = []
     output_states = []
-    times = torch.ones([2], device=x.device, dtype=x.dtype)
-    times[0] = 0
+    times = torch.linspace(0, 1, grid_size, device=x.device, dtype=x.dtype)
     for step in range(l):
         # Extrapolate state with ODE.
         #
@@ -38,9 +49,8 @@ def odernn(x, time_deltas, states, cell, diff_func, method="euler", rtol=1e-3, a
         # t = Ts, s in [0, 1].
         # x'_s(Ts) = T x'_t(Ts) = T f(Ts, x(Ts)).
         step_diff_func = lambda t, h: diff_func(h) * time_deltas[:, step:step + 1]  # (B, D) -> (B, D).
-        h = odeint(step_diff_func, states, times, method=method, rtol=rtol, atol=atol)  # (2, B, D).
-        assert len(h) == 2
-        h = h[1]  # (B, D).
+        h = odeint(step_diff_func, states, times, method=method, rtol=rtol, atol=atol)  # (T, B, D).
+        h = h[-1]  # (B, D).
         # Apply RNN cell.
         result = cell(x[:, step], h)
         if not isinstance(result, tuple):
@@ -59,27 +69,32 @@ class ODEGRU(torch.nn.Module):
     Rubanova, Yulia, Ricky TQ Chen, and David K. Duvenaud. "Latent ordinary differential equations for irregularly-sampled time series." Advances in neural information processing systems 32 (2019).
 
     Args:
+        num_diff_layers: The number of layers in the derivative computation model.
+        lipschitz: The maximum derivative magnitude. Use `None` to disable the constraint.
         method: ODE solver (`euler` or `rk4`).
+        grid_size: The grid size for ODE solving.
     """
-    def __init__(self, input_size, hidden_size, num_layers=1, num_diff_layers=1,
-                 method="euler", rtol=1e-3, atol=1e-4):
+    def __init__(self, input_size, hidden_size, num_layers=1, num_diff_layers=1, lipschitz=1,
+                 method="rk4", grid_size=5, rtol=1e-3, atol=1e-4):
         super().__init__()
         if num_layers != 1:
             raise NotImplementedError("Cont-LSTM with multiple layers")
         self._hidden_size = hidden_size
         self._num_layers = num_layers
         self._method = method
+        self._grid_size = grid_size
         self._atol = atol
         self._rtol = rtol
         self.cell = torch.nn.GRUCell(input_size, hidden_size)
         diff_layers = []
-        for _ in range(num_diff_layers - 1):
-            layer = torch.nn.Linear(hidden_size, hidden_size)
-            torch.nn.init.normal_(layer.weight, mean=0, std=0.1)
-            torch.nn.init.constant_(layer.bias, val=0)
-            diff_layers.append(layer)
+        for i in range(num_diff_layers):
+            diff_layers.append(torch.nn.Linear(hidden_size, hidden_size))
             diff_layers.append(torch.nn.Tanh())
-        diff_layers.append(torch.nn.Linear(hidden_size, hidden_size))
+        if lipschitz is None:
+            # Remove last Tanh.
+            diff_layers = diff_layers[:-1]
+        else:
+            diff_layers.append(Scale(lipschitz))
         self.diff_func = torch.nn.Sequential(*diff_layers)
         self.h0 = torch.nn.Parameter(torch.randn(num_layers, hidden_size))  # (N, D).
 
@@ -114,7 +129,8 @@ class ODEGRU(torch.nn.Module):
         else:
             states = states.squeeze(0)  # Remove layer dim, (B, D).
         outputs, output_states = odernn(x, time_deltas, states, self.cell, self.diff_func,
-                                        method=self._method, rtol=self._rtol, atol=self._atol)  # (B, L, D), (B, L, D).
+                                        method=self._method, grid_size=self._grid_size,
+                                        rtol=self._rtol, atol=self._atol)  # (B, L, D), (B, L, D).
         outputs = PaddedBatch(outputs, seq_lens)
         if not return_full_states:
             output_states = output_states.take_along_dim((seq_lens - 1).clip(min=0)[:, None, None], 1).squeeze(1)  # (B, D).
@@ -143,11 +159,9 @@ class ODEGRU(torch.nn.Module):
 
         states = states.flatten(0, 2)  # (BLS, D).
         time_deltas = time_deltas.flatten()  # (BLS).
-        times = torch.ones([2], device=states.device, dtype=states.dtype)
-        times[0] = 0
+        times = torch.linspace(0, 1, self._grid_size, device=states.device, dtype=states.dtype)
 
         step_diff_func = lambda t, h: self.diff_func(h) * time_deltas[:, None]  # (B, D) -> (B, D).
-        h = odeint(step_diff_func, states, times, method=self._method, rtol=self._rtol, atol=self._atol)  # (2, BLS, D).
-        assert len(h) == 2
-        h = h[1]  # (BLS, D).
+        h = odeint(step_diff_func, states, times, method=self._method, rtol=self._rtol, atol=self._atol)  # (T, BLS, D).
+        h = h[-1]  # (BLS, D).
         return PaddedBatch(h.reshape(b, l, s, d), seq_lens)

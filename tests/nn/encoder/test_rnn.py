@@ -105,7 +105,7 @@ class TestContTimeLSTM(TestCase):
 
 class TestODEGRU(TestCase):
     def test_simple_parameters(self):
-        rnn = ODEGRU(1, 1, num_diff_layers=1, method="euler")
+        rnn = ODEGRU(1, 1, num_diff_layers=1, method="euler", grid_size=2, lipschitz=None)
         rnn.h0.data.fill_(0)
         rnn.cell.weight_ih.data.fill_(1)
         rnn.cell.weight_hh.data.fill_(1)
