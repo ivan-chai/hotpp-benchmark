@@ -18,6 +18,14 @@ class GRU(torch.nn.GRU):
         self._num_layers = num_layers
 
     @property
+    def output_size(self):
+        return self._hidden_size
+
+    @property
+    def num_layers(self):
+        return self._num_layers
+
+    @property
     def init_state(self):
         p = next(iter(self.parameters()))
         return torch.zeros(1, self.hidden_size, dtype=p.dtype, device=p.device)  # (1, D).

@@ -16,7 +16,7 @@ class Scale(torch.nn.Module):
         return x * self.scale
 
 
-def odernn(x, time_deltas, states, cell, diff_func, method="rk4", grid_size=5, rtol=1e-3, atol=1e-4):
+def odernn(x, time_deltas, states, cell, diff_func, method="rk4", grid_size=2, rtol=1e-3, atol=1e-4):
     """Apply ODE RNN.
 
     Args:
@@ -70,15 +70,19 @@ class ODEGRU(torch.nn.Module):
 
     Args:
         num_diff_layers: The number of layers in the derivative computation model.
+        diff_hidden_size: The size of the hidden layer in the derivative computation model.
+            Use RNN hidden_size by default.
         lipschitz: The maximum derivative magnitude. Use `None` to disable the constraint.
         method: ODE solver (`euler` or `rk4`).
         grid_size: The grid size for ODE solving.
     """
-    def __init__(self, input_size, hidden_size, num_layers=1, num_diff_layers=1, lipschitz=1,
-                 method="rk4", grid_size=5, rtol=1e-3, atol=1e-4):
+    def __init__(self, input_size, hidden_size, num_layers=1,
+                 num_diff_layers=2, diff_hidden_size=None, lipschitz=1,
+                 method="rk4", grid_size=2, rtol=1e-3, atol=1e-4):
         super().__init__()
         if num_layers != 1:
             raise NotImplementedError("Cont-LSTM with multiple layers")
+        diff_hidden_size = diff_hidden_size or hidden_size
         self._hidden_size = hidden_size
         self._num_layers = num_layers
         self._method = method
@@ -88,7 +92,8 @@ class ODEGRU(torch.nn.Module):
         self.cell = torch.nn.GRUCell(input_size, hidden_size)
         diff_layers = []
         for i in range(num_diff_layers):
-            layer = torch.nn.Linear(hidden_size, hidden_size)
+            layer = torch.nn.Linear(diff_hidden_size if i > 0 else hidden_size,
+                                    diff_hidden_size if i < num_diff_layers - 1 else hidden_size)
             torch.nn.init.xavier_uniform_(layer.weight)
             torch.nn.init.constant_(layer.bias, 0)
             diff_layers.append(layer)
@@ -100,6 +105,14 @@ class ODEGRU(torch.nn.Module):
             diff_layers.append(Scale(lipschitz))
         self.diff_func = torch.nn.Sequential(*diff_layers)
         self.h0 = torch.nn.Parameter(torch.zeros(num_layers, hidden_size))  # (N, D).
+
+    @property
+    def output_size(self):
+        return self._hidden_size
+
+    @property
+    def num_layers(self):
+        return self._num_layers
 
     @property
     def init_state(self):

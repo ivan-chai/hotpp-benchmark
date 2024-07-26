@@ -67,6 +67,14 @@ class ContTimeLSTM(torch.nn.Module):
         self.bias = layer.bias
 
     @property
+    def output_size(self):
+        return self._hidden_size
+
+    @property
+    def num_layers(self):
+        return self._num_layers
+
+    @property
     def init_state(self):
         bos = self.bos[None, None]  # (1, 1, D).
         zero_state = torch.zeros(1, 4 * self._hidden_size, dtype=self.bos.dtype, device=self.bos.device)  # (1, 4D).
