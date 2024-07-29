@@ -17,6 +17,7 @@ class RnnEncoder(BaseEncoder):
         rnn_partial: RNN constructor with a single `input_dim` parameter.
         timestamps_field: The name of the timestamps field.
         max_time_delta: Limit maximum time delta at the model input.
+        embedder_batch_norm: Use batch normalization in embedder.
         max_inference_context: Maximum RNN context for long sequences.
         inference_context_step: Window step when max_context is provided.
     """
@@ -25,12 +26,14 @@ class RnnEncoder(BaseEncoder):
                  rnn_partial,
                  timestamps_field="timestamps",
                  max_time_delta=None,
+                 embedder_batch_norm=True,
                  max_inference_context=None, inference_context_step=None,
                  ):
         super().__init__(
             embeddings=embeddings,
             timestamps_field=timestamps_field,
-            max_time_delta=max_time_delta
+            max_time_delta=max_time_delta,
+            embedder_batch_norm=embedder_batch_norm
         )
         self._max_context = max_inference_context
         self._context_step = inference_context_step

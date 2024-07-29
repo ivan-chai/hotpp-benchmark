@@ -105,7 +105,7 @@ class BaseLoss(ABC, torch.nn.Module):
         """Get most probable outputs.
 
         Args:
-            predictions: Mode outputs with shape (B, L, P).
+            predictions: Model outputs with shape (B, L, P).
 
         Returns:
             Modes with shape (B, L, D).
@@ -117,10 +117,22 @@ class BaseLoss(ABC, torch.nn.Module):
         """Get expected outputs.
 
         Args:
-            predictions: Mode outputs with shape (B, L, P).
+            predictions: Model outputs with shape (B, L, P).
 
         Returns:
             Means with shape (B, L, D).
+        """
+        pass
+
+    @abstractmethod
+    def predict_samples(self, predictions, temperature=1):
+        """Sample outputs.
+
+        Args:
+            predictions: Model outputs with shape (B, L, P).
+
+        Returns:
+            Samples with shape (B, L, D).
         """
         pass
 
@@ -161,6 +173,10 @@ class TimeMAELoss(BaseLoss):
         return predictions.clip(min=0)  # (B, L, 1).
 
     def predict_means(self, predictions):
+        # Delta is always positive.
+        return predictions.clip(min=0)  # (B, L, 1).
+
+    def predict_samples(self, predictions, temperature=1):
         # Delta is always positive.
         return predictions.clip(min=0)  # (B, L, 1).
 
@@ -209,3 +225,7 @@ class CrossEntropyLoss(BaseLoss):
     def predict_means(self, predictions):
         # There is no mean for a categorical distribution. Return modes.
         return self.predict_modes(predictions)
+
+    def predict_samples(self, predictions, temperature=1):
+        probs = torch.nn.functional.softmax(predictions / temperature, dim=-1)  # (B, L, C).
+        return torch.distributions.categorical.Categorical(probs).sample().unsqueeze(-1)  # (B, L, 1).

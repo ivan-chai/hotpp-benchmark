@@ -2,6 +2,7 @@ from functools import partial
 import torch
 
 from hotpp.data import PaddedBatch
+from hotpp.utils.torch import module_mode, BATCHNORM_TYPES
 from .common import compute_delta
 from .tpp import thinning_expectation
 
@@ -119,10 +120,8 @@ class NHPLoss(torch.nn.Module):
         """
         # Don't hurt BatchNorm statistics during sampling.
         # We expect, that head statistics are updated during outputs computation in the base module.
-        self._interpolator.eval()
-        losses, metrics = self._forward_impl(inputs, outputs, states)
-        if self.training:
-            self._interpolator.train()
+        with module_mode(self._interpolator, training=False, layer_types=BATCHNORM_TYPES):
+            losses, metrics = self._forward_impl(inputs, outputs, states)
         return losses, metrics
 
     def predict_next(self, outputs, states, fields=None, logits_fields_mapping=None):
