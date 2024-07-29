@@ -22,12 +22,14 @@ class NHPLoss(torch.nn.Module):
         max_intensity: Intensity threshold for preventing explosion.
         likelihood_sample_size: The sample size per event to compute integral.
         expectation_steps: The maximum sample size used for means prediction.
+        prediction: The type of prediction (either `mean` or `mode`).
     """
     def __init__(self, num_classes,
                  timestamps_field="timestamps",
                  labels_field="labels",
                  max_delta=None, max_intensity=None,
-                 likelihood_sample_size=1, expectation_steps=100):
+                 likelihood_sample_size=1, expectation_steps=100,
+                 prediction="mean"):
         super().__init__()
         self._num_classes = num_classes
         self._timestamps_field = timestamps_field
@@ -36,6 +38,7 @@ class NHPLoss(torch.nn.Module):
         self._max_intensity = max_intensity
         self._likelihood_sample_size = likelihood_sample_size
         self._expectation_steps = expectation_steps
+        self._prediction = prediction
         self._interpolator = None
         self.beta = torch.nn.Parameter(torch.ones(num_classes))
 
