@@ -16,7 +16,7 @@ class ScaleGradient(torch.autograd.Function):
         return grad_output * ctx._weight, None
 
 
-def compute_delta(inputs, mask=None, delta="last", max_delta=None):
+def compute_delta(inputs, mask=None, delta="last", max_delta=None, exclude_out_of_horizon=False):
     if delta == "last":
         deltas = inputs[:, 1:] - inputs[:, :-1]  # (B, L - 1).
         mask = torch.logical_and(mask[:, 1:], mask[:, :-1]) if mask is not None else None  # (B, L - 1).
@@ -26,6 +26,8 @@ def compute_delta(inputs, mask=None, delta="last", max_delta=None):
     else:
         raise ValueError(f"Unknown delta type: {delta}.")
     deltas = deltas.clip(min=0, max=max_delta)
+    if (max_delta is not None) and exclude_out_of_horizon:
+        mask[deltas >= max_delta] = False
     return deltas, mask
 
 

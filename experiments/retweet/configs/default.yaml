@@ -4,6 +4,7 @@ num_evaluation_seeds: 5
 max_predictions: 16
 num_classes: 3
 max_time_delta: 100  # Larger than horizon, but not too large.
+rnn_hidden_size: 64
 
 logger:
   _target_: pytorch_lightning.loggers.WandbLogger
@@ -43,14 +44,12 @@ module:
       labels:
         in: ${num_classes}
         out: 16
-    hidden_size: 64
     max_time_delta: ${max_time_delta}
     max_inference_context: 264
     inference_context_step: 50
   head_partial:
     _target_: hotpp.nn.Head
     _partial_: true
-    use_batch_norm: true
     hidden_dims: [64]
   optimizer_partial:
     _partial_: true

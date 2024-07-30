@@ -7,7 +7,11 @@ name: ode
 module:
   _target_: hotpp.modules.NextItemModule
   seq_encoder:
-    rnn_type: ode-gru
+    rnn_partial:
+      _target_: hotpp.nn.ODEGRU
+      _partial_: true
+      hidden_size: ${rnn_hidden_size}
+      lipschitz: 0.01  # 1 / max_time_delta.
   loss:
     _target_: hotpp.losses.NHPLoss
     num_classes: ${num_classes}
