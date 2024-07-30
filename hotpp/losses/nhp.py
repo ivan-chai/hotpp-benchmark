@@ -4,7 +4,7 @@ import torch
 from hotpp.data import PaddedBatch
 from hotpp.utils.torch import module_mode, BATCHNORM_TYPES
 from .common import compute_delta
-from .tpp import thinning_expectation
+from .tpp import thinning_expectation, thinning_sample
 
 
 class NHPLoss(torch.nn.Module):
@@ -23,7 +23,7 @@ class NHPLoss(torch.nn.Module):
         max_intensity: Intensity threshold for preventing explosion.
         likelihood_sample_size: The sample size per event to compute integral.
         expectation_steps: The maximum sample size used for means prediction.
-        prediction: The type of prediction (either `mean` or `mode`).
+        prediction: The type of prediction (either `mean` or `sample`).
     """
     def __init__(self, num_classes,
                  timestamps_field="timestamps",
@@ -147,20 +147,37 @@ class NHPLoss(torch.nn.Module):
             intensities = self.intensity(result)  # (B, L, S, D).
             return intensities.sum(3)  # (B, L, S).
 
-        timestamps = thinning_expectation(b, l,
-                                          intensity_fn=intensity_fn,
-                                          max_steps=self._expectation_steps,
-                                          max_delta=self._max_delta,
-                                          dtype=states.dtype, device=states.device)  # (B, L).
+        if self._prediction == "mean":
+            timestamps = thinning_expectation(b, l,
+                                              intensity_fn=intensity_fn,
+                                              max_steps=self._expectation_steps,
+                                              max_delta=self._max_delta,
+                                              dtype=states.dtype, device=states.device)  # (B, L).
+        elif self._prediction == "sample":
+            timestamps = thinning_sample(b, l,
+                                         intensity_fn=intensity_fn,
+                                         max_steps=self._expectation_steps,
+                                         max_delta=self._max_delta,
+                                         dtype=states.dtype, device=states.device)  # (B, L).
+        else:
+            raise ValueError(f"Unknown prediction type: {self._prediction}.")
 
         hiddens = self.interpolator(states, PaddedBatch(timestamps.unsqueeze(2), seq_lens)).payload.squeeze(2)  # (B, L, D).
         intensities = self.intensity(hiddens)  # (B, L, D).
+        if self._prediction == "mean":
+            labels = intensities.argmax(2)  # (B, L).
+        elif self._prediction == "sample":
+            probs = intensities + torch.rand_like(intensities) * 1e-6  # (B, L, D).
+            probs = probs / probs.sum(-1, keepdim=True).clip(min=1e-6)  # (B, L, D).
+            labels = torch.distributions.Categorical(probs).sample()  # (B, L).
+        else:
+            raise ValueError(f"Unknown prediction type: {self._prediction}.")
 
         result = {}
         if (fields is None) or (self._timestamps_field in fields):
             result[self._timestamps_field] = timestamps
         if (fields is None) or (self._labels_field in fields):
-            result[self._labels_field] = intensities.argmax(2)
+            result[self._labels_field] = labels
         if self._labels_field in (logits_fields_mapping or {}):
             label_probs = intensities / intensities.sum(2, keepdim=True)  # (B, L, D).
             result[logits_fields_mapping[self._labels_field]] = label_probs.clip(min=1e-6).log()

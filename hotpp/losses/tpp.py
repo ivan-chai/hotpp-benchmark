@@ -61,5 +61,6 @@ def thinning_sample(b, l, intensity_fn, max_steps, max_delta, bound_samples=5, b
     if empty.any():
         sample[empty, 0] = max_delta
         mask[empty, 0] = True
-    mask = torch.logical_and(mask, mask.cumsum(1) == 2)  # (BL, N).
+    # Take the first value.
+    mask = torch.logical_and(mask, mask.cumsum(1) == 1)  # (BL, N).
     return sample.masked_select(mask).reshape(b, l).clip(min=0)  # (B, L).

@@ -19,6 +19,10 @@ class Interpolator:
         self._encoder.train()
         self._head.train()
 
+    def modules(self):
+        yield self._encoder
+        yield self._head
+
     def __call__(self, states, time_deltas):
         outputs = self._encoder.interpolate(states, time_deltas)  # (B, L, S, D).
         return self._head(outputs)
