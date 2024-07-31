@@ -6,7 +6,6 @@ from .base_encoder import BaseEncoder
 from hotpp.data import PaddedBatch
 from hotpp.utils.torch import deterministic
 from .window import apply_windows
-from .rnn import GRU, ContTimeLSTM, ODEGRU
 
 
 class RnnEncoder(BaseEncoder):
@@ -135,7 +134,6 @@ class RnnEncoder(BaseEncoder):
 
         if self.num_layers != 1:
             raise NotImplementedError("Only single-layer RNN is supported.")
-        # GRU states are equal to GRU outputs.
         embeddings = self.embed(batch, compute_time_deltas=False)  # (B, T, D).
         next_states = apply_windows((embeddings, time_deltas),
                                     lambda xe, xt: PaddedBatch(self.rnn(xe, xt, return_full_states=True)[1].squeeze(0),
