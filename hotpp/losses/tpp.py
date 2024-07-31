@@ -7,7 +7,7 @@ def thinning(b, l, intensity_fn, max_steps, max_delta, bound_samples=5, bound_fa
     Args:
         b: Batch size.
         l: Length.
-        intensity_fn: The mapping from time offsets with shape (B, L) to intensity values with shape (B, L).
+        intensity_fn: The mapping from time offsets with shape (B, L, S) to intensity values with shape (B, L, S).
         max_steps: The maximum number of steps in thinning algorithm.
         max_delta: The maximum time step size.
 
@@ -38,13 +38,14 @@ def thinning_expectation(b, l, intensity_fn, max_steps, max_delta, bound_samples
                             bound_factor=bound_factor,
                             dtype=dtype, device=device)  # (B, L, N), (B, L, N).
     sample, mask = sample.flatten(0, 1), mask.flatten(0, 1)  # (BL, N), (BL, N).
+    accepted = mask.sum(1)
     empty = ~mask.any(-1)  # (BL).
     if empty.any():
         sample[empty, 0] = max_delta
         mask[empty, 0] = True
     expectations = (sample * mask).sum(1) / mask.sum(1)  # (BL).
     # Delta is always positive.
-    return expectations.reshape(b, l).clip(min=0)  # (B, L).
+    return expectations.reshape(b, l).clip(min=0), accepted.reshape(b, l)  # (B, L), (B, L).
 
 
 def thinning_sample(b, l, intensity_fn, max_steps, max_delta, bound_samples=5, bound_factor=2, device=None, dtype=None):
@@ -57,10 +58,11 @@ def thinning_sample(b, l, intensity_fn, max_steps, max_delta, bound_samples=5, b
                             bound_factor=bound_factor,
                             dtype=dtype, device=device)  # (B, L, N), (B, L, N).
     sample, mask = sample.flatten(0, 1), mask.flatten(0, 1)  # (BL, N), (BL, N).
+    accepted = mask.sum(1)
     empty = ~mask.any(-1)  # (BL).
     if empty.any():
         sample[empty, 0] = max_delta
         mask[empty, 0] = True
     # Take the first value.
     mask = torch.logical_and(mask, mask.cumsum(1) == 1)  # (BL, N).
-    return sample.masked_select(mask).reshape(b, l).clip(min=0)  # (B, L).
+    return sample.masked_select(mask).reshape(b, l).clip(min=0), accepted.reshape(b, l)  # (B, L), (B, L).

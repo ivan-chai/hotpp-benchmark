@@ -148,17 +148,17 @@ class NHPLoss(torch.nn.Module):
             return intensities.sum(3)  # (B, L, S).
 
         if self._prediction == "mean":
-            timestamps = thinning_expectation(b, l,
-                                              intensity_fn=intensity_fn,
-                                              max_steps=self._expectation_steps,
-                                              max_delta=self._max_delta,
-                                              dtype=states.dtype, device=states.device)  # (B, L).
+            timestamps, _ = thinning_expectation(b, l,
+                                                 intensity_fn=intensity_fn,
+                                                 max_steps=self._expectation_steps,
+                                                 max_delta=self._max_delta,
+                                                 dtype=states.dtype, device=states.device)  # (B, L), (B, L).
         elif self._prediction == "sample":
-            timestamps = thinning_sample(b, l,
-                                         intensity_fn=intensity_fn,
-                                         max_steps=self._expectation_steps,
-                                         max_delta=self._max_delta,
-                                         dtype=states.dtype, device=states.device)  # (B, L).
+            timestamps, _ = thinning_sample(b, l,
+                                            intensity_fn=intensity_fn,
+                                            max_steps=self._expectation_steps,
+                                            max_delta=self._max_delta,
+                                            dtype=states.dtype, device=states.device)  # (B, L), (B, L).
         else:
             raise ValueError(f"Unknown prediction type: {self._prediction}.")
 
@@ -181,4 +181,5 @@ class NHPLoss(torch.nn.Module):
         if self._labels_field in (logits_fields_mapping or {}):
             label_probs = intensities / intensities.sum(2, keepdim=True)  # (B, L, D).
             result[logits_fields_mapping[self._labels_field]] = label_probs.clip(min=1e-6).log()
+
         return PaddedBatch(result, seq_lens)

@@ -40,8 +40,8 @@ class ContTimeLSTMCell(torch.jit.ScriptModule):
             self,
             input: Tensor,
             time_deltas: Tensor,
-            state: Tuple[Tensor, Tensor, Tensor, Tensor]
-    ) -> Tuple[Tensor, Tuple[Tensor, Tensor, Tensor, Tensor]]:
+            state: Tensor
+    ) -> Tuple[Tensor, Tensor]:
         """Make single step.
 
         NOTE: input must be preprocessed before call to forward.
@@ -55,17 +55,17 @@ class ContTimeLSTMCell(torch.jit.ScriptModule):
             Output and a tuple of new states, each with shape (B, D).
         """
         dim = self.hidden_size
-        cs_state, ce_state, decay, o_gate = state  # (B, D) each.
+        cs_state, ce_state, decay, o_gate = state.chunk(4, 1)  # (B, D) each.
         c = ce_state + (cs_state - ce_state) * (-decay * time_deltas.unsqueeze(1)).exp()  # (B, D).
         h = o_gate * torch.tanh(c)  # (B, D).
         proj = input + torch.mm(h, self.weight) + self.bias  # (B, 7D).
         sigmoid_proj = torch.sigmoid(proj[:, :5 * dim])  # (B, 5D).
         i_gate, f_gate, ie_gate, fe_gate, o_gate = sigmoid_proj.chunk(5, 1)  # (B, D).
         z = torch.tanh(proj[:, 5 * dim:6 * dim])  # (B, D).
+        decay = torch.nn.functional.softplus(proj[:, 6 * dim:7 * dim])
         cs_state = f_gate * c + i_gate * z
         ce_state = fe_gate * ce_state + ie_gate * z
-        decay = torch.nn.functional.softplus(proj[:, 6 * dim:7 * dim])
-        return h, (cs_state, ce_state, decay, o_gate)
+        return h, torch.cat((cs_state, ce_state, decay, o_gate), 1)
 
 
 class ContTimeLSTM(torch.jit.ScriptModule):
@@ -97,36 +97,25 @@ class ContTimeLSTM(torch.jit.ScriptModule):
         bos = self.cell.preprocess(self.bos[None, None]).squeeze(0)  # (1, D).
         dt = torch.zeros(1, dtype=dtype, device=device)  # (1).
         zeros = torch.zeros(1, self.cell.hidden_size, dtype=dtype, device=device)
-        state = (zeros, zeros, zeros, zeros)
+        state = torch.cat((zeros, zeros, zeros, zeros), 1)
         _, bos_state = self.cell(bos, dt, state)
-        return torch.cat(bos_state, 1)  # (1, 4D).
+        return bos_state  # (1, 4D).
 
     @torch.jit.script_method
     def _forward_loop(self,
                       x: Tensor,
                       time_deltas: Tensor,
-                      state: Tuple[Tensor, Tensor, Tensor, Tensor]
-                      ) -> Tuple[Tensor, Tuple[Tensor, Tensor, Tensor, Tensor]]:
+                      state: Tensor,
+                      ) -> Tuple[Tensor, Tensor]:
         inputs = x.unbind(1)
         dt = time_deltas.unbind(1)
         outputs = torch.jit.annotate(List[Tensor], [])
-        output_cs_states = torch.jit.annotate(List[Tensor], [])
-        output_ce_states = torch.jit.annotate(List[Tensor], [])
-        output_decay_states = torch.jit.annotate(List[Tensor], [])
-        output_gate_states = torch.jit.annotate(List[Tensor], [])
+        output_states = torch.jit.annotate(List[Tensor], [])
         for i in range(len(inputs)):
             out, state = self.cell(inputs[i], dt[i], state)
             outputs += [out]
-            output_cs_states += [state[0]]
-            output_ce_states += [state[1]]
-            output_decay_states += [state[2]]
-            output_gate_states += [state[3]]
-        return torch.stack(outputs, 1), (
-               torch.stack(output_cs_states, 1),
-               torch.stack(output_ce_states, 1),
-               torch.stack(output_decay_states, 1),
-               torch.stack(output_gate_states, 1)
-        )
+            output_states += [state]
+        return torch.stack(outputs, 1), torch.stack(output_states, 1)
 
     def forward(self, x: PaddedBatch, time_deltas: PaddedBatch,
                 states: Optional[Tensor]=None, return_full_states=False) -> Tuple[PaddedBatch, Tensor]:
@@ -152,10 +141,8 @@ class ContTimeLSTM(torch.jit.ScriptModule):
             states = self.init_state.repeat(b, 1)  # (B, 4D).
         else:
             states = states.squeeze(0)  # Remove layer dim, (B, 4D).
-        states = states.chunk(4, 1)  # 4 x (B, D).
         x = self.cell.preprocess(x)  # (B, L, D).
-        outputs, output_states = self._forward_loop(x, time_deltas, states)  # (B, L, D), 4 x (B, L, D).
-        output_states = torch.cat(output_states, -1)  # (B, L, 4D).
+        outputs, output_states = self._forward_loop(x, time_deltas, states)  # (B, L, D), (B, L, 4D).
         outputs = PaddedBatch(outputs, seq_lens)
         if not return_full_states:
             output_states = output_states.take_along_dim((seq_lens - 1).clip(min=0)[:, None, None], 1).squeeze(1)  # (B, 4D).

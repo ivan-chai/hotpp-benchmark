@@ -27,9 +27,12 @@ def softp(x):
 class TestContTimeLSTM(TestCase):
     def test_simple_parameters(self):
         rnn = ContTimeLSTM(1, 1)
-        rnn.bos.data.fill_(0)
-        rnn.weight.data.fill_(1)
-        rnn.bias.data.fill_(0.5)
+        rnn.load_state_dict({
+            "bos": torch.full([1], 0.0),
+            "cell.projection.weight": torch.full([7, 1], 1.0),
+            "cell.weight": torch.full([1, 7], 1.0),
+            "cell.bias": torch.full([7], 0.5),
+        })
         x = torch.tensor([
             1, -1
         ]).reshape(1, -1, 1).float()  # (B, L, D).

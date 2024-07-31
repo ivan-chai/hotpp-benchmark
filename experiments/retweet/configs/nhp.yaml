@@ -16,7 +16,6 @@ module:
     num_classes: ${num_classes}
     max_delta: ${max_time_delta}
     max_intensity: 4
-    likelihood_sample_size: 1
     expectation_steps: 100
   autoreg_max_steps: ${max_predictions}
 

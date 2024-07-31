@@ -136,11 +136,11 @@ class TimeRMTPPLoss(BaseLoss):
         influence = self.get_current_influence(l)
         if (influence > 0).any():
             raise RuntimeError("Can't sample with positive current influence.")
-        expectations = thinning_expectation(b, l,
-                                            intensity_fn=lambda deltas: self._log_intensity(influence, biases, deltas).exp(),
-                                            max_steps=self.expectation_steps,
-                                            max_delta=self.max_delta,
-                                            dtype=biases.dtype, device=biases.device)  # (B, L).
+        expectations, _ = thinning_expectation(b, l,
+                                               intensity_fn=lambda deltas: self._log_intensity(influence, biases, deltas).exp(),
+                                               max_steps=self.expectation_steps,
+                                               max_delta=self.max_delta,
+                                               dtype=biases.dtype, device=biases.device)  # (B, L).
         return expectations.unsqueeze(2)
 
     def predict_samples(self, predictions, temperature=1):
@@ -164,9 +164,9 @@ class TimeRMTPPLoss(BaseLoss):
         influence = self.get_current_influence(l)
         if (influence > 0).any():
             raise RuntimeError("Can't sample with positive current influence.")
-        samples = thinning_sample(b, l,
-                                  intensity_fn=lambda deltas: self._log_intensity(influence, biases, deltas).exp(),
-                                  max_steps=self.expectation_steps,
-                                  max_delta=self.max_delta,
-                                  dtype=biases.dtype, device=biases.device)  # (B, L).
+        samples, _ = thinning_sample(b, l,
+                                     intensity_fn=lambda deltas: self._log_intensity(influence, biases, deltas).exp(),
+                                     max_steps=self.expectation_steps,
+                                     max_delta=self.max_delta,
+                                     dtype=biases.dtype, device=biases.device)  # (B, L).
         return samples.unsqueeze(2)
