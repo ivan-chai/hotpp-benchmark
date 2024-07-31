@@ -16,6 +16,7 @@ class RnnEncoder(BaseEncoder):
         embeddings: Dict with categorical feature names. Values must be like this `{'in': dictionary_size, 'out': embedding_size}`.
         timestamps_field: The name of the timestamps field.
         max_time_delta: Limit maximum time delta at the model input.
+        embedder_batch_norm: Use batch normalization in embedder.
         rnn_type: Type of the model (`gru` or `cont-lstm`).
         hidden_size: The size of the hidden layer.
         num_layers: The number of layers.
@@ -26,6 +27,7 @@ class RnnEncoder(BaseEncoder):
                  embeddings,
                  timestamps_field="timestamps",
                  max_time_delta=None,
+                 embedder_batch_norm=True,
                  rnn_type="gru",
                  hidden_size=None,
                  num_layers=1,
@@ -36,7 +38,8 @@ class RnnEncoder(BaseEncoder):
         super().__init__(
             embeddings=embeddings,
             timestamps_field=timestamps_field,
-            max_time_delta=max_time_delta
+            max_time_delta=max_time_delta,
+            embedder_batch_norm=embedder_batch_norm
         )
         self._hidden_size = hidden_size
         self._num_layers = num_layers
