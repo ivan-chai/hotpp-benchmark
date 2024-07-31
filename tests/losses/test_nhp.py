@@ -19,6 +19,9 @@ class RMTPPInterpolator:
         payload = (payload.exp().exp() - 1).log()
         return PaddedBatch(payload, time_deltas.seq_lens)
 
+    def modules(self):
+        return []
+
     def train(self):
         pass
 

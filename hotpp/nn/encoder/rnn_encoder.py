@@ -6,7 +6,6 @@ from .base_encoder import BaseEncoder
 from hotpp.data import PaddedBatch
 from hotpp.utils.torch import deterministic
 from .window import apply_windows
-from .rnn import GRU, ContTimeLSTM
 
 
 class RnnEncoder(BaseEncoder):
@@ -14,59 +13,38 @@ class RnnEncoder(BaseEncoder):
 
     Args:
         embeddings: Dict with categorical feature names. Values must be like this `{'in': dictionary_size, 'out': embedding_size}`.
+        rnn_partial: RNN constructor with a single `input_dim` parameter.
         timestamps_field: The name of the timestamps field.
         max_time_delta: Limit maximum time delta at the model input.
         embedder_batch_norm: Use batch normalization in embedder.
-        rnn_type: Type of the model (`gru` or `cont-lstm`).
-        hidden_size: The size of the hidden layer.
-        num_layers: The number of layers.
         max_inference_context: Maximum RNN context for long sequences.
         inference_context_step: Window step when max_context is provided.
     """
     def __init__(self,
                  embeddings,
+                 rnn_partial,
                  timestamps_field="timestamps",
                  max_time_delta=None,
                  embedder_batch_norm=True,
-                 rnn_type="gru",
-                 hidden_size=None,
-                 num_layers=1,
                  max_inference_context=None, inference_context_step=None,
                  ):
-        if hidden_size is None:
-            raise ValueError("Hidden size must be provided.")
         super().__init__(
             embeddings=embeddings,
             timestamps_field=timestamps_field,
             max_time_delta=max_time_delta,
             embedder_batch_norm=embedder_batch_norm
         )
-        self._hidden_size = hidden_size
-        self._num_layers = num_layers
         self._max_context = max_inference_context
         self._context_step = inference_context_step
-        if rnn_type == "gru":
-            self.rnn = GRU(
-                self.embedder.output_size,
-                hidden_size,
-                num_layers=num_layers
-            )
-        elif rnn_type == "cont-time-lstm":
-            self.rnn = ContTimeLSTM(
-                self.embedder.output_size,
-                hidden_size,
-                num_layers=num_layers
-            )
-        else:
-            raise ValueError(f"Unknown RNN type: {rnn_type}")
+        self.rnn = rnn_partial(self.embedder.output_size)
 
     @property
     def hidden_size(self):
-        return self._hidden_size
+        return self.rnn.output_size
 
     @property
     def num_layers(self):
-        return self._num_layers
+        return self.rnn.num_layers
 
     def forward(self, x, return_full_states=False):
         """Apply RNN model.
@@ -156,7 +134,6 @@ class RnnEncoder(BaseEncoder):
 
         if self.num_layers != 1:
             raise NotImplementedError("Only single-layer RNN is supported.")
-        # GRU states are equal to GRU outputs.
         embeddings = self.embed(batch, compute_time_deltas=False)  # (B, T, D).
         next_states = apply_windows((embeddings, time_deltas),
                                     lambda xe, xt: PaddedBatch(self.rnn(xe, xt, return_full_states=True)[1].squeeze(0),

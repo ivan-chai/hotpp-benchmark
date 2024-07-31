@@ -19,6 +19,10 @@ class Interpolator:
         self._encoder.train()
         self._head.train()
 
+    def modules(self):
+        yield self._encoder
+        yield self._head
+
     def __call__(self, states, time_deltas):
         outputs = self._encoder.interpolate(states, time_deltas)  # (B, L, S, D).
         return self._head(outputs)
@@ -195,14 +199,16 @@ class BaseModule(pl.LightningModule):
 
     def configure_optimizers(self):
         optimizer = self._optimizer_partial(self.parameters())
-        scheduler = self._lr_scheduler_partial(optimizer)
-
-        if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
-            scheduler = {
-                "scheduler": scheduler,
-                "monitor": "val/loss",
-            }
-        return [optimizer], [scheduler]
+        if self._lr_scheduler_partial is None:
+            return optimizer
+        else:
+            scheduler = self._lr_scheduler_partial(optimizer)
+            if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                scheduler = {
+                    "scheduler": scheduler,
+                    "monitor": "val/loss",
+                }
+            return [optimizer], [scheduler]
 
     def on_before_optimizer_step(self, optimizer=None, optimizer_idx=None):
         self.log("grad_norm", self._get_grad_norm(), prog_bar=True)
