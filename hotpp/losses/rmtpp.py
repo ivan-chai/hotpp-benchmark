@@ -22,24 +22,22 @@ class TimeRMTPPLoss(BaseLoss):
         init_influence: Initial value of the influence parameter.
         influence_dim: If greater than one, use individual influence for each time position (must be equal to L).
         force_negative_influence: Force current_influence is always negative.
-        max_delta: Maximum time offset in sampling.
         max_intensity: Intensity threshold for preventing explosion.
-        expectation_steps: The maximum sample size used for means prediction.
+        thinning_params: A dictionary with thinning parameters.
         eps: Small value used for influence thresholding in modes prediction.
 
     """
-    def __init__(self, delta="last", max_delta=None, grad_scale=None,
+    def __init__(self, delta="last", grad_scale=None,
                  init_influence=-1, influence_dim=1, force_negative_influence=True,
-                 max_intensity=None, expectation_steps=None,
+                 max_intensity=None, thinning_params=None,
                  eps=1e-6):
         super().__init__(input_size=1, target_size=1,
                          grad_scale=grad_scale)
         self.delta = delta
-        self.max_delta = max_delta
         self.eps = eps
         self.max_intensity = max_intensity
         self.force_negative_influence = force_negative_influence
-        self.expectation_steps = expectation_steps
+        self.thinning_params = thinning_params
         # TODO: use predicted influence.
         # TODO: per-label parameter?
         self._hidden_current_influence = torch.nn.Parameter(torch.full([influence_dim], init_influence, dtype=torch.float))
@@ -84,7 +82,7 @@ class TimeRMTPPLoss(BaseLoss):
         """
         assert predictions.shape[2] == 1
         predictions = predictions[:, :-1].squeeze(2)  # (B, L - 1).
-        deltas, mask = compute_delta(inputs, mask, delta=self.delta, max_delta=self.max_delta)
+        deltas, mask = compute_delta(inputs, mask, delta=self.delta)
 
         log_intencities = self._log_intensity(self.get_current_influence(deltas.shape[1]), predictions, deltas.unsqueeze(2)).squeeze(2)  # (B, L).
         log_densities = log_intencities - (log_intencities.exp() - predictions.exp()) / self.get_current_influence()  # (B, L).
@@ -114,7 +112,7 @@ class TimeRMTPPLoss(BaseLoss):
                             torch.zeros_like(biases),
                             (clipped_influence.log() - biases) / clipped_influence)  # (*, L).
         # Delta is always positive.
-        return modes.unsqueeze(-1).clip(min=0, max=self.max_delta)  # (*, L, 1).
+        return modes.unsqueeze(-1).clip(min=0)  # (*, L, 1).
 
     def predict_means(self, predictions):
         """Predict distributions means.
@@ -127,8 +125,6 @@ class TimeRMTPPLoss(BaseLoss):
         """
         if self.expectation_steps is None:
             raise ValueError("Need maximum expectation steps for the mean estimation.")
-        if self.max_delta is None:
-            raise ValueError("Need maximum time delta for sampling.")
         assert predictions.shape[-1] == 1
         biases = predictions.squeeze(-1).flatten(0, -2)  # (B, L).
 
@@ -138,9 +134,8 @@ class TimeRMTPPLoss(BaseLoss):
             raise RuntimeError("Can't sample with positive current influence.")
         expectations, _ = thinning_expectation(b, l,
                                                intensity_fn=lambda deltas: self._log_intensity(influence, biases, deltas).exp(),
-                                               max_steps=self.expectation_steps,
-                                               max_delta=self.max_delta,
-                                               dtype=biases.dtype, device=biases.device)  # (B, L).
+                                               dtype=biases.dtype, device=biases.device,
+                                               **self.thinning_params)  # (B, L).
         return expectations.unsqueeze(2)
 
     def predict_samples(self, predictions, temperature=1):
@@ -155,8 +150,6 @@ class TimeRMTPPLoss(BaseLoss):
         """
         if self.expectation_steps is None:
             raise ValueError("Need maximum expectation steps for the mean estimation.")
-        if self.max_delta is None:
-            raise ValueError("Need maximum time delta for sampling.")
         assert predictions.shape[-1] == 1
         biases = predictions.squeeze(-1).flatten(0, -2)  # (B, L).
 
@@ -166,7 +159,6 @@ class TimeRMTPPLoss(BaseLoss):
             raise RuntimeError("Can't sample with positive current influence.")
         samples, _ = thinning_sample(b, l,
                                      intensity_fn=lambda deltas: self._log_intensity(influence, biases, deltas).exp(),
-                                     max_steps=self.expectation_steps,
-                                     max_delta=self.max_delta,
-                                     dtype=biases.dtype, device=biases.device)  # (B, L).
+                                     dtype=biases.dtype, device=biases.device,
+                                     **self.thinning_params)  # (B, L).
         return samples.unsqueeze(2)
