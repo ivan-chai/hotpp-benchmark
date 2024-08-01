@@ -11,11 +11,11 @@ module:
       _target_: hotpp.nn.ODEGRU
       _partial_: true
       hidden_size: ${rnn_hidden_size}
-      lipschitz: 0.01  # 1 / max_time_delta.
+      lipschitz: ${intensity_lipschitz}
   loss:
     _target_: hotpp.losses.NHPLoss
     num_classes: ${num_classes}
-    max_intensity: 4
+    max_intensity: ${max_intensity}
     thinning_params: ${thinning_params}
   autoreg_max_steps: ${max_predictions}
 
