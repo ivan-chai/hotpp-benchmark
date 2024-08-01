@@ -29,14 +29,14 @@ class ODEDNN(torch.jit.ScriptModule):
                 layers.append(torch.nn.Tanh())
         if lipschitz is not None:
             layers.append(torch.nn.Tanh())
-            self.scale = lipschitz
+            scale = lipschitz
         else:
-            self.scale = 1
+            scale = 1
         self.nn = torch.nn.Sequential(*layers)
         self.n_steps = n_steps
-        self.s_dt = self.scale / n_steps
-        self.s_hdt = self.scale / n_steps / 2
-        self.s_sdt = self.scale / n_steps / 6
+        self.s_dt = scale / n_steps
+        self.s_hdt = scale / n_steps / 2
+        self.s_sdt = scale / n_steps / 6
 
     @torch.jit.script_method
     def step(self, x: Tensor, time_scales: Tensor) -> Tensor:
