@@ -42,8 +42,8 @@ class TestNHPLoss(TestCase):
     def test_compare_nhp_to_rmtpp(self):
         # RMTPP uses closed form solution for likelihood computation.
         # Check general NHP algorithm is equal to RMTPP, when intensity matches.
-        rmtpp = TimeRMTPPLoss(max_delta=5, expectation_steps=10000)
-        nhp = NHPLoss(num_classes=1, max_delta=5, likelihood_sample_size=1000, expectation_steps=10000)
+        rmtpp = TimeRMTPPLoss(thinning_params={"max_delta": 5, "max_steps": 10000})
+        nhp = NHPLoss(num_classes=1, likelihood_sample_size=1000, thinning_params={"max_delta": 5, "max_steps": 10000})
         nhp.interpolator = RMTPPInterpolator()
 
         b, l = 5, 7
@@ -70,7 +70,7 @@ class TestNHPLoss(TestCase):
 
     def test_labels_prediction(self):
         nc = 5
-        nhp = NHPLoss(num_classes=nc, max_delta=5, likelihood_sample_size=1000, expectation_steps=1000)
+        nhp = NHPLoss(num_classes=nc, likelihood_sample_size=1000, thinning_params={"max_delta": 5, "max_steps": 1000})
         nhp.interpolator = IdentityInterpolator()
 
         b, l = 5, 7

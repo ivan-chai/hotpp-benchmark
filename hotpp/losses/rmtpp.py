@@ -123,8 +123,6 @@ class TimeRMTPPLoss(BaseLoss):
         Returns:
             Means with shape (*, L, 1).
         """
-        if self.expectation_steps is None:
-            raise ValueError("Need maximum expectation steps for the mean estimation.")
         assert predictions.shape[-1] == 1
         biases = predictions.squeeze(-1).flatten(0, -2)  # (B, L).
 
@@ -148,8 +146,6 @@ class TimeRMTPPLoss(BaseLoss):
         Returns:
             Means with shape (*, L, 1).
         """
-        if self.expectation_steps is None:
-            raise ValueError("Need maximum expectation steps for the mean estimation.")
         assert predictions.shape[-1] == 1
         biases = predictions.squeeze(-1).flatten(0, -2)  # (B, L).
 

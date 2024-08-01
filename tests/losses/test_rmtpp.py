@@ -52,9 +52,7 @@ class TestRMTPPLoss(TestCase):
 
     def test_rmtpp_thinning(self):
         a = -0.1
-        loss = TimeRMTPPLoss(init_influence=a,
-                             max_delta=1000,
-                             expectation_steps=10000)
+        loss = TimeRMTPPLoss(init_influence=a, thinning_params={"max_delta": 1000, "max_steps": 10000})
         biases = torch.linspace(-2, 2, 11)  # (L).
         means = loss.predict_means(biases[None, :, None].double()).squeeze(2).squeeze(0)  # (L).
 

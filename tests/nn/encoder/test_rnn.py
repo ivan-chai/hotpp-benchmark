@@ -24,6 +24,14 @@ def softp(x):
     return math.log(1 + math.exp(x))
 
 
+def lin_rk4(x0, a, b, dt):
+    k1 = a * x0 + b
+    k2 = a * (x0 + dt * k1 / 2) + b
+    k3 = a * (x0 + dt * k2 / 2) + b
+    k4 = a * (x0 + dt * k3) + b
+    return x0 + dt * (k1 + 2 * k2 + 2 * k3 + k4) / 6
+
+
 class TestContTimeLSTM(TestCase):
     def test_simple_parameters(self):
         rnn = ContTimeLSTM(1, 1)
@@ -108,14 +116,17 @@ class TestContTimeLSTM(TestCase):
 
 class TestODEGRU(TestCase):
     def test_simple_parameters(self):
-        rnn = ODEGRU(1, 1, num_diff_layers=1, method="euler", grid_size=2, lipschitz=None)
-        rnn.h0.data.fill_(0)
-        rnn.cell.weight_ih.data.fill_(1)
-        rnn.cell.weight_hh.data.fill_(1)
-        rnn.cell.bias_ih.data.fill_(0.5)
-        rnn.cell.bias_hh.data.fill_(0.5)
-        rnn.diff_func[0].weight.data.fill_(2)
-        rnn.diff_func[0].bias.data.fill_(1)
+        rnn = ODEGRU(1, 1, num_diff_layers=1, n_steps=1, lipschitz=None)
+        state_dict = {
+            "h0": torch.full([1, 1], 0.0),
+            "cell.cell.weight_ih": torch.full([3, 1], 1.0),
+            "cell.cell.weight_hh": torch.full([3, 1], 1.0),
+            "cell.cell.bias_ih": torch.full([3], 0.5),
+            "cell.cell.bias_hh": torch.full([3], 0.5),
+            "cell.diff_func.nn.0.weight": torch.full([1, 1], 2.0),
+            "cell.diff_func.nn.0.bias": torch.full([1], 1.0)
+        }
+        rnn.load_state_dict(state_dict)
         x = torch.tensor([
             1, -1
         ]).reshape(1, -1, 1).float()  # (B, L, D).
@@ -126,14 +137,14 @@ class TestODEGRU(TestCase):
         h__ = 0
 
         # First step.
-        hode_0 = h__ + 2 * (2 * h__ + 1) # Euler approximation.
+        hode_0 = lin_rk4(h__, 2, 1, 2)
         z_0 = sigm(hode_0 + 0.5 + 1 + 0.5)
         r_0 = sigm(hode_0 + 0.5 + 1 + 0.5)
         hbar_0 = tanh(r_0 * (hode_0 + 0.5) + 1 + 0.5)
         h_0 = (1 - z_0) * hbar_0 + z_0 * hode_0
 
         # Second step
-        hode_1 = h_0 + 3 * (2 * h_0 + 1) # Euler approximation.
+        hode_1 = lin_rk4(h_0, 2, 1, 3)
         z_1 = sigm(hode_1 + 0.5 - 1 + 0.5)
         r_1 = sigm(hode_1 + 0.5 - 1 + 0.5)
         hbar_1 = tanh(r_1 * (hode_1 + 0.5) - 1 + 0.5)
@@ -178,7 +189,7 @@ class TestODEGRU(TestCase):
         lengths = torch.full([x.shape[0]], x.shape[1], dtype=torch.long)
         outputs, output_states = rnn(PaddedBatch(x, lengths), PaddedBatch(dt, lengths), return_full_states=True)
         int_outputs = rnn.interpolate(output_states[:, :, :-1], PaddedBatch(dt[:, 1:, None], lengths - 1)).payload.squeeze(2)  # (B, L - 1, D).
-        int_outputs = rnn.cell(x[:, 1:].flatten(0, 1), int_outputs.flatten(0, 1)).reshape(*int_outputs.shape)
+        int_outputs = rnn.cell.cell(x[:, 1:].flatten(0, 1), int_outputs.flatten(0, 1)).reshape(*int_outputs.shape)
         self.assertTrue(outputs.payload[:, 1:].allclose(int_outputs))
 
 
