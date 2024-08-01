@@ -1,7 +1,6 @@
 import torch
 import torch.nn.functional as F
 from torch import Tensor
-from torchdiffeq import odeint
 from typing import Tuple, Optional
 
 from hotpp.data import PaddedBatch
