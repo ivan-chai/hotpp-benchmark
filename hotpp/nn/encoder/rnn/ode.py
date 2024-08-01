@@ -58,8 +58,7 @@ class ODEDNN(torch.jit.ScriptModule):
             Values at positions with shape (B, D).
         """
         # Use change of variables and integrate from 0 to 1.
-        x = x0.clone()
-        outputs = torch.jit.annotate(List[Tensor], [])
+        x = x0
         tsu = ts.unsqueeze(1)
         for _ in range(self.n_steps):
             x = x + self.delta_step(x, tsu)
