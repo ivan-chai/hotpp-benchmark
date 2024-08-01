@@ -1,0 +1,13 @@
+defaults:
+  - default
+  - _self_
+
+name: most_popular_otd
+
+module:
+  _target_: hotpp.modules.MostPopularModule
+  k: ${metric.otd_steps}
+  num_classes: ${num_classes}
+
+trainer:
+  max_epochs: 0

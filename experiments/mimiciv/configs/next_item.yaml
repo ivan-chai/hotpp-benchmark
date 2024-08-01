@@ -1,18 +1,1 @@
-defaults:
-  - default
-  - _self_
-
-name: next_item
-
-module:
-  _target_: hotpp.modules.NextItemModule
-  loss:
-    _target_: hotpp.losses.NextItemLoss
-    losses:
-      timestamps:
-        _target_: hotpp.losses.TimeMAELoss
-        max_delta: ${max_time_delta}
-      labels:
-        _target_: hotpp.losses.CrossEntropyLoss
-        num_classes: ${num_classes}
-  autoreg_max_steps: ${max_predictions}
+../../methods/next_item.yaml

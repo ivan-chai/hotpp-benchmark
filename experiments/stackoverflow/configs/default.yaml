@@ -4,6 +4,13 @@ num_evaluation_seeds: 5
 max_predictions: 16
 num_classes: 22
 max_time_delta: 15  # Larger than horizon, but not too large.
+max_intensity: 10
+intensity_lipschitz: 2
+rnn_hidden_size: 64
+thinning_params:
+  max_steps: 100
+  max_delta: ${max_time_delta}
+  bound_samples: 100
 
 logger:
   _target_: pytorch_lightning.loggers.WandbLogger
@@ -13,7 +20,6 @@ logger:
 model_path: checkpoints/${name}.ckpt
 report: results/${name}.yaml
 multiseed_report: results/multiseed_${name}.txt
-downstream_report: results/downstream_${name}.txt
 
 data_module:
   _target_: hotpp.data.HotppDataModule
@@ -43,14 +49,12 @@ module:
       labels:
         in: ${num_classes}
         out: 32
-    hidden_size: 64
     max_time_delta: ${max_time_delta}
     max_inference_context: 101
     inference_context_step: 30
   head_partial:
     _target_: hotpp.nn.Head
     _partial_: true
-    use_batch_norm: true
     hidden_dims: [64]
   optimizer_partial:
     _partial_: true

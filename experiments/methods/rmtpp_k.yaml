@@ -1,0 +1,27 @@
+defaults:
+  - default
+  - _self_
+
+name: rmtpp_k
+
+module:
+  _target_: hotpp.modules.NextKModule
+  seq_encoder:
+    rnn_partial:
+      _target_: hotpp.nn.GRU
+      _partial_: true
+      hidden_size: ${rnn_hidden_size}
+  loss:
+    _target_: hotpp.losses.NextKLoss
+    k: ${max_predictions}
+    next_item_loss:
+      _target_: hotpp.losses.NextItemLoss
+      losses:
+        timestamps:
+          _target_: hotpp.losses.TimeRMTPPLoss
+          init_influence: -0.1
+          max_intensity: ${max_intensity}
+          thinning_params: ${thinning_params}
+        labels:
+          _target_: hotpp.losses.CrossEntropyLoss
+          num_classes: ${num_classes}
