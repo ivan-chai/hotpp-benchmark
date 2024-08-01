@@ -72,7 +72,7 @@ class BaseEncoder(torch.nn.Module):
         """Compute model outputs in continuous time.
 
         Args:
-            states: Model states with shape (N, B, L, 3D + 1), where N is the number of layers.
+            states: Model states with shape (N, B, L, H), where N is the number of layers.
             time_deltas: Relative timestamps with shape (B, L, S), where S is a sample size.
 
         Returns:

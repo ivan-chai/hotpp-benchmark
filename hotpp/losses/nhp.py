@@ -67,7 +67,8 @@ class NHPLoss(torch.nn.Module):
             beta = self.beta
         intensities = torch.nn.functional.softplus(outputs * beta) / beta / self._num_classes
         if self._max_intensity is not None:
-            intensities = intensities.clip(max=self._max_intensity)
+            scale = (self._max_intensity / intensities.sum(-1, keepdim=True)).clip(max=1)
+            intensities = intensities * scale
         return intensities
 
     def _forward_impl(self, inputs, outputs, states):
