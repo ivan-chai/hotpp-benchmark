@@ -39,11 +39,11 @@ class ODEDNN(torch.jit.ScriptModule):
         self.s_sdt = self.scale / n_steps / 6
 
     @torch.jit.script_method
-    def delta_step(self, x: Tensor, scale: Tensor) -> Tensor:
-        k1 = self.nn(x) * scale
-        k2 = self.nn(x + self.s_hdt * k1) * scale
-        k3 = self.nn(x + self.s_hdt * k2) * scale
-        k4 = self.nn(x + self.s_dt * k3) * scale
+    def delta_step(self, x: Tensor, time_scales: Tensor) -> Tensor:
+        k1 = self.nn(x) * time_scales
+        k2 = self.nn(x + self.s_hdt * k1) * time_scales
+        k3 = self.nn(x + self.s_hdt * k2) * time_scales
+        k4 = self.nn(x + self.s_dt * k3) * time_scales
         return self.s_sdt * (k1 + 2 * (k2 + k3) + k4)
 
     @torch.jit.script_method
@@ -59,9 +59,9 @@ class ODEDNN(torch.jit.ScriptModule):
         """
         # Use change of variables and integrate from 0 to 1.
         x = x0
-        tsu = ts.unsqueeze(1)
+        time_scales = ts.unsqueeze(1)
         for _ in range(self.n_steps):
-            x = x + self.delta_step(x, tsu)
+            x = x + self.delta_step(x, time_scales)
         return x
 
 
