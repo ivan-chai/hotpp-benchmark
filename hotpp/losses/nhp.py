@@ -19,26 +19,25 @@ class NHPLoss(torch.nn.Module):
         num_classes: The number of possible event types.
         timestamps_field: The name of the timestamps field.
         labels_field: The name of the labels field.
-        max_delta: Maximum time delta during prediction with the thinning algorithm.
         max_intensity: Intensity threshold for preventing explosion.
         likelihood_sample_size: The sample size per event to compute integral.
-        expectation_steps: The maximum sample size used for means prediction.
+        thinning_params: A dictionary with thinning parameters.
         prediction: The type of prediction (either `mean` or `sample`).
     """
     def __init__(self, num_classes,
                  timestamps_field="timestamps",
                  labels_field="labels",
-                 max_delta=None, max_intensity=None,
-                 likelihood_sample_size=1, expectation_steps=100,
+                 max_intensity=None,
+                 likelihood_sample_size=1,
+                 thinning_params=None,
                  prediction="mean"):
         super().__init__()
         self._num_classes = num_classes
         self._timestamps_field = timestamps_field
         self._labels_field = labels_field
-        self._max_delta = max_delta
         self._max_intensity = max_intensity
         self._likelihood_sample_size = likelihood_sample_size
-        self._expectation_steps = expectation_steps
+        self._thinning_params = thinning_params or {}
         self._prediction = prediction
         self._interpolator = None
         self.beta = torch.nn.Parameter(torch.ones(num_classes))
@@ -150,15 +149,13 @@ class NHPLoss(torch.nn.Module):
         if self._prediction == "mean":
             timestamps, _ = thinning_expectation(b, l,
                                                  intensity_fn=intensity_fn,
-                                                 max_steps=self._expectation_steps,
-                                                 max_delta=self._max_delta,
-                                                 dtype=states.dtype, device=states.device)  # (B, L), (B, L).
+                                                 dtype=states.dtype, device=states.device,
+                                                 **self._thinning_params)  # (B, L), (B, L).
         elif self._prediction == "sample":
             timestamps, _ = thinning_sample(b, l,
                                             intensity_fn=intensity_fn,
-                                            max_steps=self._expectation_steps,
-                                            max_delta=self._max_delta,
-                                            dtype=states.dtype, device=states.device)  # (B, L), (B, L).
+                                            dtype=states.dtype, device=states.device,
+                                            **self._thinning_params)  # (B, L), (B, L).
         else:
             raise ValueError(f"Unknown prediction type: {self._prediction}.")
 

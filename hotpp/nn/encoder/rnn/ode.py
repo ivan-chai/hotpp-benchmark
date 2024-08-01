@@ -7,61 +7,113 @@ from typing import Tuple, Optional
 from hotpp.data import PaddedBatch
 
 
-class Scale(torch.nn.Module):
-    def __init__(self, scale):
-        super().__init__()
-        self.scale = scale
+class ODEDNN(torch.jit.ScriptModule):
+    """The Runge-Kutta neural ODE solver.
 
-    def forward(self, x):
-        return x * self.scale
-
-
-def odernn(x, time_deltas, states, cell, diff_func, method="rk4", grid_size=2, rtol=1e-3, atol=1e-4):
-    """Apply ODE RNN.
-
-    Args:
-        x: Batch with shape (B, L, I).
-        time_deltas: Relative timestamps with shape (B, L).
-        states: States, each with shape (B, D).
-        cell: RNN Cell which maps (input, state) to (output, state).
-        diff_func: Model for estimating derivatives: state (B, D) -> derivatives (B, D).
-            We don't use timestamp in this model, following the original implementation.
-        method: ODE solver (`euler` or `rk4`).
-        grid_size: The grid size for ODE solving.
-
-    Returns:
-        Model outputs with shape (B, L, D) and states with shape (B, L, D).
+    NOTE: DNN doesn't use timestamp for prediction following the original implementation of
+          "Latent ODEs for Irregularly-Sampled Time Series" by Yulia Rubanova, Ricky Chen, and David Duvenaud.
     """
-    if grid_size < 2:
-        raise ValueError("Grid size must be greater or equal to 2 to include starting and end points.")
-    b, l, _ = x.shape
+    def __init__(self, size, hidden_size=None, num_layers=2,
+                 lipschitz=1, n_steps=1):
+        super().__init__()
+        if hidden_size is None:
+            hidden_size = size
+        layers = []
+        for i in range(num_layers):
+            layer = torch.nn.Linear(hidden_size if i > 0 else size,
+                                    hidden_size if i < num_layers - 1 else size)
+            torch.nn.init.xavier_uniform_(layer.weight)
+            torch.nn.init.constant_(layer.bias, 0)
+            layers.append(layer)
+            if i < num_layers - 1:
+                layers.append(torch.nn.Tanh())
+        if lipschitz is not None:
+            layers.append(torch.nn.Tanh())
+            scale = lipschitz
+        else:
+            scale = 1
+        self.nn = torch.nn.Sequential(*layers)
+        self.n_steps = n_steps
+        self.s_dt = scale / n_steps
+        self.s_hdt = scale / n_steps / 2
+        self.s_sdt = scale / n_steps / 6
 
-    outputs = []
-    output_states = []
-    times = torch.linspace(0, 1, grid_size, device=x.device, dtype=x.dtype)
-    for step in range(l):
-        # Extrapolate state with ODE.
-        #
-        # NOTE.
-        # The odeint function requires the same set of timestamps for all elements in the batch.
-        # We use change of variables to align time points.
-        # x'_t(t) = f(t, x(t)), t in [0, T].
-        # t = Ts, s in [0, 1].
-        # x'_s(Ts) = T x'_t(Ts) = T f(Ts, x(Ts)).
-        step_diff_func = lambda t, h: diff_func(h) * time_deltas[:, step:step + 1]  # (B, D) -> (B, D).
-        h = odeint(step_diff_func, states, times, method=method, rtol=rtol, atol=atol)  # (T, B, D).
-        h = h[-1]  # (B, D).
+    @torch.jit.script_method
+    def step(self, x: Tensor, time_scales: Tensor) -> Tensor:
+        k1 = self.nn(x) * time_scales
+        k2 = self.nn(x + self.s_hdt * k1) * time_scales
+        k3 = self.nn(x + self.s_hdt * k2) * time_scales
+        k4 = self.nn(x + self.s_dt * k3) * time_scales
+        return x + self.s_sdt * (k1 + 2 * (k2 + k3) + k4)
+
+    @torch.jit.script_method
+    def forward(self, x0: Tensor, ts: Tensor) -> Tensor:
+        """Solve ODE.
+
+        Args:
+            x0: Value at zero with shape (B, D).
+            ts: Positions for function evaluation with shape (B).
+
+        Returns:
+            Values at positions with shape (B, D).
+        """
+        # Use change of variables and integrate from 0 to 1.
+        x = x0
+        time_scales = ts.unsqueeze(1)
+        for _ in range(self.n_steps):
+            x = self.step(x, time_scales)
+        return x
+
+
+class ODERNNCell(torch.jit.ScriptModule):
+    def __init__(self, input_size, hidden_size,
+                 diff_hidden_size=None, num_diff_layers=2,
+                 lipschitz=1, n_steps=1):
+        super().__init__()
+        self.cell = torch.nn.GRUCell(input_size, hidden_size)
+        self.diff_func = ODEDNN(hidden_size,
+                                hidden_size=diff_hidden_size, num_layers=num_diff_layers,
+                                lipschitz=lipschitz, n_steps=n_steps)
+
+    @torch.jit.script_method
+    def forward(self,
+                input: Tensor,
+                time_deltas: Tensor,
+                state: Tensor
+    ) -> Tuple[Tensor, Tensor]:
+        """Make single step.
+
+        NOTE: input must be preprocessed before call to forward.
+
+        Args:
+            input: Preprocessed input tensor with shape (B, D).
+            time_deltas: Time steps with shape (B).
+            state: Tuple of 4 states, each with shape (B, D).
+
+        Returns:
+            Output and a tuple of new states, each with shape (B, D).
+        """
+        # Apply ODE.
+        h = self.diff_func(state, time_deltas)  # (B, D).
         # Apply RNN cell.
-        result = cell(x[:, step], h)
-        if not isinstance(result, tuple):
-            result = (result, result)  # GRU.
-        output, states = result
-        outputs.append(output)  # (B, D).
-        output_states.append(states)  # (B, D).
-    return torch.stack(outputs, 1), torch.stack(output_states, 1)  # (B, L, D), (B, L, D).
+        result = self.cell(input, h)
+        return (result, result)
+
+    @torch.jit.script_method
+    def interpolate(self, states: Tensor, time_deltas: Tensor, mask: Tensor) -> Tensor:
+        # States: (B, L, D).
+        # time_deltas: (B, L, S).
+        # mask: (B, L).
+        # output: (B, L, S, D).
+        states = states * mask.unsqueeze(2)
+        time_deltas = time_deltas * mask.unsqueeze(2)
+        extended_states = states.unsqueeze(2).repeat(1, 1, time_deltas.shape[2], 1)  # (B, L, S, D).
+        interpolated = self.diff_func(extended_states.flatten(0, 2), time_deltas.flatten())  # (BLS, D).
+        b, l, s, d = extended_states.shape
+        return interpolated.reshape(b, l, s, d)  # (B, L, S, D).
 
 
-class ODEGRU(torch.nn.Module):
+class ODEGRU(torch.jit.ScriptModule):
     """ODE-based continuous-time GRU recurrent network.
 
     See the original paper for details:
@@ -77,46 +129,41 @@ class ODEGRU(torch.nn.Module):
         grid_size: The grid size for ODE solving.
     """
     def __init__(self, input_size, hidden_size, num_layers=1,
-                 num_diff_layers=2, diff_hidden_size=None, lipschitz=1,
-                 method="rk4", grid_size=2, rtol=1e-3, atol=1e-4):
+                 diff_hidden_size=None, num_diff_layers=2,
+                 lipschitz=1, n_steps=1):
         super().__init__()
         if num_layers != 1:
             raise NotImplementedError("Cont-LSTM with multiple layers")
-        diff_hidden_size = diff_hidden_size or hidden_size
-        self._hidden_size = hidden_size
-        self._num_layers = num_layers
-        self._method = method
-        self._grid_size = grid_size
-        self._atol = atol
-        self._rtol = rtol
-        self.cell = torch.nn.GRUCell(input_size, hidden_size)
-        diff_layers = []
-        for i in range(num_diff_layers):
-            layer = torch.nn.Linear(diff_hidden_size if i > 0 else hidden_size,
-                                    diff_hidden_size if i < num_diff_layers - 1 else hidden_size)
-            torch.nn.init.xavier_uniform_(layer.weight)
-            torch.nn.init.constant_(layer.bias, 0)
-            diff_layers.append(layer)
-            diff_layers.append(torch.nn.Tanh())
-        if lipschitz is None:
-            # Remove last Tanh.
-            diff_layers = diff_layers[:-1]
-        else:
-            diff_layers.append(Scale(lipschitz))
-        self.diff_func = torch.nn.Sequential(*diff_layers)
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.cell = ODERNNCell(input_size, hidden_size,
+                               diff_hidden_size=diff_hidden_size, num_diff_layers=num_diff_layers,
+                               lipschitz=lipschitz, n_steps=n_steps)
         self.h0 = torch.nn.Parameter(torch.zeros(num_layers, hidden_size))  # (N, D).
 
     @property
     def output_size(self):
-        return self._hidden_size
-
-    @property
-    def num_layers(self):
-        return self._num_layers
+        return self.hidden_size
 
     @property
     def init_state(self):
         return self.h0
+
+    @torch.jit.script_method
+    def _forward_loop(self,
+                      x: Tensor,
+                      time_deltas: Tensor,
+                      state: Tensor,
+                      ) -> Tuple[Tensor, Tensor]:
+        inputs = x.unbind(1)
+        dt = time_deltas.unbind(1)
+        outputs = torch.jit.annotate(List[Tensor], [])
+        output_states = torch.jit.annotate(List[Tensor], [])
+        for i in range(len(inputs)):
+            out, state = self.cell(inputs[i], dt[i], state)
+            outputs += [out]
+            output_states += [state]
+        return torch.stack(outputs, 1), torch.stack(output_states, 1)
 
     def forward(self, x: PaddedBatch, time_deltas: PaddedBatch,
                 states: Optional[Tensor]=None, return_full_states=False) -> Tuple[PaddedBatch, Tensor]:
@@ -133,10 +180,8 @@ class ODEGRU(torch.nn.Module):
         Returns:
             Output with shape (B, L, D) and optional states tensor with shape (1, B, L, D).
         """
-        if self._num_layers != 1:
-            raise NotImplementedError("Multiple layers.")
         b, l = x.shape
-        s = self._hidden_size
+        dim = self.hidden_size
         seq_lens, mask = x.seq_lens, x.seq_len_mask  # (B), (B, L).
         x = x.payload * mask.unsqueeze(2)  # (B, L, D).
         time_deltas = time_deltas.payload * mask  # (B, L).
@@ -144,12 +189,10 @@ class ODEGRU(torch.nn.Module):
             states = self.init_state.repeat(b, 1)  # (B, D).
         else:
             states = states.squeeze(0)  # Remove layer dim, (B, D).
-        outputs, output_states = odernn(x, time_deltas, states, self.cell, self.diff_func,
-                                        method=self._method, grid_size=self._grid_size,
-                                        rtol=self._rtol, atol=self._atol)  # (B, L, D), (B, L, D).
+        outputs, output_states = self._forward_loop(x, time_deltas, states)  # (B, L, D), (B, L, D).
         outputs = PaddedBatch(outputs, seq_lens)
         if not return_full_states:
-            output_states = output_states.take_along_dim((seq_lens - 1).clip(min=0)[:, None, None], 1).squeeze(1)  # (B, D).
+            output_states = output_states.take_along_dim((seq_lens - 1).clip(min=0)[:, None, None], 1).squeeze(1)  # (B, 4D).
         return outputs, output_states[None]  # (1, B, D) or (1, B, L, D).
 
     def interpolate(self, states: Tensor, time_deltas: PaddedBatch) -> PaddedBatch:
@@ -162,24 +205,10 @@ class ODEGRU(torch.nn.Module):
         Returns:
             Outputs with shape (B, L, S, D).
         """
-        if self._num_layers != 1:
-            raise NotImplementedError("Multiple layers.")
         if time_deltas.payload.ndim != 3:
             raise ValueError("Expected time_deltas with shape (B, L, S).")
-        seq_lens, mask = time_deltas.seq_lens, time_deltas.seq_len_mask  # (B), (B, L).
-
+        if len(states) != self.num_layers:
+            raise ValueError("Incompatible states shape.")
         assert len(states) == 1
-        states = states.squeeze(0)  # (B, L, D).
-        states = states * mask.unsqueeze(2)
-        states = states.unsqueeze(2).repeat(1, 1, time_deltas.payload.shape[-1], 1)  # (B, L, S, D).
-        b, l, s, d = states.shape
-        time_deltas = time_deltas.payload * mask.unsqueeze(2)  # (B, L, S).
-
-        states = states.flatten(0, 2)  # (BLS, D).
-        time_deltas = time_deltas.flatten()  # (BLS).
-        times = torch.linspace(0, 1, self._grid_size, device=states.device, dtype=states.dtype)
-
-        step_diff_func = lambda t, h: self.diff_func(h) * time_deltas[:, None]  # (B, D) -> (B, D).
-        h = odeint(step_diff_func, states, times, method=self._method, rtol=self._rtol, atol=self._atol)  # (T, BLS, D).
-        h = h[-1]  # (BLS, D).
-        return PaddedBatch(h.reshape(b, l, s, d), seq_lens)
+        h = self.cell.interpolate(states.squeeze(0), time_deltas.payload, time_deltas.seq_len_mask)  # (B, L, S, D).
+        return PaddedBatch(h, time_deltas.seq_lens)

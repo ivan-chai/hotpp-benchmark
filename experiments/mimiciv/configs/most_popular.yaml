@@ -1,13 +1,1 @@
-defaults:
-  - default
-  - _self_
-
-name: most_popular
-
-module:
-  _target_: hotpp.modules.MostPopularModule
-  k: ${max_predictions}
-  num_classes: ${num_classes}
-
-trainer:
-  max_epochs: 0
+../../methods/most_popular.yaml

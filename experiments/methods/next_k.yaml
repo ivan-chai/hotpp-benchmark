@@ -1,0 +1,25 @@
+defaults:
+  - default
+  - _self_
+
+name: next_k
+
+module:
+  _target_: hotpp.modules.NextKModule
+  seq_encoder:
+    rnn_partial:
+      _target_: hotpp.nn.GRU
+      _partial_: true
+      hidden_size: ${rnn_hidden_size}
+  loss:
+    _target_: hotpp.losses.NextKLoss
+    k: ${max_predictions}
+    next_item_loss:
+      _target_: hotpp.losses.NextItemLoss
+      losses:
+        timestamps:
+          _target_: hotpp.losses.TimeMAELoss
+          max_delta: ${max_time_delta}
+        labels:
+          _target_: hotpp.losses.CrossEntropyLoss
+          num_classes: ${num_classes}

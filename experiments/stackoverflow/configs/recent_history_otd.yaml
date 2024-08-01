@@ -1,13 +1,1 @@
-defaults:
-  - default
-  - _self_
-
-name: recent_history_otd
-
-module:
-  _target_: hotpp.modules.RecentHistoryModule
-  k: 10  # OTD steps.
-  num_classes: ${num_classes}
-
-trainer:
-  max_epochs: 0
+../../methods/recent_history_otd.yaml
