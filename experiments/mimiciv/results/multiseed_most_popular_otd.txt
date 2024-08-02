@@ -1,4 +1,4 @@
-date: '2024-08-02 17:02:27'
+date: '2024-08-02 17:19:26'
 num_seeds: 5
 test/detection-mAP (mean): 0.014405236579477787
 test/detection-mAP (std): 0.0
@@ -12,11 +12,11 @@ test/mean-target-length (mean): 8.905867576599121
 test/mean-target-length (std): 0.0
 test/next-item-accuracy (mean): 0.017917554825544357
 test/next-item-accuracy (std): 0.0
-test/next-item-mae (mean): 11.233512878417969
+test/next-item-mae (mean): 50.196990966796875
 test/next-item-mae (std): 0.0
-test/next-item-mean-time-step (mean): 2.648642063140869
+test/next-item-mean-time-step (mean): 32.14922332763672
 test/next-item-mean-time-step (std): 0.0
-test/next-item-rmse (mean): 17.3861026763916
+test/next-item-rmse (mean): 197.02984619140625
 test/next-item-rmse (std): 0.0
 test/optimal-transport-distance (mean): 19.88065528869629
 test/optimal-transport-distance (std): 0.0
@@ -32,11 +32,11 @@ val/mean-target-length (mean): 8.920743942260742
 val/mean-target-length (std): 0.0
 val/next-item-accuracy (mean): 0.017782365903258324
 val/next-item-accuracy (std): 0.0
-val/next-item-mae (mean): 11.101496696472168
+val/next-item-mae (mean): 49.038055419921875
 val/next-item-mae (std): 0.0
-val/next-item-mean-time-step (mean): 2.6187939643859863
+val/next-item-mean-time-step (mean): 31.44363021850586
 val/next-item-mean-time-step (std): 0.0
-val/next-item-rmse (mean): 17.27108383178711
+val/next-item-rmse (mean): 192.86148071289062
 val/next-item-rmse (std): 0.0
 val/optimal-transport-distance (mean): 19.89019012451172
 val/optimal-transport-distance (std): 0.0
