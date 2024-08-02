@@ -175,7 +175,7 @@ class TimeMAELoss(BaseLoss):
         assert predictions.shape[2] == 1
         predictions = predictions[:, :-1].squeeze(2)  # (B, L - 1).
         deltas, mask = compute_delta(inputs, mask, delta=self.delta,
-                                     max_delta=self.max_delta, smoothing=smoothing)
+                                     max_delta=self.max_delta, smoothing=self.smoothing)
         losses = (predictions - deltas).abs()  # (B, L - 1).
         return losses, mask, {}
 
