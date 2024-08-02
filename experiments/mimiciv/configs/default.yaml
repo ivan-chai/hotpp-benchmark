@@ -36,7 +36,6 @@ metric:
   _target_: hotpp.metrics.HorizonMetric
   horizon: 28  # 4 weeks.
   horizon_evaluation_step: 4
-  max_time_delta: ${max_time_delta}
   map_thresholds: [4]  # Days
   map_target_length: 16
   otd_steps: 5  # Half the minimum length.
