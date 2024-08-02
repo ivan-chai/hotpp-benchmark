@@ -32,7 +32,7 @@ def get_trainer(conf, **trainer_params_additional):
 
     if trainer_params.get("checkpoints_every_n_val_epochs", None) is not None:
         every_n_val_epochs = trainer_params.checkpoints_every_n_val_epochs
-        checkpoint_callback = ModelCheckpoint(every_n_epochs=every_n_val_epochs, save_top_k=-1)
+        checkpoint_callback = ModelCheckpoint(every_n_epochs=every_n_val_epochs)
         logger.info(f"Create ModelCheckpoint callback every_n_epochs ='{every_n_val_epochs}'")
         trainer_params_callbacks.append(checkpoint_callback)
         del trainer_params.checkpoints_every_n_val_epochs
