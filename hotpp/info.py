@@ -2,6 +2,9 @@ import hydra
 import torch
 
 
+DELTA_Q_VALUES = [0.05, 0.1, 0.5, 0.9, 0.95]
+
+
 def get_horizon_lengths(dataset, horizon):
     lengths = []
     field = dataset.timestamps_field
@@ -13,12 +16,50 @@ def get_horizon_lengths(dataset, horizon):
     return torch.cat(lengths)
 
 
+class ReservoirSampler:
+    def __init__(self, max_size, dtype=None):
+        if dtype is None:
+            dtype = torch.float32
+        self.max_size = max_size
+        self.sample = torch.empty(max_size, dtype=dtype)
+        self.reset()
+
+    def reset(self):
+        self.total = 0
+        self.size = 0
+
+    def update(self, values):
+        values = values.flatten()
+        if self.size < self.max_size:
+            n = self.max_size - self.size
+            head, values = values[:n], values[n:]
+            head = head[torch.randperm(len(head))]
+            self.sample[self.size:self.size + len(head)] = head
+            self.size += len(head)
+            self.total += len(head)
+        if len(values) == 0:
+            return self
+        accept = torch.rand(len(values)) < self.max_size / (self.max_size + 1 + torch.arange(len(values)))
+        accepted = values[accept]
+        positions = torch.randint(0, self.max_size, [len(accepted)])
+        # Scatter is non-deterministic and can result in wrong solution, but for info it is OK.
+        self.sample.scatter_(0, positions, accepted)
+        self.total += len(values)
+        return self
+
+    def get(self):
+        return self.sample[:self.size]
+
+
 class Metric:
-    def __init__(self):
+    def __init__(self, q_values=None):
         self._min = None
         self._max = None
         self._avgs = []
         self._medians = []
+        self._q_values = q_values
+        if q_values is not None:
+            self._sampler = ReservoirSampler(10000)
 
     def update(self, x):
         x = torch.as_tensor(x)
@@ -26,16 +67,22 @@ class Metric:
         self._min = min(self._min, v) if self._min is not None else v
         v = x.max().item()
         self._max = max(self._max, v) if self._max is not None else v
-        self._avgs.append(x.float().mean().item())
-        self._medians.append(x.float().median().item())
+        fx = x.float()
+        self._avgs.append(fx.mean().item())
+        if self._q_values is not None:
+            self._sampler.update(fx)
 
     def compute(self):
-        return {
+        metrics = {
             "min": self._min,
             "max": self._max,
             "avg": torch.tensor(self._avgs).mean().item(),
-            "median": torch.tensor(self._medians).median().item()
         }
+        if self._q_values is not None:
+            q_values = torch.quantile(self._sampler.get(), torch.tensor(self._q_values))
+            for q, v in zip(self._q_values, q_values.tolist()):
+                metrics[f"q{q}"] = v
+        return metrics
 
 
 @hydra.main(version_base="1.2", config_path=None)
@@ -58,9 +105,9 @@ def main(conf):
 
         lengths = []
         labels = set()
-        length_metric = Metric()
-        time_delta_metric = Metric()
-        duration_metric = Metric()
+        length_metric = Metric(q_values=[0.5])
+        time_delta_metric = Metric(q_values=DELTA_Q_VALUES)
+        duration_metric = Metric(q_values=[0.5])
         for v in dataset:
             l = len(v[ts_field])
             lengths.append(l)
@@ -76,30 +123,36 @@ def main(conf):
         print(f"  Max label: {max(labels)}")
 
         metrics = length_metric.compute()
-        print(f"  Min seq. length: {metrics['min']}")
-        print(f"  Max seq. length: {metrics['max']}")
-        print(f"  Avg seq. length: {metrics['avg']}")
-        print(f"  Median seq. length: {metrics['median']}")
+        print(f"  Sequence length")
+        print(f"    Min: {metrics['min']}")
+        print(f"    Max: {metrics['max']}")
+        print(f"    Avg: {metrics['avg']}")
+        print(f"    Median: {metrics['q0.5']}")
 
         metrics = duration_metric.compute()
-        print(f"  Min duration: {metrics['min']}")
-        print(f"  Max duration: {metrics['max']}")
-        print(f"  Avg duration: {metrics['avg']}")
-        print(f"  Median duration: {metrics['median']}")
+        print(f"  Duration")
+        print(f"    Min: {metrics['min']}")
+        print(f"    Max: {metrics['max']}")
+        print(f"    Avg: {metrics['avg']}")
+        print(f"    Median: {metrics['q0.5']}")
 
         metrics = time_delta_metric.compute()
-        print(f"  Min time delta: {metrics['min']}")
-        print(f"  Max time delta: {metrics['max']}")
-        print(f"  Avg time delta: {metrics['avg']}")
-        print(f"  Median time delta: {metrics['median']}")
+        print(f"  Time delta")
+        print(f"    Min: {metrics['min']}")
+        print(f"    Max: {metrics['max']}")
+        print(f"    Avg: {metrics['avg']}")
+        for q in DELTA_Q_VALUES:
+            v = metrics[f'q{q}']
+            print(f"    Q{q}: {v}")
 
         try:
             horizon = getattr(model, f"_{split}_metric").horizon
             hor_lens = get_horizon_lengths(dataset, horizon)
-            print(f"  Min horizon length: {hor_lens.min().item()}")
-            print(f"  Max horizon length: {hor_lens.max().item()}")
-            print(f"  Avg horizon length: {hor_lens.float().mean().item()}")
-            print(f"  Median horizon length: {hor_lens.float().median().item()}")
+            print(f"  Horizon length")
+            print(f"    Min: {hor_lens.min().item()}")
+            print(f"    Max: {hor_lens.max().item()}")
+            print(f"    Avg: {hor_lens.float().mean().item()}")
+            print(f"    Median: {hor_lens.float().median().item()}")
         except AttributeError:
             pass
     print(f"TOTAL Size: {total_size}")
