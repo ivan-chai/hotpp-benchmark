@@ -151,7 +151,7 @@ class BaseModule(pl.LightningModule):
         self.log("sequence_length", x.seq_lens.float().mean(), prog_bar=True)
         return loss
 
-    def validation_step(self, batch, _):
+    def validation_step(self, batch, batch_idx):
         x, _ = batch
         hiddens, states = self.encode(x)
         outputs = self.apply_head(hiddens)  # (B, L, D).
@@ -166,8 +166,11 @@ class BaseModule(pl.LightningModule):
         self.log("val/loss", loss, batch_size=len(x), prog_bar=True)
         if self._val_metric is not None:
             self._update_metric(self._val_metric, x, outputs, states)
+        if batch_idx == 0:
+            for k, v in self._compute_single_batch_metrics(x, outputs, states).items():
+                self.log(f"val/{k}", v, batch_size=len(x))
 
-    def test_step(self, batch, _):
+    def test_step(self, batch, batch_idx):
         x, _ = batch
         hiddens, states = self.encode(x)
         outputs = self.apply_head(hiddens)  # (B, L, D).
@@ -182,6 +185,9 @@ class BaseModule(pl.LightningModule):
         self.log("test/loss", loss, batch_size=len(x), prog_bar=True)
         if self._test_metric is not None:
             self._update_metric(self._test_metric, x, outputs, states)
+        if batch_idx == 0:
+            for k, v in self._compute_single_batch_metrics(x, outputs, states).items():
+                self.log(f"test/{k}", v, batch_size=len(x))
 
     def on_validation_epoch_end(self):
         if self._val_metric is not None:
@@ -237,6 +243,12 @@ class BaseModule(pl.LightningModule):
                                   indices.seq_lens,
                                   sequences.payload[self._timestamps_field],
                                   sequences.payload[self._labels_logits_field])
+
+    def _compute_single_batch_metrics(self, inputs, outputs, states):
+        metrics = {}
+        if hasattr(self._loss, "compute_metrics"):
+            metrics.update(self._loss.compute_metrics(inputs, outputs, states))
+        return metrics
 
     @torch.no_grad()
     def _get_grad_norm(self):

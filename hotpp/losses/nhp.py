@@ -4,7 +4,7 @@ import torch
 from hotpp.data import PaddedBatch
 from hotpp.utils.torch import module_mode, BATCHNORM_TYPES
 from .common import compute_delta
-from .tpp import thinning_expectation, thinning_sample
+from .tpp import thinning, thinning_expectation, thinning_sample
 
 
 class NHPLoss(torch.nn.Module):
@@ -184,3 +184,23 @@ class NHPLoss(torch.nn.Module):
             result[logits_fields_mapping[self._labels_field]] = label_probs.clip(min=1e-6).log()
 
         return PaddedBatch(result, seq_lens)
+
+    def compute_metrics(self, inputs, outputs, states):
+        seq_lens = outputs.seq_lens
+        _, b, l, _ = states.shape
+
+        def intensity_fn(deltas):
+            result = self._interpolator(states, PaddedBatch(deltas, seq_lens)).payload  # (B, L, S, D).
+            assert result.ndim == 4
+            intensities = self.intensity(result)  # (B, L, S, D).
+            return intensities.sum(3)  # (B, L, S).
+
+        _, accepted = thinning(b, l,
+                               intensity_fn=intensity_fn,
+                               dtype=states.dtype, device=states.device,
+                               **self._thinning_params)  # (B, L, N).
+
+        accepted = accepted.sum(2)  # (B, L).
+        return {
+            "thinning_accepted": accepted[outputs.seq_len_mask].float().mean().item()
+        }
