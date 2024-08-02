@@ -8,6 +8,11 @@ module:
   _target_: hotpp.modules.RecentHistoryModule
   k: ${metric.otd_steps}
   num_classes: ${num_classes}
+  seq_encoder:  # Unused.
+    rnn_partial:
+      _target_: hotpp.nn.GRU
+      _partial_: true
+      hidden_size: ${rnn_hidden_size}
 
 trainer:
   max_epochs: 0

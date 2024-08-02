@@ -15,15 +15,10 @@ class GRU(torch.nn.GRU):
             batch_first=True
         )
         self._hidden_size = hidden_size
-        self._num_layers = num_layers
 
     @property
     def output_size(self):
         return self._hidden_size
-
-    @property
-    def num_layers(self):
-        return self._num_layers
 
     @property
     def init_state(self):
@@ -47,7 +42,7 @@ class GRU(torch.nn.GRU):
         """
         outputs, _ = super().forward(x.payload, states)  # (B, L, D).
         if return_full_states:
-            if self._num_layers == 1:
+            if self.num_layers == 1:
                 # In GRU output and states are equal.
                 states = outputs[None]  # (1, B, L, D).
             else:
