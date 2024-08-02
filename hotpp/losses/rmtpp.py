@@ -22,6 +22,7 @@ class TimeRMTPPLoss(BaseLoss):
         init_influence: Initial value of the influence parameter.
         influence_dim: If greater than one, use individual influence for each time position (must be equal to L).
         force_negative_influence: Force current_influence is always negative.
+        time_smoothing: The amount of noise to add to time deltas. Useful for discrete time to prevent spiky intensity.
         max_intensity: Intensity threshold for preventing explosion.
         thinning_params: A dictionary with thinning parameters.
         eps: Small value used for influence thresholding in modes prediction.
@@ -29,12 +30,13 @@ class TimeRMTPPLoss(BaseLoss):
     """
     def __init__(self, delta="last", grad_scale=None,
                  init_influence=-1, influence_dim=1, force_negative_influence=True,
-                 max_intensity=None, thinning_params=None,
+                 time_smoothing=None, max_intensity=None, thinning_params=None,
                  eps=1e-6):
         super().__init__(input_size=1, target_size=1,
                          grad_scale=grad_scale)
         self.delta = delta
         self.eps = eps
+        self.time_smoothing = time_smoothing
         self.max_intensity = max_intensity
         self.force_negative_influence = force_negative_influence
         self.thinning_params = thinning_params
@@ -82,7 +84,7 @@ class TimeRMTPPLoss(BaseLoss):
         """
         assert predictions.shape[2] == 1
         predictions = predictions[:, :-1].squeeze(2)  # (B, L - 1).
-        deltas, mask = compute_delta(inputs, mask, delta=self.delta)
+        deltas, mask = compute_delta(inputs, mask, delta=self.delta, smoothing=self.time_smoothing)
 
         log_intencities = self._log_intensity(self.get_current_influence(deltas.shape[1]), predictions, deltas.unsqueeze(2)).squeeze(2)  # (B, L).
         log_densities = log_intencities - (log_intencities.exp() - predictions.exp()) / self.get_current_influence()  # (B, L).

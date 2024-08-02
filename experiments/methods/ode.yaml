@@ -15,6 +15,7 @@ module:
   loss:
     _target_: hotpp.losses.NHPLoss
     num_classes: ${num_classes}
+    time_smoothing: ${time_smoothing}
     max_intensity: ${max_intensity}
     thinning_params: ${thinning_params}
   autoreg_max_steps: ${max_predictions}

@@ -16,7 +16,9 @@ class ScaleGradient(torch.autograd.Function):
         return grad_output * ctx._weight, None
 
 
-def compute_delta(inputs, mask=None, delta="last", max_delta=None, exclude_out_of_horizon=False):
+def compute_delta(inputs, mask=None,
+                  delta="last", smoothing=None,
+                  max_delta=None, exclude_out_of_horizon=False):
     if delta == "last":
         deltas = inputs[:, 1:] - inputs[:, :-1]  # (B, L - 1).
         mask = torch.logical_and(mask[:, 1:], mask[:, :-1]) if mask is not None else None  # (B, L - 1).
@@ -26,6 +28,10 @@ def compute_delta(inputs, mask=None, delta="last", max_delta=None, exclude_out_o
     else:
         raise ValueError(f"Unknown delta type: {delta}.")
     deltas = deltas.clip(min=0, max=max_delta)
+    if smoothing is not None:
+        deltas = deltas.float()
+        deltas = deltas + (torch.rand_like(deltas) - 0.5) * smoothing  # (-S / 2; S / 2).
+        deltas = deltas.abs()  # Make positive, but don't generate a large amount of zeros, like in clipping.
     if (max_delta is not None) and exclude_out_of_horizon:
         mask[deltas >= max_delta] = False
     return deltas, mask
@@ -144,12 +150,14 @@ class TimeMAELoss(BaseLoss):
 
     Args:
         delta: The type of time delta computation (`last` or `start`).
+        smoothing: The amount of noise to add to time deltas. Useful for discrete time to prevent spiky intensity.
     """
-    def __init__(self, delta="last", max_delta=None, grad_scale=None):
+    def __init__(self, delta="last", max_delta=None, smoothing=None, grad_scale=None):
         super().__init__(input_size=1, target_size=1,
                          grad_scale=grad_scale)
         self.delta = delta
         self.max_delta = max_delta
+        self.smoothing = smoothing
 
     def compute_loss(self, inputs, predictions, mask=None):
         """Compute losses and metrics.
@@ -166,7 +174,8 @@ class TimeMAELoss(BaseLoss):
         """
         assert predictions.shape[2] == 1
         predictions = predictions[:, :-1].squeeze(2)  # (B, L - 1).
-        deltas, mask = compute_delta(inputs, mask, delta=self.delta, max_delta=self.max_delta)
+        deltas, mask = compute_delta(inputs, mask, delta=self.delta,
+                                     max_delta=self.max_delta, smoothing=smoothing)
         losses = (predictions - deltas).abs()  # (B, L - 1).
         return losses, mask, {}
 

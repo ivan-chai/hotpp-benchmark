@@ -4,7 +4,8 @@ num_evaluation_seeds: 5
 max_predictions: 16
 num_classes: 205
 max_time_delta: 8  # Larger than horizon, but not too large.
-max_intensity: 4
+time_smoothing: 1  # Convert discrete time to a continuos variable during loss computation.
+max_intensity: null
 intensity_lipschitz: 1
 rnn_hidden_size: 512
 thinning_params:

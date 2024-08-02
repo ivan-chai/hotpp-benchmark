@@ -20,6 +20,7 @@ module:
         timestamps:
           _target_: hotpp.losses.TimeRMTPPLoss
           init_influence: -0.1
+          time_smoothing: ${time_smoothing}
           max_intensity: ${max_intensity}
           thinning_params: ${thinning_params}
         labels:

@@ -4,7 +4,8 @@ num_evaluation_seeds: 5
 max_predictions: 16
 num_classes: 16
 max_time_delta: 12  # Larger than horizon, but not too large.
-max_intensity: 10
+time_smoothing: null  # Time is continuous.
+max_intensity: null
 intensity_lipschitz: 2
 rnn_hidden_size: 64
 thinning_params:

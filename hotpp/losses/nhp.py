@@ -19,6 +19,7 @@ class NHPLoss(torch.nn.Module):
         num_classes: The number of possible event types.
         timestamps_field: The name of the timestamps field.
         labels_field: The name of the labels field.
+        time_smoothing: The amount of noise to add to time deltas. Useful for discrete time to prevent spiky intensity.
         max_intensity: Intensity threshold for preventing explosion.
         likelihood_sample_size: The sample size per event to compute integral.
         thinning_params: A dictionary with thinning parameters.
@@ -27,6 +28,7 @@ class NHPLoss(torch.nn.Module):
     def __init__(self, num_classes,
                  timestamps_field="timestamps",
                  labels_field="labels",
+                 time_smoothing=None,
                  max_intensity=None,
                  likelihood_sample_size=1,
                  thinning_params=None,
@@ -35,6 +37,7 @@ class NHPLoss(torch.nn.Module):
         self._num_classes = num_classes
         self._timestamps_field = timestamps_field
         self._labels_field = labels_field
+        self._time_smoothing = time_smoothing
         self._max_intensity = max_intensity
         self._likelihood_sample_size = likelihood_sample_size
         self._thinning_params = thinning_params or {}
@@ -82,7 +85,7 @@ class NHPLoss(torch.nn.Module):
         # Extract targets.
         timestamps, mask = inputs.payload[self._timestamps_field], inputs.seq_len_mask  # (B, L), (B, L).
         lengths = (lengths - 1).clip(min=0)
-        deltas, mask = compute_delta(timestamps, mask)
+        deltas, mask = compute_delta(timestamps, mask, smoothing=self._time_smoothing)
         labels = inputs.payload[self._labels_field][:, 1:].long().clip(min=0, max=self._num_classes - 1)  # (B, L).
         states = states[:, :, :l - 1]
         # states: (N, B, L, D).

@@ -21,6 +21,7 @@ module:
           _target_: hotpp.losses.TimeMAELoss
           delta: start
           max_delta: ${max_time_delta}
+          smoothing: ${time_smoothing}
         labels:
           _target_: hotpp.losses.CrossEntropyLoss
           num_classes: ${num_classes}

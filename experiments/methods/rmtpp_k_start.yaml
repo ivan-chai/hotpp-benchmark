@@ -22,6 +22,7 @@ module:
           delta: start
           init_influence: -0.1
           influence_dim: ${max_predictions}
+          time_smoothing: ${time_smoothing}
           max_intensity: ${max_intensity}
           thinning_params: ${thinning_params}
         labels:
