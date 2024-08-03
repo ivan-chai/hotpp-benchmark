@@ -2,7 +2,7 @@ import hydra
 import torch
 
 
-DELTA_Q_VALUES = [0.05, 0.1, 0.5, 0.9, 0.95]
+DELTA_Q_VALUES = [0.01, 0.05, 0.1, 0.5, 0.9, 0.95, 0.99]
 
 
 def get_horizon_lengths(dataset, horizon):

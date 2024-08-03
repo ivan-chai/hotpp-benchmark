@@ -19,7 +19,7 @@ module:
       losses:
         timestamps:
           _target_: hotpp.losses.TimeMAELoss
-          max_delta: ${max_time_delta}
+          max_delta: ${max_duration}
           smoothing: ${time_smoothing}
         labels:
           _target_: hotpp.losses.CrossEntropyLoss

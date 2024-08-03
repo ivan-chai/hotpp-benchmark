@@ -3,10 +3,11 @@ num_evaluation_seeds: 5
 
 max_predictions: 16
 num_classes: 22
-max_time_delta: 15  # Larger than horizon, but not too large.
+max_time_delta: 15
+max_duration: 15
 time_smoothing: null  # Time is continuous.
 max_intensity: null
-intensity_lipschitz: 2
+ode_lipschitz: 2
 rnn_hidden_size: 64
 thinning_params:
   max_steps: 100

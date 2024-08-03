@@ -4,6 +4,9 @@ defaults:
 
 name: rmtpp_k
 
+thinning_params:
+  max_delta: ${max_duration}
+
 module:
   _target_: hotpp.modules.NextKModule
   seq_encoder:
