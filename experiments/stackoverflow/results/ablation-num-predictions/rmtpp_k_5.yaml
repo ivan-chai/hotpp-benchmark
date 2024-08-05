@@ -1,0 +1,27 @@
+date: '2024-08-05 13:44:02'
+test/detection-mAP: 0.09510114043951035
+test/horizon-mean-time-step: 0.8310238122940063
+test/loss: 2.4226887226104736
+test/loss_labels: 1.6630853414535522
+test/loss_timestamps: 0.7596033215522766
+test/mean-predicted-length: 5.0
+test/mean-target-length: 15.583646774291992
+test/next-item-accuracy: 0.4527069926261902
+test/next-item-mae: 0.6954945921897888
+test/next-item-mean-time-step: 0.8798758387565613
+test/next-item-rmse: 1.0352880954742432
+test/timestamps-bias-mean: 0.2959309220314026
+test/timestamps-current_influence: -0.08610184490680695
+val/detection-mAP: 0.09654169529676437
+val/horizon-mean-time-step: 0.8337979912757874
+val/loss: 2.4110376834869385
+val/loss_labels: 1.6106261014938354
+val/loss_timestamps: 0.8004117608070374
+val/mean-predicted-length: 5.0
+val/mean-target-length: 15.263496398925781
+val/next-item-accuracy: 0.46975797414779663
+val/next-item-mae: 0.7039952278137207
+val/next-item-mean-time-step: 0.9082018136978149
+val/next-item-rmse: 1.052389144897461
+val/timestamps-bias-mean: 0.2750062942504883
+val/timestamps-current_influence: -0.08610184490680695
