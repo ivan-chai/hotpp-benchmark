@@ -27,6 +27,7 @@ class NextItemMetric(torch.nn.Module):
 
         ae = (target_timestamps - predicted_timestamps).abs()  # (B, L).
         ae = ae.masked_select(mask)  # (V).
+        assert ae.numel() == is_correct.numel()
         self._ae_sums.append(ae.float().mean().cpu() * ae.numel())
         self._se_sums.append(ae.square().float().mean().cpu() * ae.numel())
 
