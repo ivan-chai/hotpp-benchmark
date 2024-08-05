@@ -21,7 +21,7 @@ logger:
   save_dir: lightning_logs
 model_path: checkpoints/${name}.ckpt
 report: results/${name}.yaml
-multiseed_report: results/multiseed_${name}.txt
+multiseed_report: results/multiseed_${name}.yaml
 downstream_report: results/downstream_${name}.txt
 
 data_module:
