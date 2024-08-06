@@ -1,1 +1,5 @@
-../../methods/nhp.yaml
+defaults:
+  - nhp_base
+  - _self_
+
+max_intensity: 10  # Prevent large mass at zero.

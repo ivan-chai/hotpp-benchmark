@@ -200,7 +200,9 @@ class NHPLoss(torch.nn.Module):
                                dtype=states.dtype, device=states.device,
                                **self._thinning_params)  # (B, L, N).
 
-        accepted = accepted.sum(2)  # (B, L).
+        num_accepted = accepted.sum(2)  # (B, L).
+        is_accepted = num_accepted > 0
         return {
-            "thinning_accepted": accepted[outputs.seq_len_mask].float().mean().item()
+            "thinning_num_accepted": num_accepted[outputs.seq_len_mask].float().mean().item(),
+            "thinning_is_accepted": is_accepted[outputs.seq_len_mask].float().mean().item()
         }
