@@ -135,7 +135,7 @@ class BaseModule(pl.LightningModule):
         losses, metrics = self._loss(x, outputs, states)
         return losses, metrics
 
-    def training_step(self, batch, _):
+    def training_step(self, batch, batch_idx):
         x, _ = batch
         hiddens, states = self.encode(x)
         outputs = self.apply_head(hiddens)  # (B, L, D).
@@ -149,6 +149,10 @@ class BaseModule(pl.LightningModule):
             self.log(f"train/{k}", v)
         self.log("train/loss", loss, prog_bar=True)
         self.log("sequence_length", x.seq_lens.float().mean(), prog_bar=True)
+        if batch_idx == 0:
+            with torch.no_grad():
+                for k, v in self._compute_single_batch_metrics(x, outputs, states).items():
+                    self.log(f"train/{k}", v, batch_size=len(x))
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -245,6 +249,7 @@ class BaseModule(pl.LightningModule):
                                   sequences.payload[self._labels_logits_field])
 
     def _compute_single_batch_metrics(self, inputs, outputs, states):
+        """Slow debug metrics."""
         metrics = {}
         if hasattr(self._loss, "compute_metrics"):
             metrics.update(self._loss.compute_metrics(inputs, outputs, states))

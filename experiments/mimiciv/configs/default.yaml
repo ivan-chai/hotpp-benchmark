@@ -3,10 +3,11 @@ num_evaluation_seeds: 5
 
 max_predictions: 16
 num_classes: 35  # Zero is excluded by PTLS.
-max_time_delta: 32  # Larger than horizon, but not too large.
+max_time_delta: 32
+max_duration: 32
 time_smoothing: null  # Time is continuous.
 max_intensity: null
-intensity_lipschitz: 1
+ode_lipschitz: 1
 rnn_hidden_size: 64
 thinning_params:
   max_steps: 100
@@ -20,7 +21,7 @@ logger:
   save_dir: lightning_logs
 model_path: checkpoints/${name}.ckpt
 report: results/${name}.yaml
-multiseed_report: results/multiseed_${name}.txt
+multiseed_report: results/multiseed_${name}.yaml
 
 data_module:
   _target_: hotpp.data.HotppDataModule

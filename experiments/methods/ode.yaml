@@ -11,7 +11,7 @@ module:
       _target_: hotpp.nn.ODEGRU
       _partial_: true
       hidden_size: ${rnn_hidden_size}
-      lipschitz: ${intensity_lipschitz}
+      lipschitz: ${ode_lipschitz}
   loss:
     _target_: hotpp.losses.NHPLoss
     num_classes: ${num_classes}
