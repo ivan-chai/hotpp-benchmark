@@ -48,13 +48,14 @@ class NextItemLoss(torch.nn.Module):
         """Get time delta type."""
         return self._losses[field].delta
 
-    def forward(self, inputs, outputs, states):
+    def forward(self, inputs, outputs, states, reduction="mean"):
         """Extract targets and compute loss between predictions and targets.
 
         Args:
-            inputs: Input features with shape (B, L).
-            outputs: Model outputs with shape (B, L, D).
-            states: Hidden model states with shape (N, B, L, D), where N is the number of layers.
+            inputs: Input features with shape (B, L, *).
+            outputs: Model outputs with shape (B, L, *, D).
+            states (unused): Hidden model states with shape (N, B, L, *, D), where N is the number of layers.
+            reduction: `mean` or `none`.
 
         Returns:
             Losses dict and metrics dict.
@@ -72,8 +73,8 @@ class NextItemLoss(torch.nn.Module):
         mask = inputs.seq_len_mask.bool() if (inputs.seq_lens != inputs.shape[1]).any() else None
         losses = {}
         metrics = {}
-        for name, output in outputs.items():
-            losses[name], loss_metrics = self._losses[name](inputs.payload[name], output, mask)
+        for name, input in inputs.payload.items():
+            losses[name], loss_metrics = self._losses[name](input, outputs[name], mask, reduction=reduction)
             for k, v in loss_metrics.items():
                 metrics[f"{name}-{k}"] = v
         return losses, metrics
