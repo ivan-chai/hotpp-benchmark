@@ -285,15 +285,15 @@ class BinaryCrossEntropyLoss(BaseLoss):
         return losses, mask, {}
 
     def predict_logits(self, predictions):
-        return predictions  # (B, L, C).
+        return torch.nn.functional.logsigmoid(predictions)  # (B, L, 1).
 
     def predict_modes(self, predictions):
-        return predictions.argmax(-1).unsqueeze(-1)  # (B, L, 1).
+        return (predictions > 0).long()  # (B, L, 1).
 
     def predict_means(self, predictions):
         # There is no mean for a categorical distribution. Return modes.
         return self.predict_modes(predictions)
 
     def predict_samples(self, predictions, temperature=1):
-        probs = torch.nn.functional.softmax(predictions / temperature, dim=-1)  # (B, L, C).
-        return torch.distributions.categorical.Categorical(probs).sample().unsqueeze(-1)  # (B, L, 1).
+        probs = torch.sigmoid(predictions / temperature)  # (B, L, 1).
+        return (torch.rand_like(probs) < probs).long()
