@@ -63,7 +63,9 @@ class TimeRMTPPLoss(BaseLoss):
         return value
 
     def _log_intensity(self, influence, biases, deltas):
-        # deltas: B, L, S.
+        # influence: L, *.
+        # biases: B, L, *.
+        # deltas: B, L, *, S.
         log_intencities = influence.unsqueeze(-1) * deltas + biases.unsqueeze(-1)  # (B, L, S).
         if self.max_intensity is not None:
             log_intencities = log_intencities.clip(max=math.log(self.max_intensity))
@@ -75,20 +77,26 @@ class TimeRMTPPLoss(BaseLoss):
         NOTE: the model predicts next inputs.
 
         Args:
-            inputs: Input features with shape (B, L).
-            predictions: Model outputs with shape (B, L, P).
+            inputs: Input features with shape (B, L, *).
+            predictions: Model outputs with shape (B, L, *, P).
             mask: Sequence lengths mask with shape (B, L) or None.
 
         Returns:
-            Losses tensor with shape (B, L'), (optional) mask tensor with shape (B, L') and metrics dictionary.
+            Losses tensor with shape (B, L', *), (optional) mask tensor with shape (B, L') and metrics dictionary.
         """
-        assert predictions.shape[2] == 1
-        predictions = predictions[:, :-1].squeeze(2)  # (B, L - 1).
-        deltas, mask = compute_delta(inputs, mask, delta=self.delta, smoothing=self.time_smoothing)
 
-        log_intencities = self._log_intensity(self.get_current_influence(deltas.shape[1]), predictions, deltas.unsqueeze(2)).squeeze(2)  # (B, L).
-        log_densities = log_intencities - (log_intencities.exp() - predictions.exp()) / self.get_current_influence()  # (B, L).
-        losses = -log_densities  # (B, L).
+        assert predictions.shape[-1] == 1
+        predictions = predictions.squeeze(-1)  # (B, L - 1, *).
+        broadcast = (predictions.shape[1] != inputs.shape[1]) and (predictions.shape[1] == 1)
+        predictions = predictions if broadcast else predictions[:, :-1]  # (B, L - 1, *).
+
+        deltas, mask = compute_delta(inputs, mask, delta=self.delta, smoothing=self.time_smoothing)  # (B, L - 1, *)
+
+        current_influence = self.get_current_influence(deltas.shape[1])
+        current_influence = current_influence.reshape(*([len(current_influence)] + [1] * (deltas.ndim - 2)))  # (L - 1, *).
+        log_intencities = self._log_intensity(current_influence, predictions, deltas.unsqueeze(-1)).squeeze(-1)  # (B, L - 1, *).
+        log_densities = log_intencities - (log_intencities.exp() - predictions.exp()) / current_influence  # (B, L - 1, *).
+        losses = -log_densities  # (B, L - 1, *).
 
         with torch.no_grad():
             metrics = {

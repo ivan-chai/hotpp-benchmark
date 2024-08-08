@@ -53,21 +53,13 @@ class NextItemLoss(torch.nn.Module):
 
         Args:
             inputs: Input features with shape (B, L, *).
-            outputs: Model outputs with shape (B, L, *, D).
+            outputs: Model outputs with shape (B, L, *, D) or (B, 1, *, D).
             states (unused): Hidden model states with shape (N, B, L, *, D), where N is the number of layers.
             reduction: `mean` or `none`.
 
         Returns:
             Losses dict and metrics dict.
         """
-        # Align lengths.
-        l = min(outputs.shape[1], inputs.shape[1])
-        lengths = torch.minimum(outputs.seq_lens, inputs.seq_lens)
-        inputs = PaddedBatch({k: (v[:, :l] if k in inputs.seq_names else v)
-                              for k, v in inputs.payload.items()},
-                             lengths, inputs.seq_names)
-        outputs = PaddedBatch(outputs.payload[:, :l], lengths)
-
         # Compute losses. It is assumed that predictions lengths are equal to targets lengths.
         outputs = self._split_outputs(outputs)
         mask = inputs.seq_len_mask.bool() if (inputs.seq_lens != inputs.shape[1]).any() else None

@@ -1,6 +1,7 @@
 import torch
 
 from hotpp.data import PaddedBatch
+from hotpp.utils.torch import deterministic
 from .next_item import NextItemLoss
 
 
@@ -13,10 +14,11 @@ class NextKLoss(torch.nn.Module):
         prediction: The type of prediction (either `mean` or `mode`).
         loss_step: The period of loss evaluation.
     """
-    def __init__(self, next_item_loss, k, loss_step=1):
+    def __init__(self, next_item_loss, k, timestamps_field="timestamps", loss_step=1):
         super().__init__()
         self._next_item = next_item_loss
         self._k = k
+        self._timestamps_field = timestamps_field
         self._loss_step = loss_step
 
     @property
@@ -141,8 +143,26 @@ class NextKLoss(torch.nn.Module):
         next_values = self._next_item.predict_next(outputs, states,
                                                    fields=fields,
                                                    logits_fields_mapping=logits_fields_mapping)  # (BL, K) or (BL, K, C).
-        return PaddedBatch({k: v.reshape(b, l, self._k, *v.shape[2:]) for k, v in next_values.payload.items()},
-                           lengths)  # (B, L, K) or (B, L, K, C).
+        sequences = PaddedBatch({k: v.reshape(b, l, self._k, *v.shape[2:]) for k, v in next_values.payload.items()},
+                                lengths)  # (B, L, K) or (B, L, K, C).
+        self.revert_delta_and_sort_time_inplace(sequences)
+        return sequences
+
+    def revert_delta_and_sort_time_inplace(self, sequences):
+        # Revert delta type.
+        delta_type = self.get_delta_type(self._timestamps_field)
+        if delta_type == "last":
+            with deterministic(False):
+                sequences.payload[self._timestamps_field].cumsum_(2)
+        elif delta_type != "start":
+            raise ValueError(f"Unknown delta type: {self.delta_type}.")
+        # Sort by time.
+        order = sequences.payload[self._timestamps_field].argsort(dim=2)  # (B, L, K).
+        for k in sequences.seq_names:
+            payload = sequences.payload[k]
+            shaped_order = order.reshape(*(list(order.shape) + [1] * (payload.ndim - order.ndim)))  # (B, L, K, *).
+            sequences.payload[k] = payload.take_along_dim(shaped_order, dim=2)  # (B, L, K, *).
+        return sequences
 
     @staticmethod
     def extract_windows(x, t):

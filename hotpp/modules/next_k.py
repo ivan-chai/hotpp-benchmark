@@ -1,5 +1,4 @@
 from hotpp.data import PaddedBatch
-from hotpp.utils.torch import deterministic
 from .base_module import BaseModule
 
 
@@ -33,30 +32,19 @@ class NextKModule(BaseModule):
         """Returns the type of time delta computation: `last` or `start`."""
         return self._loss.get_delta_type(self._timestamps_field)
 
-    def predict_next_k(self, inputs, outputs, states, fields=None, logits_fields_mapping=None, predict_delta=False, sort=True):
+    def predict_next_k(self, inputs, outputs, states, fields=None, logits_fields_mapping=None):
         """Predict K next events from head outputs.
 
         Args:
             inputs: Input features with shape (B, L).
             outputs: Output of the head module with shape (B, L, D).
             states: Sequence model states with shape (N, B, L, D), where N is the number of layers.
-            predict_delta: If True, return delta times. Generate absolute timestamps otherwise.
-            sort: Whether to sort outputs by timestamps.
         """
-        results = self._loss.predict_next_k(outputs, states, fields=fields, logits_fields_mapping=logits_fields_mapping)  # (B, L, K) or (B, L, K, C).
-        if self.delta_type == "last":
-            with deterministic(False):
-                results.payload[self._timestamps_field].cumsum_(2)
-        elif self.delta_type != "start":
-            raise ValueError(f"Unknown delta type: {self.delta_type}.")
-        if sort:
-            order = results.payload[self._timestamps_field].argsort(dim=2)  # (B, I, N).
-            for k in results.seq_names:
-                shaped_order = order.reshape(*(list(order.shape) + [1] * (results.payload[k].ndim - order.ndim)))  # (B, I, N, *).
-                results.payload[k] = results.payload[k].take_along_dim(shaped_order, dim=2)  # (B, I, N, *).
-        if not predict_delta:
-            # Convert delta time to time.
-            results.payload[self._timestamps_field] += inputs.payload[self._timestamps_field].unsqueeze(2)
+        results = self._loss.predict_next_k(outputs, states,
+                                            fields=fields,
+                                            logits_fields_mapping=logits_fields_mapping)  # (B, L, K) or (B, L, K, C).
+        # Convert delta time to time.
+        results.payload[self._timestamps_field] += inputs.payload[self._timestamps_field].unsqueeze(2)
         return results
 
     def generate_sequences(self, x, indices):

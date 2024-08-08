@@ -6,7 +6,7 @@ from .next_item import NextItemLoss
 from .next_k import NextKLoss
 
 
-class DetectionLoss(torch.nn.Module):
+class DetectionLoss(NextKLoss):
     """The loss similar to Next-K, but with the matching loss.
 
     Args:
@@ -19,14 +19,17 @@ class DetectionLoss(torch.nn.Module):
     def __init__(self, next_item_loss, k, horizon,
                  timestamps_field="timestamps", loss_subset=1, prefetch_factor=1,
                  match_weights=None):
-        super().__init__()
-        self._next_item = next_item_loss
-        self._k = k
+        super().__init__(
+            next_item_loss=next_item_loss,
+            k=k,
+            timestamps_field=timestamps_field
+        )
         self._horizon = horizon
-        self._timestamps_field = timestamps_field
         self._loss_subset = loss_subset
         self._prefetch_factor = prefetch_factor
         self._match_weights = match_weights
+        if self.get_delta_type(timestamps_field) != "start":
+            raise ValueError("Need `start` delta time for the detection loss.")
 
     @property
     def interpolator(self):
@@ -106,13 +109,6 @@ class DetectionLoss(torch.nn.Module):
                                         fields=fields,
                                         logits_fields_mapping=logits_fields_mapping)  # (B, L, K) or (B, L, K, C).
 
-        # Sort by time.
-        order = sequences.payload[self._timestamps_field].argsort(dim=2)  # (B, L, K).
-        for k in sequences.seq_names:
-            payload = sequences.payload[k]
-            shaped_order = order.reshape(*(list(order.shape) + [1] * (payload.ndim - order.ndim)))  # (B, L, K, *).
-            sequences.payload[k] = payload.take_along_dim(shaped_order, dim=2)  # (B, L, K, *).
-
         # Extract first.
         next_values = PaddedBatch({k: v[:, :, 0] for k, v in sequences.payload.items()},
                                   sequences.seq_lens)
@@ -155,8 +151,10 @@ class DetectionLoss(torch.nn.Module):
             next_values.payload[self._timestamps_field].masked_fill_(~presence.bool(), self._horizon + 1)
 
         # Reshape and return.
-        return PaddedBatch({k: v.reshape(b, l, self._k, *v.shape[2:]) for k, v in next_values.payload.items()},
-                           lengths)  # (B, L, K) or (B, L, K, C).
+        sequences = PaddedBatch({k: v.reshape(b, l, self._k, *v.shape[2:]) for k, v in next_values.payload.items()},
+                                lengths)  # (B, L, K) or (B, L, K, C).
+        self.revert_delta_and_sort_time_inplace(sequences)
+        return sequences
 
     def select_subset(self, batch, indices=None):
         """Select subset of features.
@@ -215,7 +213,7 @@ class DetectionLoss(torch.nn.Module):
 
         # Extract windows.
         k = int(round(self._k * self._prefetch_factor))
-        joined_windows = NextKLoss.extract_windows(joined, k + 1)   # (B, L - k, k + 1, N).
+        joined_windows = self.extract_windows(joined, k + 1)   # (B, L - k, k + 1, N).
         assert joined_windows.shape[:3] == (b, max(l - k, 0), k + 1)
         windows_lengths = (lengths - k).clip(min=0)
         if windows_lengths.numel() == 0:
@@ -232,7 +230,7 @@ class DetectionLoss(torch.nn.Module):
         """Find closest prediction to each target.
 
         Args:
-          outputs: Model outputs with shape (B, L, T, D).
+          outputs: Model outputs with shape (B, L, K, D).
           targets: Mapping from a field name to a tensor with target windows (B, L, 1 + T).
             The first value in each window is the current step, which is ignored during matching.
           subset_indices: Align matching indices with original sequence (before subsetting).
@@ -240,7 +238,7 @@ class DetectionLoss(torch.nn.Module):
         Returns:
           - Matching with shape (B, L, K), with values in the range [0, L - 1]
             or -1 if matching was found and -1 otherwise.
-          - Losses dictionary with shape (B, L, k, T).
+          - Losses dictionary with shape (B, L, K, T).
           - Logging statistics dictionary.
         """
         metrics = {}
@@ -249,31 +247,26 @@ class DetectionLoss(torch.nn.Module):
         assert (outputs.seq_lens == targets.seq_lens).all()
         device = outputs.device
         b, l = outputs.shape
-        n_targets = targets.payload[next(iter(targets.seq_names))].shape[2]
+        n_targets = targets.payload[next(iter(targets.seq_names))].shape[2] - 1  # T.
         lengths, lengths_mask = outputs.seq_lens, outputs.seq_len_mask
         targets, outputs = targets.payload, outputs.payload
         tails_mask = ~lengths_mask.bool()  # (B, L).
 
         # Compute positive pairwise scores.
-        def prepare_target(x):
-            # x: (B, L, 1 + T).
-            k = x.shape[2] - 1
-            x = x.flatten(0, 1).unsqueeze(1)  # (BL, 1, 1 + T).
-            x = torch.cat((x[:, :, :1].repeat(1, 1, k), x[:, :, 1:]), 1)  # (BL, 2, T).
-            return x.unsqueeze(2)  # (BL, 2, 1, T).
-
-        reshaped_lengths = torch.full([b * l], 2, dtype=torch.long, device=device)
-        targets = {k: prepare_target(v) for k, v in targets.items()}  # (BL, 2, 1, T).
-        targets["_presence"] = torch.ones(b * l, 2, 1, n_targets - 1, dtype=torch.long, device=device)
-        outputs = outputs.flatten(0, 1).unsqueeze(1).repeat(1, 2, 1, 1).unsqueeze(3)  # (BL, 2, k, 1, D).
-        targets_batch = PaddedBatch(targets, reshaped_lengths)
-        outputs_batch = PaddedBatch(outputs, reshaped_lengths)
-        losses, _ = self._next_item(targets_batch, outputs_batch, None, reduction="none")  # (BL, 1, k, T).
+        targets = {k: v.reshape(b * l, 1 + n_targets, 1) for k, v in targets.items()}  # (BL, 1 + T, 1).
+        targets["_presence"] = torch.ones(b * l, 1 + n_targets, 1, dtype=torch.long, device=device)  # (BL, 1 + T, 1).
+        outputs = outputs.reshape(b * l, 1, self._k, -1)  # (BL, 1, K, D).
+        targets_batch = PaddedBatch(targets,
+                                    torch.full([b * l], 1 + n_targets, dtype=torch.long, device=device))
+        outputs_batch = PaddedBatch(outputs,
+                                    torch.full([b * l], 1, dtype=torch.long, device=device))
+        states = None
+        losses, _ = self._next_item(targets_batch, outputs_batch, states, reduction="none")  # (BL, T, K).
         # Convert presence BCE likelihood to likelihood ratio.
         zero_presence_target = PaddedBatch({"_presence": torch.zeros_like(targets["_presence"])},
-                                           reshaped_lengths)
-        losses["_presence_neg"] = -self._next_item(zero_presence_target, outputs_batch, None, reduction="none")[0]["_presence"]
-        losses = {k: v.reshape(b, l, self._k, n_targets - 1) for k, v in losses.items()}  # (B, L, k, T).
+                                           targets_batch.seq_lens)
+        losses["_presence_neg"] = -self._next_item(zero_presence_target, outputs_batch, states, reduction="none")[0]["_presence"]
+        losses = {k: v.reshape(b, l, n_targets, self._k).permute(0, 1, 3, 2) for k, v in losses.items()}  # (B, L, K, T).
         with torch.no_grad():
             if self._match_weights is not None:
                 losses_list = [losses[name] * weight for name, weight in self._match_weights.items()]
@@ -281,15 +274,15 @@ class DetectionLoss(torch.nn.Module):
                     losses_list.append(losses["_presence_neg"] * self._match_weights["_presence"])
             else:
                 losses_list = list(losses.values())
-            costs = sum(losses_list[1:], start=losses_list[0])  # (B, L, k, T).
+            costs = sum(losses_list[1:], start=losses_list[0])  # (B, L, K, T).
 
         # Fill out-of-horizon events costs with large cost to prevent them from matching.
-        deltas = (targets[self._timestamps_field][:, 1:] - targets[self._timestamps_field][:, :-1])  # (BL, 1, 1, T).
-        horizon_mask = (deltas.reshape(b, l, n_targets - 1) >= self._horizon)  # (B, L, T).
+        deltas = (targets[self._timestamps_field][:, 1:] - targets[self._timestamps_field][:, :1])  # (BL, T, 1).
+        horizon_mask = (deltas.reshape(b, l, n_targets) >= self._horizon)  # (B, L, T).
         horizon_mask.logical_or_(tails_mask.unsqueeze(2))  # (B, L, T).
         valid_costs = costs.masked_select(horizon_mask.unsqueeze(2))
         max_cost = valid_costs.max().item() if valid_costs.numel() > 0 else 1
-        costs.masked_fill_(horizon_mask.unsqueeze(2), max_cost + 1)  # (B, L, k, T).
+        costs.masked_fill_(horizon_mask.unsqueeze(2), max_cost + 1)  # (B, L, K, T).
 
         # Compute matching.
         b, l, k, t = costs.shape

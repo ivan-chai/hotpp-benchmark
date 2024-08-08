@@ -103,7 +103,7 @@ class BaseLoss(ABC, torch.nn.Module):
 
         Args:
             inputs: Input features with shape (B, L, *).
-            predictions: Mode outputs with shape (B, L, *, P).
+            predictions: Mode outputs with shape (B, L, *, P) or (B, 1, *, P).
             mask: Sequence lengths mask with shape (B, L) or None.
 
         Returns:
@@ -169,17 +169,68 @@ class TimeMAELoss(BaseLoss):
 
         Args:
             inputs: Input features with shape (B, L, *).
-            predictions: Mode outputs with shape (B, L, *, D).
+            predictions: Mode outputs with shape (B, L, *, P) or (B, 1, *, P).
             mask: Sequence lengths mask with shape (B, L) or None.
 
         Returns:
             Losses tensor with shape (B, L', *), (optional) mask tensor with shape (B, L') and metrics dictionary.
         """
         assert predictions.shape[-1] == 1
-        predictions = predictions[:, :-1].squeeze(-1)  # (B, L - 1, *).
+        predictions = predictions.squeeze(-1)  # (B, L, *).
+        broadcast = (predictions.shape[1] != inputs.shape[1]) and (predictions.shape[1] == 1)
+        predictions = predictions if broadcast else predictions[:, :-1]  # (B, L - 1, *).
         deltas, mask = compute_delta(inputs, mask, delta=self.delta,
-                                     max_delta=self.max_delta, smoothing=self.smoothing)
+                                     max_delta=self.max_delta, smoothing=self.smoothing)  # (B, L - 1, *).
         losses = (predictions - deltas).abs()  # (B, L - 1, *).
+        return losses, mask, {}
+
+    def predict_modes(self, predictions):
+        # Delta is always positive.
+        return predictions.clip(min=0)  # (B, L, 1).
+
+    def predict_means(self, predictions):
+        # Delta is always positive.
+        return predictions.clip(min=0)  # (B, L, 1).
+
+    def predict_samples(self, predictions, temperature=1):
+        # Delta is always positive.
+        return predictions.clip(min=0)  # (B, L, 1).
+
+
+class TimeMSELoss(BaseLoss):
+    """MSE for delta T prediction.
+
+    Args:
+        delta: The type of time delta computation (`last` or `start`).
+        smoothing: The amount of noise to add to time deltas. Useful for discrete time to prevent spiky intensity.
+    """
+    def __init__(self, delta="last", max_delta=None, smoothing=None, grad_scale=None):
+        super().__init__(input_size=1, target_size=1,
+                         grad_scale=grad_scale)
+        self.delta = delta
+        self.max_delta = max_delta
+        self.smoothing = smoothing
+
+    def compute_loss(self, inputs, predictions, mask=None):
+        """Compute losses and metrics.
+
+        NOTE: the model predicts next inputs.
+
+        Args:
+            inputs: Input features with shape (B, L, *).
+            predictions: Mode outputs with shape (B, L, *, P) or (B, 1, *, P).
+            mask: Sequence lengths mask with shape (B, L) or None.
+
+        Returns:
+            Losses tensor with shape (B, L', *), (optional) mask tensor with shape (B, L') and metrics dictionary.
+        """
+        assert predictions.shape[-1] == 1
+        predictions = predictions.squeeze(-1)  # (B, L, *).
+        broadcast = (predictions.shape[1] != inputs.shape[1]) and (predictions.shape[1] == 1)
+        predictions = predictions if broadcast else predictions[:, :-1]  # (B, L - 1, *).
+        deltas, mask = compute_delta(inputs, mask, delta=self.delta,
+                                     max_delta=self.max_delta, smoothing=self.smoothing)  # (B, L - 1, *).
+        losses = (predictions - deltas).square()  # (B, L - 1, *).
         return losses, mask, {}
 
     def predict_modes(self, predictions):
@@ -213,7 +264,7 @@ class CrossEntropyLoss(BaseLoss):
 
         Args:
             inputs: Input features with shape (B, L, *).
-            predictions: Mode outputs with shape (B, L, *, D).
+            predictions: Mode outputs with shape (B, L, *, P) or (B, 1, *, P).
             mask: Sequence lengths mask with shape (B, L) or None.
 
         Returns:
@@ -222,7 +273,9 @@ class CrossEntropyLoss(BaseLoss):
         if inputs.ndim < 2:
             raise ValueError(f"Expected labels with shape (B, L, *), got {inputs.shape}.")
         # Extract targets from features.
-        predictions = predictions[:, :-1]  # (B, L - 1, *, D).
+        broadcast = (predictions.shape[1] != inputs.shape[1]) and (predictions.shape[1] == 1)
+        predictions = predictions if broadcast else predictions[:, :-1]  # (B, L - 1, *, C).
+
         targets = inputs[:, 1:].long()  # (B, L - 1, *).
         mask = torch.logical_and(mask[:, 1:], mask[:, :-1]) if mask is not None else None  # (B, L - 1).
 
@@ -265,7 +318,7 @@ class BinaryCrossEntropyLoss(BaseLoss):
 
         Args:
             inputs: Input features with shape (B, L, *).
-            predictions: Mode outputs with shape (B, L, *, D).
+            predictions: Mode outputs with shape (B, L, *, P) or (B, 1, *, P).
             mask: Sequence lengths mask with shape (B, L) or None.
 
         Returns:
@@ -274,7 +327,10 @@ class BinaryCrossEntropyLoss(BaseLoss):
         if inputs.ndim < 2:
             raise ValueError(f"Expected labels with shape (B, L, *), got {inputs.shape}.")
         # Extract targets from features.
-        predictions = predictions[:, :-1].squeeze(-1)  # (B, L - 1, *).
+        assert predictions.shape[-1] == 1
+        predictions = predictions.squeeze(-1)  # (B, L, *).
+        broadcast = (predictions.shape[1] != inputs.shape[1]) and (predictions.shape[1] == 1)
+        predictions = predictions if broadcast else predictions[:, :-1]  # (B, L - 1, *).
         targets = inputs[:, 1:].long()  # (B, L - 1, *).
         mask = torch.logical_and(mask[:, 1:], mask[:, :-1]) if mask is not None else None  # (B, L - 1).
 

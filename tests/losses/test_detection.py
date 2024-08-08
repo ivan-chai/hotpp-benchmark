@@ -5,7 +5,7 @@ from unittest import TestCase, main
 import torch
 
 from hotpp.data import PaddedBatch
-from hotpp.losses import TimeMAELoss, CrossEntropyLoss, BinaryCrossEntropyLoss
+from hotpp.losses import TimeMSELoss, CrossEntropyLoss, BinaryCrossEntropyLoss
 from hotpp.losses import NextItemLoss, DetectionLoss
 
 
@@ -41,7 +41,7 @@ class TestDetectionLoss(TestCase):
 
         losses = {
             "_presence": BinaryCrossEntropyLoss(),
-            "timestamps": TimeMAELoss(),
+            "timestamps": TimeMSELoss(delta="start"),
             "labels": CrossEntropyLoss(3)
         }
         loss = DetectionLoss(NextItemLoss(losses), num_events, horizon, match_weights={"timestamps": 1})
@@ -79,7 +79,7 @@ class TestDetectionLoss(TestCase):
 
         losses = {
             "_presence": BinaryCrossEntropyLoss(),
-            "timestamps": TimeMAELoss(),
+            "timestamps": TimeMSELoss(delta="start"),
             "labels": CrossEntropyLoss(10)
         }
 

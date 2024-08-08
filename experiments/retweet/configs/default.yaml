@@ -26,8 +26,8 @@ multiseed_report: results/multiseed_${name}.yaml
 data_module:
   _target_: hotpp.data.HotppDataModule
   batch_size: 64
-  min_length: 196
-  max_length: 264
+  min_length: 100
+  max_length: 100
   num_workers: 4
   train_path: data/train.parquet
   val_path: data/val.parquet
