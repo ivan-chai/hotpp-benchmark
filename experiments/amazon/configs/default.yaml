@@ -22,7 +22,6 @@ logger:
 model_path: checkpoints/${name}.ckpt
 report: results/${name}.yaml
 multiseed_report: results/multiseed_${name}.yaml
-downstream_report: results/downstream_${name}.txt
 
 data_module:
   _target_: hotpp.data.HotppDataModule
@@ -58,6 +57,7 @@ module:
     _target_: hotpp.nn.Head
     _partial_: true
     hidden_dims: [64]
+    use_batch_norm: true
   optimizer_partial:
     _partial_: true
     _target_: torch.optim.Adam
