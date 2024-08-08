@@ -87,7 +87,7 @@ class TestDetectionLoss(TestCase):
                              match_weights={"timestamps": 1, "labels": 1})
 
         batch = PaddedBatch({
-            "timestamps": torch.tensor( [5.0, 5.3, 6.0, 6.0, 7.2, 8.0, 9.0, 20, 21, 21.5]).reshape(1, 10),
+            "timestamps": torch.tensor( [5.0, 5.3, 6.0, 6.1, 7.2, 8.0, 9.0, 20, 21, 21.5]).reshape(1, 10),
             "labels": torch.tensor([5  , 9  , 0  , 1  , 0  , 1  , 5  , 7 , 8 , 1]).reshape(1, 10),
         }, torch.tensor([10]))
 
@@ -118,20 +118,17 @@ class TestDetectionLoss(TestCase):
             predictions = loss.predict_next_k(outputs, states).payload  # (B, L, K)
             predictions["timestamps"] += batch.payload["timestamps"].unsqueeze(2)
 
-            _, matching, _, _ = loss.get_subset_matching(batch, outputs)  # (B, L - k, T).
-
         n_valid = 10 - 6
         self.assertTrue((predictions["_presence"][n_valid:] < 0).all())
         for i in range(n_valid):
-            mask = (predictions["_presence"][0, i] > 0)
-            self.assertTrue(mask.any())
-            indices = matching.payload[0, i][mask]
-            times = predictions["timestamps"][0, i][mask]
-            labels = predictions["labels"][0, i][mask]
-            gt_times = batch.payload["timestamps"][0][indices]
-            gt_labels = batch.payload["labels"][0][indices]
-            self.assertEqual(labels.tolist(), gt_labels.tolist())
-            self.assertTrue(times.allclose(gt_times, atol=0.1))
+            # Get horizon length.
+            k = (batch.payload["timestamps"][0, i + 1:] - batch.payload["timestamps"][0, i] < 3).sum().item()
+            gt_presence = (torch.arange(6) < k).long()
+            gt_times = batch.payload["timestamps"][0, i + 1:i + 1 + k]
+            gt_labels = batch.payload["labels"][0, i + 1:i + 1 + k]
+            self.assertEqual(predictions["_presence"][0, i].tolist(), gt_presence.tolist())
+            self.assertEqual(predictions["labels"][0, i, :k].tolist(), gt_labels.tolist())
+            self.assertTrue(predictions["timestamps"][0, i, :k].allclose(gt_times, atol=0.1))
 
 
 if __name__ == "__main__":
