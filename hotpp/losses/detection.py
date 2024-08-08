@@ -15,10 +15,11 @@ class DetectionLoss(NextKLoss):
         losses: Mapping from the feature name to the loss function.
         loss_subset: The fraction of positions to compute loss for.
         prefetch_factor: Extract times more targets than predicted events (equal to `k`) for scoring.
+        momentum: Activation statistics momentum value.
     """
     def __init__(self, next_item_loss, k, horizon,
                  timestamps_field="timestamps", loss_subset=1, prefetch_factor=1,
-                 match_weights=None):
+                 match_weights=None, momentum=0.1):
         super().__init__(
             next_item_loss=next_item_loss,
             k=k,
@@ -30,6 +31,25 @@ class DetectionLoss(NextKLoss):
         self._match_weights = match_weights
         if self.get_delta_type(timestamps_field) != "start":
             raise ValueError("Need `start` delta time for the detection loss.")
+        self._momentum = momentum
+        self.register_buffer("_matching_priors", torch.ones(k))
+        self.register_buffer("_matching_thresholds", torch.zeros(k))
+
+    def update_matching_statistics(self, matching, presence_logits):
+        # (B, I, K), (B, I, K).
+        matching = matching.payload[matching.seq_len_mask]  # (V, K).
+        if len(matching) > 0:
+            means = (matching >= 0).float().mean(0)  # (K).
+            self._matching_priors *= (1 - self._momentum)
+            self._matching_priors += self._momentum * means
+
+        presence_logits = presence_logits.payload[presence_logits.seq_len_mask]  # (V, K).
+        if len(presence_logits) > 0:
+            presence_logits = torch.sort(presence_logits, dim=0)[0]  # (V, K).
+            indices = ((1 - self._matching_priors) * len(presence_logits)).round().long().clip(max=len(presence_logits) - 1)  # (K).
+            quantiles = presence_logits.take_along_dim(indices[None], 0).squeeze(0)  # (K).
+            self._matching_thresholds *= (1 - self._momentum)
+            self._matching_thresholds += self._momentum * quantiles
 
     @property
     def interpolator(self):
@@ -68,6 +88,24 @@ class DetectionLoss(NextKLoss):
         """
         indices, matching, losses, matching_metrics = self.get_subset_matching(inputs, outputs)
         # (B, I), (B, I, K), (B, I, K, T), dict.
+
+        # Update statistics.
+        if self.training:
+            with torch.no_grad():
+                b, l = outputs.shape
+                reshaped_outputs = PaddedBatch(outputs.payload.flatten(0, 1).reshape(-1, self._k, self._next_item.input_size),
+                                            torch.full([b * l], self._k, dtype=torch.long, device=outputs.device))  # (BL, K, P).
+                reshaped_states = states.flatten(1, 2).unsqueeze(2) if states is not None else None  # (N, BL, 1, D).
+                presence_logits = self._next_item.predict_next(
+                    reshaped_outputs, reshaped_states,
+                    fields=set(),
+                    logits_fields_mapping={"_presence": "_presence_logit"}
+                ).payload["_presence_logit"]  # (BL, K, 1).
+                presence_logits = presence_logits.reshape(b, l, self._k)  # (B, L, K).
+                presence_logits = PaddedBatch(presence_logits, outputs.seq_lens)
+                self.update_matching_statistics(matching, presence_logits)
+
+        # Compute losses.
         if indices is None:
             b, l = matching.shape
             indices = PaddedBatch(torch.arange(l)[None].repeat(b, 1),
@@ -126,10 +164,8 @@ class DetectionLoss(NextKLoss):
         Returns:
             PaddedBatch with predictions with shape (B, L, K) or (B, L, K, C) for logits.
         """
-        fields = set(fields or self.fields) | {"_presence"}
-        if logits_fields_mapping:
-            logits_fields_mapping = dict(logits_fields_mapping)
-            logits_fields_mapping["_presence"] = "_presence_logit"
+        logits_fields_mapping = dict(logits_fields_mapping or {})
+        logits_fields_mapping["_presence"] = "_presence_logit"
         b, l = outputs.shape
         lengths = outputs.seq_lens
         outputs = PaddedBatch(outputs.payload.reshape(b * l, self._k, self._next_item.input_size),
@@ -140,11 +176,14 @@ class DetectionLoss(NextKLoss):
                                                    logits_fields_mapping=logits_fields_mapping)  # (BL, K) or (BL, K, C).
 
         # Extract presence.
-        presence = next_values.payload["_presence"]  # (BL, K).
-        if logits_fields_mapping:
-            presence_logit = next_values.payload["_presence_logit"]  # (BL, K, 1).
-            for name in logits_fields_mapping.values():
-                next_values.payload[name] += presence_logit  # (BL, K, C).
+        presence_logit = next_values.payload["_presence_logit"]  # (BL, K, 1).
+        presence = presence_logit.squeeze(2) > self._matching_thresholds
+        next_values.payload["_presence"] = presence
+
+        # Update logits with presence value.
+        for field, logit_field in logits_fields_mapping.items():
+            if field != "_presence":
+                next_values.payload[logit_field] += presence_logit  # (BL, K, C).
 
         # Replace disabled events with maximum time offset.
         if self._timestamps_field in next_values.payload:

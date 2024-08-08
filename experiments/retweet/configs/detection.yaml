@@ -23,10 +23,14 @@ module:
         _presence:
           _target_: hotpp.losses.BinaryCrossEntropyLoss
         timestamps:
-          _target_: hotpp.losses.TimeMSELoss
+          _target_: hotpp.losses.TimeMAELoss
           delta: start
           max_delta: ${max_duration}
           smoothing: ${time_smoothing}
         labels:
           _target_: hotpp.losses.CrossEntropyLoss
           num_classes: ${num_classes}
+    match_weights:
+      _presence: 1
+      timestamps: 0.01
+      labels: 1

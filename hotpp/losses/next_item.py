@@ -86,7 +86,7 @@ class NextItemLoss(torch.nn.Module):
         seq_lens = outputs.seq_lens
         outputs = self._split_outputs(outputs)
         result = {}
-        for name in (fields or self._losses):
+        for name in (self._losses if fields is None else fields):
             if self._prediction == "mean":
                 result[name] = self._losses[name].predict_means(outputs[name]).squeeze(-1)  # (B, L).
             elif self._prediction == "mode":
