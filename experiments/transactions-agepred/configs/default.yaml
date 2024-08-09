@@ -58,6 +58,7 @@ module:
     _target_: hotpp.nn.Head
     _partial_: true
     hidden_dims: [512, 256]
+    use_batch_norm: true
   optimizer_partial:
     _partial_: true
     _target_: torch.optim.Adam

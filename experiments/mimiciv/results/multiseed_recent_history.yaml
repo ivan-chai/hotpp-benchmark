@@ -1,6 +1,6 @@
-date: '2024-08-02 17:20:13'
+date: '2024-08-08 13:17:36'
 num_seeds: 5
-test/detection-mAP (mean): 0.03208516165614128
+test/detection-mAP (mean): 0.03208515793085098
 test/detection-mAP (std): 0.0
 test/horizon-mean-time-step (mean): 16.807588577270508
 test/horizon-mean-time-step (std): 0.0

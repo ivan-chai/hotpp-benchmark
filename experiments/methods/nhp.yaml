@@ -11,6 +11,8 @@ module:
       _target_: hotpp.nn.ContTimeLSTM
       _partial_: true
       hidden_size: ${rnn_hidden_size}
+  head_partial:
+    use_batch_norm: false  # Cont-time models are worse with BN.
   loss:
     _target_: hotpp.losses.NHPLoss
     num_classes: ${num_classes}
