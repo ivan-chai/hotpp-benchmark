@@ -59,6 +59,10 @@ class TestDetectionLoss(TestCase):
         outputs = PaddedBatch(outputs, torch.tensor([2, 1]))
         windows = loss.extract_structured_windows(batch)  # (B, L - k, k + 1, D).
         indices, matching, losses, stats = loss.get_subset_matching(batch, outputs)  # (B, L - k, T).
+        # Relative to absolute.
+        mask = matching.payload < 0
+        matching.payload += torch.arange(1, matching.shape[1] + 1)[:, None]
+        matching.payload[mask] = -1
         self.assertEqual(matching.payload.shape, (2, 6 - 4, 4))
         self.assertEqual(matching.seq_lens.tolist(), [2, 1])
         self.assertEqual(stats["prediction_match_rate"], (8 + 3) / (3 * 4))

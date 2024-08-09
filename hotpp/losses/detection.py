@@ -106,21 +106,16 @@ class DetectionLoss(NextKLoss):
                 self.update_matching_statistics(matching, presence_logits)
 
         # Compute losses.
-        if indices is None:
-            b, l = matching.shape
-            indices = PaddedBatch(torch.arange(l)[None].repeat(b, 1),
-                                  inputs.seq_lens)
-
         if (matching.payload < 0).all():
             losses = {name: outputs.payload[name].mean() * 0 for name in self.fields}
             return losses, matching_metrics
 
         index_mask = indices.seq_len_mask  # (B, I).
-        matching_mask = matching.payload >= 0  # (B, I, k).
-        index_matching = (matching.payload - indices.payload.unsqueeze(2) - 1).clip(min=0)  # (B, I, k).
+        matching_mask = matching.payload >= 0  # (B, I, K).
+        matching = matching.payload.clip(min=0)  # (B, I, K).
 
-        losses = {k: v.take_along_dim(index_matching.unsqueeze(3), 3).squeeze(3)
-                  for k, v in losses.items()}  # (B, I, k).
+        losses = {k: v.take_along_dim(matching.unsqueeze(3), 3).squeeze(3)
+                  for k, v in losses.items()}  # (B, I, K).
 
         pos_presence = losses.pop("_presence")
         neg_presence = -losses.pop("_presence_neg")
@@ -205,8 +200,6 @@ class DetectionLoss(NextKLoss):
         Returns:
             Subset batch with shape (B, I, *).
         """
-        if indices is None:
-            return batch
         if isinstance(batch, torch.Tensor):
             b, l = indices.shape
             return batch.take_along_dim(indices.payload.reshape(b, l, *([1] * (batch.ndim - 2))), 1)
@@ -230,16 +223,20 @@ class DetectionLoss(NextKLoss):
            inputs: Input features with shape (B, L).
 
         Returns:
-           Batch of indices with shape (B, I) or None if loss must be evaluated at each step.
+           full: Flag indicating full set of indices
+           indices: Batch of indices with shape (B, I) or None if loss must be evaluated at each step.
         """
         if self._loss_subset >= 1:
-            return None
+            b, l = inputs.shape
+            indices = PaddedBatch(torch.arange(l, device=inputs.device)[None].repeat(b, 1),
+                                  inputs.seq_lens)  # (B, L).
+            return True, indices
         b, l = inputs.shape
         n_indices = min(max(int(round(l * self._loss_subset)), 1), l)
         weights = torch.rand(b, l, device=inputs.device) * inputs.seq_len_mask
         subset_indices = weights.topk(n_indices, dim=1)[1].sort(dim=1)[0]  # (B, I).
         lengths = (subset_indices < inputs.seq_lens[:, None]).sum(1)
-        return PaddedBatch(subset_indices, lengths)
+        return False, PaddedBatch(subset_indices, lengths)
 
     def extract_structured_windows(self, inputs):
         """Extract windows with shape (B, L - k, k + 1) from inputs with shape (B, L)."""
@@ -265,7 +262,7 @@ class DetectionLoss(NextKLoss):
             windows[name] = joined_windows[..., i].to(inputs[name].dtype)
         return PaddedBatch(windows, windows_lengths)
 
-    def match_targets(self, outputs: PaddedBatch, targets: PaddedBatch, subset_indices=None):
+    def match_targets(self, outputs: PaddedBatch, targets: PaddedBatch, subset_indices: PaddedBatch):
         """Find closest prediction to each target.
 
         Args:
@@ -275,8 +272,8 @@ class DetectionLoss(NextKLoss):
           subset_indices: Align matching indices with original sequence (before subsetting).
 
         Returns:
-          - Matching with shape (B, L, K), with values in the range [0, L - 1]
-            or -1 if matching was found and -1 otherwise.
+          - Relative matching with shape (B, L, K), with values in the range [-1, T - 1]
+            with -1 meaning there is no matching.
           - Losses dictionary with shape (B, L, K, T).
           - Logging statistics dictionary.
         """
@@ -336,14 +333,6 @@ class DetectionLoss(NextKLoss):
             invalid_mask.logical_or_(matches < 0)
         match_mask = ~invalid_mask  # (B, L, K).
 
-        # Convert offsets to absolute indices.
-        offsets = torch.arange(l, device=device)
-        if subset_indices is None:
-            subset_indices = torch.arange(l, device=device)[None]  # (1, L).
-        else:
-            subset_indices = subset_indices.payload
-        matches += subset_indices.unsqueeze(2) + 1
-
         # Fill invalid matches.
         matches.masked_fill_(invalid_mask, -1)
 
@@ -371,7 +360,7 @@ class DetectionLoss(NextKLoss):
         Returns:
             A tuple of:
                 - indices with shape (B, I).
-                - matching with shape (B, I, K).
+                - relative matching with shape (B, I, K).
                 - losses with shape (B, I, K, T).
                 - metrics dictionary.
         """
@@ -382,10 +371,10 @@ class DetectionLoss(NextKLoss):
                               torch.minimum(outputs.seq_lens, target_windows.seq_lens))  # (B, L', K, P).
         assert (target_windows.seq_lens == outputs.seq_lens).all()
 
-        indices = self.get_loss_indices(target_windows)
-
-        target_windows = self.select_subset(target_windows, indices)  # (B, I, k + 1).
-        outputs = self.select_subset(outputs, indices)  # (B, I, K, P).
+        full, indices = self.get_loss_indices(target_windows)
+        if not full:
+            target_windows = self.select_subset(target_windows, indices)  # (B, I, k + 1).
+            outputs = self.select_subset(outputs, indices)  # (B, I, K, P).
 
         l = outputs.shape[1]
         if l == 0:
@@ -395,7 +384,7 @@ class DetectionLoss(NextKLoss):
 
         #with torch.no_grad():
         matching, losses, metrics = self.match_targets(
-            outputs, target_windows, subset_indices=indices
+            outputs, target_windows, indices
         ) # (B, I, K) with indices in the range [-1, L - 1].
 
         return indices, matching, losses, metrics
