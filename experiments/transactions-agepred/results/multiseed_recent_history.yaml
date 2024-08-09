@@ -1,6 +1,6 @@
-date: '2024-08-02 17:19:03'
+date: '2024-08-08 13:10:50'
 num_seeds: 5
-test/detection-mAP (mean): 0.026881715282797813
+test/detection-mAP (mean): 0.02674122527241707
 test/detection-mAP (std): 0.0
 test/horizon-mean-time-step (mean): 0.810952365398407
 test/horizon-mean-time-step (std): 0.0
@@ -10,7 +10,7 @@ test/mean-predicted-length (mean): 8.928398132324219
 test/mean-predicted-length (std): 0.0
 test/mean-target-length (mean): 9.136935234069824
 test/mean-target-length (std): 0.0
-test/next-item-accuracy (mean): 0.19096222519874573
+test/next-item-accuracy (mean): 0.19116637110710144
 test/next-item-accuracy (std): 0.0
 test/next-item-mae (mean): 0.9549670815467834
 test/next-item-mae (std): 0.0
@@ -18,9 +18,9 @@ test/next-item-mean-time-step (mean): 1.1214629411697388
 test/next-item-mean-time-step (std): 0.0
 test/next-item-rmse (mean): 1.7335504293441772
 test/next-item-rmse (std): 0.0
-test/optimal-transport-distance (mean): 7.556646823883057
+test/optimal-transport-distance (mean): 7.585068225860596
 test/optimal-transport-distance (std): 0.0
-val/detection-mAP (mean): 0.023005716502666473
+val/detection-mAP (mean): 0.023038238286972046
 val/detection-mAP (std): 0.0
 val/horizon-mean-time-step (mean): 0.808476984500885
 val/horizon-mean-time-step (std): 0.0
@@ -30,7 +30,7 @@ val/mean-predicted-length (mean): 8.962750434875488
 val/mean-predicted-length (std): 0.0
 val/mean-target-length (mean): 9.149765014648438
 val/mean-target-length (std): 0.0
-val/next-item-accuracy (mean): 0.19261641800403595
+val/next-item-accuracy (mean): 0.1926022619009018
 val/next-item-accuracy (std): 0.0
 val/next-item-mae (mean): 0.9543622136116028
 val/next-item-mae (std): 0.0
@@ -38,5 +38,5 @@ val/next-item-mean-time-step (mean): 1.1212763786315918
 val/next-item-mean-time-step (std): 0.0
 val/next-item-rmse (mean): 1.7279369831085205
 val/next-item-rmse (std): 0.0
-val/optimal-transport-distance (mean): 7.5560407638549805
+val/optimal-transport-distance (mean): 7.584553241729736
 val/optimal-transport-distance (std): 0.0
