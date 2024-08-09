@@ -314,11 +314,11 @@ class DetectionLoss(NextKLoss):
 
         # Fill out-of-horizon events costs with large cost to prevent them from matching.
         deltas = (targets[self._timestamps_field][:, 1:] - targets[self._timestamps_field][:, :1])  # (BL, T, 1).
-        horizon_mask = (deltas.reshape(b, l, n_targets) >= self._horizon)  # (B, L, T).
-        horizon_mask.logical_or_(tails_mask.unsqueeze(2))  # (B, L, T).
-        valid_costs = costs.masked_select(horizon_mask.unsqueeze(2))
+        out_horizon_mask = (deltas.reshape(b, l, n_targets) >= self._horizon)  # (B, L, T).
+        out_horizon_mask.logical_or_(tails_mask.unsqueeze(2))  # (B, L, T).
+        valid_costs = costs.masked_select(~out_horizon_mask.unsqueeze(2))
         max_cost = valid_costs.max().item() if valid_costs.numel() > 0 else 1
-        costs.masked_fill_(horizon_mask.unsqueeze(2), max_cost + 1)  # (B, L, K, T).
+        costs.masked_fill_(out_horizon_mask.unsqueeze(2), max_cost + 1)  # (B, L, K, T).
 
         # Compute matching.
         b, l, k, t = costs.shape
@@ -339,7 +339,7 @@ class DetectionLoss(NextKLoss):
         # Compute statistics and returns.
         n_matches = (matches >= 0).sum().item()
         n_predictions = lengths.sum().item() * self._k
-        n_targets = horizon_mask.numel() - horizon_mask.sum().item()
+        n_targets = out_horizon_mask.numel() - out_horizon_mask.sum().item()
         match_rate = n_matches / max(n_predictions, 1)
         target_match_rate = n_matches / max(n_targets, 1)
         matched_costs = match_costs[match_mask]
