@@ -68,13 +68,13 @@ class TMAPMetric:
         target_labels_counts = target_labels_counts.sum(0)  # (C).
 
         costs = -predicted_labels_scores.take_along_dim(target_labels.clip(min=0)[:, None, :], 2)  # (B, P, T).
-        inf_cost = max(costs.max().item() + 2, 1e6)
+        inf_cost = costs.max().item() + 2
         valid_cost_threshold = inf_cost - 1
         costs.masked_fill_(~predicted_mask.unsqueeze(2), inf_cost)
         costs.masked_fill_(~target_mask.unsqueeze(1), inf_cost)
 
         # Precompute special cost matrix for each label.
-        costs = costs.unsqueeze(3).repeat(1, 1, 1, c)  # (B, N, K, C).
+        costs = costs.unsqueeze(3).repeat(1, 1, 1, c)  # (B, P, T, C).
         costs.masked_fill_(~target_labels_one_hot.bool().unsqueeze(1), inf_cost)
 
         predicted_scores = predicted_labels_scores.masked_select(predicted_mask.unsqueeze(2)).reshape(-1, c)  # (V, C).
