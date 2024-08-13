@@ -86,14 +86,14 @@ class TestMetrics(TestCase):
         self.assertAlmostEqual(metric.compute()["next-item-accuracy"], acc_gt)
 
     def test_map_metric(self):
-        metric = MAPMetric(time_delta_thresholds=[1, 2])
+        metric = MAPMetric(time_delta_thresholds=[0, 1])
         metric.update(
             target_mask=self.seq_target_mask,
             target_times=self.seq_target_times,
             target_labels=self.seq_target_labels,
             predicted_mask=self.seq_predicted_mask,
             predicted_times=self.seq_predicted_times,
-            predicted_labels_logits=self.seq_predicted_labels_logits
+            predicted_labels_scores=self.seq_predicted_labels_logits
         )
         # Matching (prediction -> target):
         # Batch 1: 0 -> 1 for horizon 1 and 3 -> 1, 1 -> 0 for horizon 2.
@@ -175,7 +175,7 @@ class TestMetrics(TestCase):
 
     def test_end_to_end(self):
         metric = HorizonMetric(self.horizon, horizon_evaluation_step=3,
-                               map_thresholds=[1, 2],
+                               map_deltas=[0, 1],
                                map_target_length=self.seq_target_mask.shape[1])
         seq_lens = self.mask.sum(1)
         metric.update_next_item(seq_lens=seq_lens,
