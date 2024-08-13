@@ -4,7 +4,7 @@ from unittest import TestCase, main
 
 import torch
 
-from hotpp.metrics import NextItemMetric, MAPMetric, OTDMetric, HorizonMetric
+from hotpp.metrics import NextItemMetric, TMAPMetric, OTDMetric, HorizonMetric
 
 
 class TestMetrics(TestCase):
@@ -86,7 +86,7 @@ class TestMetrics(TestCase):
         self.assertAlmostEqual(metric.compute()["next-item-accuracy"], acc_gt)
 
     def test_map_metric(self):
-        metric = MAPMetric(time_delta_thresholds=[0, 1])
+        metric = TMAPMetric(time_delta_thresholds=[0, 1])
         metric.update(
             target_mask=self.seq_target_mask,
             target_times=self.seq_target_times,
@@ -127,7 +127,7 @@ class TestMetrics(TestCase):
         ap_h2_c0 = 1
         ap_h2_c1 = 0.75
         map_gt = (ap_h1_c0 + ap_h1_c1 + ap_h2_c0 + ap_h2_c1) / 4
-        self.assertAlmostEqual(metric.compute()["detection-mAP"], map_gt)
+        self.assertAlmostEqual(metric.compute()["T-mAP"], map_gt)
 
     def test_otd_metric(self):
         metric = OTDMetric(insert_cost=0.5, delete_cost=1)
@@ -203,7 +203,7 @@ class TestMetrics(TestCase):
         ap_h2_c0 = 1
         ap_h2_c1 = 0.75
         map_gt = (ap_h1_c0 + ap_h1_c1 + ap_h2_c0 + ap_h2_c1) / 4
-        self.assertAlmostEqual(metrics["detection-mAP"], map_gt)
+        self.assertAlmostEqual(metrics["T-mAP"], map_gt)
 
 
 if __name__ == "__main__":

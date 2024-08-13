@@ -27,7 +27,7 @@ def compute_map(targets, scores, cuda_buffer_size=10**7):
     return aps.cpu()
 
 
-class MAPMetric:
+class TMAPMetric:
     """Average mAP metric among different time difference thresholds.
 
     Args:
@@ -128,5 +128,5 @@ class MAPMetric:
             aps *= max_recalls.numpy()[label_mask]
             losses.append(aps.sum().item() / c)
         return {
-            "detection-mAP": sum(losses) / len(losses)
+            "T-mAP": sum(losses) / len(losses)
         }

@@ -1,7 +1,7 @@
 import torch
 
 from ..data import PaddedBatch
-from .map import MAPMetric
+from .tmap import TMAPMetric
 from .next_item import NextItemMetric
 from .otd import OTDMetric
 
@@ -30,7 +30,7 @@ class HorizonMetric:
             if map_target_length is None:
                 raise ValueError("Need the max target sequence length for mAP computation")
             self.map_target_length = map_target_length
-            self.map = MAPMetric(time_delta_thresholds=map_deltas)
+            self.map = TMAPMetric(time_delta_thresholds=map_deltas)
         else:
             self.map_target_length = None
             self.map = None
@@ -133,7 +133,7 @@ class HorizonMetric:
         self._horizon_predicted_deltas_sums.append(deltas.float().mean().cpu() * deltas.numel())
         self._horizon_n_predicted_deltas += deltas.numel()
 
-        # Update mAP.
+        # Update T-mAP.
         if self.map is not None:
             self.map.update(
                 target_mask=targets_mask[seq_mask][:, :self.map_target_length],  # (V, K).
