@@ -38,7 +38,7 @@ metric:
   _target_: hotpp.metrics.HorizonMetric
   horizon: 7  # One week.
   horizon_evaluation_step: 64
-  map_thresholds: [2]
+  map_deltas: [2]
   map_target_length: 24
   otd_steps: 5
   otd_insert_cost: 1

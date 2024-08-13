@@ -37,7 +37,7 @@ metric:
   _target_: hotpp.metrics.HorizonMetric
   horizon: 10
   horizon_evaluation_step: 4
-  map_thresholds: [2]
+  map_deltas: [2]
   map_target_length: 32
   otd_steps: 5
   otd_insert_cost: 1
