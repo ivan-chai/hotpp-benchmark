@@ -231,7 +231,7 @@ class CrossEntropyLoss(BaseLoss):
     def predict_logits(self, predictions):
         logits = predictions
         if self.normalize_logits:
-            logits -= torch.logsumexp(logits, dim=-1, keepdim=True)
+            logits = logits - torch.logsumexp(logits, dim=-1, keepdim=True)
         return logits  # (B, L, C).
 
     def predict_modes(self, predictions):
