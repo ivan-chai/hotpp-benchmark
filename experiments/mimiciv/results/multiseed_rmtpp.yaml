@@ -1,7 +1,7 @@
 date: '2024-08-09 00:54:14'
 num_seeds: 5
-test/detection-mAP (mean): 0.21441745162010192
-test/detection-mAP (std): 0.0024335478498555513
+test/T-mAP (mean): 0.21441745162010192
+test/T-mAP (std): 0.0024335478498555513
 test/horizon-mean-time-step (mean): 2.4697094440460203
 test/horizon-mean-time-step (std): 0.2063133446239845
 test/loss (mean): 3.1645153880119326
@@ -28,8 +28,8 @@ test/timestamps-bias-mean (mean): 2.7520508766174316
 test/timestamps-bias-mean (std): 0.14367734202387053
 test/timestamps-current_influence (mean): -0.009866227954626083
 test/timestamps-current_influence (std): 0.0017217555469675116
-val/detection-mAP (mean): 0.21531686186790466
-val/detection-mAP (std): 0.0022101971944796647
+val/T-mAP (mean): 0.21531686186790466
+val/T-mAP (std): 0.0022101971944796647
 val/horizon-mean-time-step (mean): 2.479099416732788
 val/horizon-mean-time-step (std): 0.20804396570405206
 val/loss (mean): 6.717109560966492

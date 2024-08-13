@@ -1,5 +1,5 @@
 date: '2024-08-09 14:00:10'
-test/detection-mAP: 0.05256287008523941
+test/T-mAP: 0.05256287008523941
 test/horizon-mean-time-step: 0.8872301578521729
 test/loss: 3.112537384033203
 test/loss_labels: 2.265843152999878
@@ -12,7 +12,7 @@ test/next-item-mean-time-step: 0.8409740924835205
 test/next-item-rmse: 1.1879509687423706
 test/timestamps-bias-mean: 0.155392125248909
 test/timestamps-current_influence: -0.044440485537052155
-val/detection-mAP: 0.05817455053329468
+val/T-mAP: 0.05817455053329468
 val/horizon-mean-time-step: 0.892227053642273
 val/loss: 3.093602418899536
 val/loss_labels: 2.2483878135681152

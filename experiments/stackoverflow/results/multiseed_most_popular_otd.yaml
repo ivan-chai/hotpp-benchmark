@@ -1,7 +1,7 @@
 date: '2024-08-08 13:11:59'
 num_seeds: 5
-test/detection-mAP (mean): 0.05517904460430145
-test/detection-mAP (std): 0.0
+test/T-mAP (mean): 0.05517904460430145
+test/T-mAP (std): 0.0
 test/horizon-mean-time-step (mean): 0.88936847448349
 test/horizon-mean-time-step (std): 0.0
 test/loss (mean): 0.0
@@ -20,8 +20,8 @@ test/next-item-rmse (mean): 1.1053211688995361
 test/next-item-rmse (std): 0.0
 test/optimal-transport-distance (mean): 13.770866394042969
 test/optimal-transport-distance (std): 0.0
-val/detection-mAP (mean): 0.05956481397151947
-val/detection-mAP (std): 0.0
+val/T-mAP (mean): 0.05956481397151947
+val/T-mAP (std): 0.0
 val/horizon-mean-time-step (mean): 0.9204935431480408
 val/horizon-mean-time-step (std): 0.0
 val/loss (mean): 0.0
