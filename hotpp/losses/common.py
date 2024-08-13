@@ -195,9 +195,10 @@ class TimeMAELoss(BaseLoss):
 class CrossEntropyLoss(BaseLoss):
     target_size = 1
 
-    def __init__(self, num_classes, grad_scale=None):
+    def __init__(self, num_classes, grad_scale=None, normalize_logits=True):
         super().__init__(input_size=num_classes, target_size=1,
                          grad_scale=grad_scale)
+        self.normalize_logits = normalize_logits
 
     @property
     def num_classes(self):
@@ -228,7 +229,10 @@ class CrossEntropyLoss(BaseLoss):
         return losses, mask, {}
 
     def predict_logits(self, predictions):
-        return predictions  # (B, L, C).
+        logits = predictions
+        if self.normalize_logits:
+            logits -= torch.logsumexp(logits, dim=-1, keepdim=True)
+        return logits  # (B, L, C).
 
     def predict_modes(self, predictions):
         return predictions.argmax(-1).unsqueeze(-1)  # (B, L, 1).
