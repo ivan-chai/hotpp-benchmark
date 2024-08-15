@@ -23,7 +23,7 @@ class NHPLoss(torch.nn.Module):
         max_intensity: Intensity threshold for preventing explosion.
         likelihood_sample_size: The sample size per event to compute integral.
         thinning_params: A dictionary with thinning parameters.
-        prediction: The type of prediction (either `mean` or `sample`).
+        prediction: The type of prediction (either `mean`, `sample`, or dictionary for each field).
     """
     def __init__(self, num_classes,
                  timestamps_field="timestamps",
@@ -150,29 +150,31 @@ class NHPLoss(torch.nn.Module):
             intensities = self.intensity(result)  # (B, L, S, D).
             return intensities.sum(3)  # (B, L, S).
 
-        if self._prediction == "mean":
+        prediction = self._prediction if isinstance(self._prediction, str) else self._prediction[self._timestamps_field]
+        if prediction == "mean":
             timestamps, _ = thinning_expectation(b, l,
                                                  intensity_fn=intensity_fn,
                                                  dtype=states.dtype, device=states.device,
                                                  **self._thinning_params)  # (B, L), (B, L).
-        elif self._prediction == "sample":
+        elif prediction == "sample":
             timestamps, _ = thinning_sample(b, l,
                                             intensity_fn=intensity_fn,
                                             dtype=states.dtype, device=states.device,
                                             **self._thinning_params)  # (B, L), (B, L).
         else:
-            raise ValueError(f"Unknown prediction type: {self._prediction}.")
+            raise ValueError(f"Unknown prediction type: {prediction}.")
 
         hiddens = self.interpolator(states, PaddedBatch(timestamps.unsqueeze(2), seq_lens)).payload.squeeze(2)  # (B, L, D).
         intensities = self.intensity(hiddens)  # (B, L, D).
-        if self._prediction == "mean":
+        prediction = self._prediction if isinstance(self._prediction, str) else self._prediction[self._labels_field]
+        if prediction == "mean":
             labels = intensities.argmax(2)  # (B, L).
-        elif self._prediction == "sample":
+        elif prediction == "sample":
             probs = intensities + torch.rand_like(intensities) * 1e-6  # (B, L, D).
             probs = probs / probs.sum(-1, keepdim=True).clip(min=1e-6)  # (B, L, D).
             labels = torch.distributions.Categorical(probs).sample()  # (B, L).
         else:
-            raise ValueError(f"Unknown prediction type: {self._prediction}.")
+            raise ValueError(f"Unknown prediction type: {prediction}.")
 
         result = {}
         if (fields is None) or (self._timestamps_field in fields):
