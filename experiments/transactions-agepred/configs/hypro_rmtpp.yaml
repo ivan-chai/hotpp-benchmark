@@ -9,9 +9,16 @@ data_module:
 
 module:
   _target_: hotpp.modules.hypro.HyproModule
+  seq_encoder:
+    rnn_partial:
+      _target_: hotpp.nn.GRU
+      _partial_: true
+      hidden_size: ${rnn_hidden_size}
   loss:
     _target_: hotpp.losses.NextItemLoss
-    prediction: sample
+    prediction:
+      timestamps: mean
+      labels: sample
     losses:
       timestamps:
         _target_: hotpp.losses.TimeRMTPPLoss
@@ -28,14 +35,16 @@ module:
     embeddings:
       labels:
         in: ${num_classes}
-        out: 64
-    hidden_size: 64
+        out: 16
+    rnn_partial:
+      _target_: hotpp.nn.GRU
+      _partial_: true
+      hidden_size: 16
     max_time_delta: ${max_time_delta}
   hypro_head_partial:
     _target_: hotpp.nn.Head
     _partial_: true
-    use_batch_norm: true
-    hidden_dims: [64]
+    hidden_dims: [16]
   hypro_loss:
     _target_: hotpp.losses.hypro.HyproBCELoss
   hypro_loss_step: 64
