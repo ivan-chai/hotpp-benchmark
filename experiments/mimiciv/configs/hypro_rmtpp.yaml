@@ -48,4 +48,4 @@ module:
   hypro_loss:
     _target_: hotpp.losses.hypro.HyproBCELoss
   hypro_loss_step: 4
-  hypro_context: 0
+  hypro_context: ${max_predictions}
