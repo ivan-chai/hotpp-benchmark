@@ -119,6 +119,8 @@ class HyproModule(NextItemModule):
         Returns:
             Joined sequences with shape (B, I, P + N).
         """
+        if self._hypro_context == 0:
+            return sequences
         # Join fields before windowing.
         b, l = x.shape
         device = x.device
