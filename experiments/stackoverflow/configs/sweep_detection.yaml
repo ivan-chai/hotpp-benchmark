@@ -1,4 +1,4 @@
-project: hotpp-sweep-amazon
+project: hotpp-sweep-stackoverflow
 run_cap: 100
 name: detection
 command:

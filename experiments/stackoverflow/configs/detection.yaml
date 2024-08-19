@@ -13,9 +13,9 @@ module:
       hidden_size: ${rnn_hidden_size}
   loss:
     _target_: hotpp.losses.DetectionLoss
-    k: 16
-    loss_subset: 1
-    prefetch_factor: 2
+    k: 64
+    loss_subset: 0.5
+    prefetch_factor: 0.5
     horizon: ${metric.horizon}
     next_item_loss:
       _target_: hotpp.losses.NextItemLoss
@@ -31,6 +31,6 @@ module:
           _target_: hotpp.losses.CrossEntropyLoss
           num_classes: ${num_classes}
     match_weights:
-      _presence: 1
-      timestamps: 2
+      _presence: 4
+      timestamps: 0.5
       labels: 1
