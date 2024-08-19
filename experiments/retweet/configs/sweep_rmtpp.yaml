@@ -13,7 +13,6 @@ command:
   - ~seed_everything
   - ~model_path
   - ~report
-  - ~downstream_report
   - ${args_no_hyphens}
 method: bayes
 metric:

@@ -14,7 +14,7 @@ module:
   loss:
     _target_: hotpp.losses.DetectionLoss
     k: 64
-    loss_subset: 0.5
+    loss_subset: 0.33
     prefetch_factor: 0.5
     horizon: ${metric.horizon}
     next_item_loss:
@@ -31,6 +31,6 @@ module:
           _target_: hotpp.losses.CrossEntropyLoss
           num_classes: ${num_classes}
     match_weights:
-      _presence: 1
-      timestamps: 0.01
-      labels: 1
+      _presence: 4
+      timestamps: 0.15
+      labels: 0.6
