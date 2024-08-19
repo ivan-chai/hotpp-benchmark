@@ -37,7 +37,7 @@ metric:
   _target_: hotpp.metrics.HorizonMetric
   horizon: 28  # 4 weeks.
   horizon_evaluation_step: 4
-  map_thresholds: [4]  # Days
+  map_deltas: [4]  # Days
   map_target_length: 16
   otd_steps: 5  # Half the minimum length.
   otd_insert_cost: 2
@@ -81,5 +81,5 @@ trainer:
   gradient_clip_val: 1  # Increases training stability.
   check_val_every_n_epoch: 3
   model_selection:
-    metric: val/detection-mAP
+    metric: val/T-mAP
     mode: max

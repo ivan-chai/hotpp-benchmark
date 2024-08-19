@@ -1,5 +1,5 @@
 date: '2024-08-05 16:50:12'
-test/detection-mAP: 0.14421804249286652
+test/T-mAP: 0.14421804249286652
 test/horizon-mean-time-step: 2.5725317001342773
 test/loss: -1.669535517692566
 test/loss_nhp: -1.669535517692566
@@ -11,7 +11,7 @@ test/next-item-mean-time-step: 27.966238021850586
 test/next-item-rmse: 185.00515747070312
 test/optimal-transport-distance: 14.547511100769043
 test/thinning_accepted: 41.52247619628906
-val/detection-mAP: 0.14514358341693878
+val/T-mAP: 0.14514358341693878
 val/horizon-mean-time-step: 2.5681302547454834
 val/loss: -1.224142074584961
 val/loss_nhp: -1.224142074584961

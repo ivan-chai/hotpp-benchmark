@@ -1,7 +1,7 @@
 import torch
 
 from ..data import PaddedBatch
-from .map import MAPMetric
+from .tmap import TMAPMetric
 from .next_item import NextItemMetric
 from .otd import OTDMetric
 
@@ -12,7 +12,7 @@ class HorizonMetric:
     Args:
         horizon: Prediction horizon.
         horizon_evaluation_step: The period for horizon metrics evaluation.
-        map_thresholds: The list of time delta thresholds for mAP evaluation.
+        map_deltas: The list of time delta thresholds for mAP evaluation.
         map_target_length: The maximum target length for mAP evaluation.
             Must be large enough to include all horizon events.
         otd_steps: The number of steps for optimal transport distance evaluation.
@@ -20,17 +20,17 @@ class HorizonMetric:
         otd_delete_cost: OTD delete cost.
     """
     def __init__(self, horizon, horizon_evaluation_step=1,
-                 map_thresholds=None, map_target_length=None,
+                 map_deltas=None, map_target_length=None,
                  otd_steps=None, otd_insert_cost=None, otd_delete_cost=None):
         self.horizon = horizon
         self.horizon_evaluation_step = horizon_evaluation_step
 
         self.next_item = NextItemMetric()
-        if map_thresholds is not None:
+        if map_deltas is not None:
             if map_target_length is None:
                 raise ValueError("Need the max target sequence length for mAP computation")
             self.map_target_length = map_target_length
-            self.map = MAPMetric(time_delta_thresholds=map_thresholds)
+            self.map = TMAPMetric(time_delta_thresholds=map_deltas)
         else:
             self.map_target_length = None
             self.map = None
@@ -133,7 +133,7 @@ class HorizonMetric:
         self._horizon_predicted_deltas_sums.append(deltas.float().mean().cpu() * deltas.numel())
         self._horizon_n_predicted_deltas += deltas.numel()
 
-        # Update mAP.
+        # Update T-mAP.
         if self.map is not None:
             self.map.update(
                 target_mask=targets_mask[seq_mask][:, :self.map_target_length],  # (V, K).
@@ -141,7 +141,7 @@ class HorizonMetric:
                 target_labels=targets.payload["labels"][seq_mask][:, :self.map_target_length],  # (V, K).
                 predicted_mask=predictions_mask[seq_mask],  # (V, N).
                 predicted_times=predicted_timestamps,  # (V, N).
-                predicted_labels_logits=predictions.payload["labels_logits"][seq_mask],  # (V, N, C).
+                predicted_labels_scores=predictions.payload["labels_logits"][seq_mask],  # (V, N, C).
             )
 
         # Update OTD.
