@@ -1,6 +1,6 @@
-project: hotpp-sweep-stackoverflow
+project: hotpp-sweep-amazon
 run_cap: 100
-name: next-k
+name: detection
 command:
   - ${env}
   - python3
@@ -9,7 +9,7 @@ command:
   - --config-dir
   - configs
   - --config-name
-  - next_k
+  - detection
   - ~seed_everything
   - ~model_path
   - ~report
@@ -22,19 +22,21 @@ early_terminate:
   type: hyperband
   min_iter: 3
 parameters:
-  module.seq_encoder.hidden_size:
-    min: 4
-    max: 512
-  module.seq_encoder.embeddings.labels.out:
-    min: 2
-    max: 32
-  max_predictions:
+  module.loss.k:
     min: 4
     max: 64
-  module.optimizer_partial.lr:
-    distribution: log_uniform_values
-    min: 0.00001
-    max: 0.01
-  module.lr_scheduler_partial.gamma:
+  module.loss.loss_subset:
+    min: 0.2
+    max: 1.0
+  module.loss.prefetch_factor:
+    min: 0.5
+    max: 2.0
+  module.loss.match_weights._presence:
+    min: 0.1
+    max: 5.0
+  module.loss.match_weights.timestamps:
+    min: 0.1
+    max: 1.0
+  module.loss.match_weights.labels:
     min: 0.1
     max: 1.0
