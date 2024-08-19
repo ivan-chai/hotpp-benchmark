@@ -107,7 +107,7 @@ class DetectionLoss(NextKLoss):
 
         # Compute losses.
         if (matching.payload < 0).all():
-            losses = {name: outputs.payload[name].mean() * 0 for name in self.fields}
+            losses = {name: outputs.payload.mean() * 0 for name in self.fields}
             return losses, matching_metrics
 
         index_mask = indices.seq_len_mask  # (B, I).
@@ -380,7 +380,7 @@ class DetectionLoss(NextKLoss):
         if l == 0:
             matching = PaddedBatch(torch.full([b, l, self._k], -1, dtype=torch.long, device=inputs.device),
                                    target_windows.seq_lens)
-            return indices, matching, {}
+            return indices, matching, {}, {}
 
         #with torch.no_grad():
         matching, losses, metrics = self.match_targets(
