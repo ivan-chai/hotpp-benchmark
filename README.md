@@ -61,27 +61,29 @@ python3 -m hotpp.train_multiseed --config-dir configs --config-name <model>
 | Method              | Acc.      | MAE       | OTD  Val / Test   | T-mAP  Val / Test     |
 |:--------------------|:----------|:----------|:------------------|:----------------------|
 | MostPopular         | 58.50     | 26.27     | 174.9 / 173.5     | 26.51 / 25.87         |
-| Last 10             | 50.29     | 30.20     | 165.4 / **163.7** | 28.62 / 28.75         |
+| Last 10             | 50.29     | 30.20     | 165.4 / 163.7     | 28.62 / 28.75         |
 | MAE-CE              | 59.95     | **24.31** | 173.3 / 172.7     | 33.49 / 31.75         |
 | MAE-CE-K            | 59.55     | 25.99     | 169.1 / 168.5     | 36.64 / 34.27         |
 | RMTPP               | 60.07     | 25.52     | 167.7 / 166.6     | 48.22 / 45.41         |
-| RMTPP-K             | 59.99     | 25.85     | **165.1** / 164.3 | 48.66 / 45.76         |
+| RMTPP-K             | 59.99     | 25.85     | 165.1 / 164.3     | 48.66 / 45.76         |
 | NHP                 | **60.09** | 25.50     | 167.0 / 165.7     | 49.57 / 46.91         |
 | ODE                 | 59.94     | 25.47     | 166.6 / 165.3     | 48.96 / 45.96         |
-| HYPRO               | 59.87     | 25.85     | 172.8 / 171.9     | **53.47** / **50.67** |
+| HYPRO               | 59.87     | 25.85     | 172.8 / 171.9     | 53.47 / 50.67         |
+| DeTPP               | 55.83     | 28.76     | **147.2** / **145.2** | **59.31** / **55.78** |
 
 ### Amazon
 | Method              | Acc.      | MAE       | OTD  Val / Test     | T-mAP  Val / Test     |
 |:--------------------|:----------|:----------|:--------------------|:----------------------|
 | MostPopular         | 33.46     | 0.304     | 7.20 / 7.18         | 9.34 / 9.02           |
 | Last 5              | 24.23     | 0.321     | 6.70 / 6.67         | 9.73 / 9.21           |
-| MAE-CE              | 35.73     | **0.242** | **6.62** / **6.55** | 21.99 / 22.60         |
+| MAE-CE              | 35.73     | **0.242** | 6.62 / 6.55         | 21.99 / 22.60         |
 | MAE-CE-K            | 35.11     | 0.246     | 6.74 / 6.70         | 21.84 / 22.35         |
 | RMTPP               | **35.75** | 0.294     | 6.67 / 6.62         | 20.06 / 20.42         |
 | RMTPP-K             | 35.06     | 0.300     | 6.94 / 6.89         | 17.63 / 17.89         |
-| NHP                 | 11.00     | 0.449     | 9.05 / 9.04         | **25.05** / **24.91** |
+| NHP                 | 11.00     | 0.449     | 9.05 / 9.04         | 25.05 / 24.91         |
 | ODE                 | 7.61      | 0.492     | 9.47 / 9.48         | 22.50 / 21.88         |
 | HYPRO               | 35.69     | 0.295     | 6.72 / 6.67         | 21.03 / 21.31         |
+| DeTPP               | 31.94     | 0.264     | **6.33** / **6.30** | **37.80** / **37.97** |
 
 ### StackOverflow
 | Method              | Acc.      | MAE       | OTD  Val / Test       | T-mAP  Val / Test     |
@@ -94,7 +96,8 @@ python3 -m hotpp.train_multiseed --config-dir configs --config-name <model>
 | RMTPP-K             | 44.89     | 0.687     | **12.91** / **13.13** | 14.65 / 14.12         |
 | NHP                 | 44.54     | 0.716     | 13.02 / 13.25         | 12.62 / 11.93         |
 | ODE                 | 44.37     | 0.713     | 13.04 / 13.28         | 11.25 / 10.50         |
-| HYPRO               | 45.18     | 0.714     | 13.04 / 13.30         | **15.74** / **14.92** |
+| HYPRO               | 45.18     | 0.714     | 13.04 / 13.30         | 15.74 / 14.92         |
+| DeTPP               | 39.98     | 0.783     | 12.99 / 13.14         | **18.66** / **17.80** |
 
 # Library architecture
 <p align="center">
@@ -148,5 +151,16 @@ If you use HoTPP in your project, please cite the following paper:
   journal={arXiv preprint arXiv:2406.14341},
   year={2024},
   url ={https://arxiv.org/abs/2406.14341}
+}
+```
+
+If you incorporate ideas from DeTPP, use it for comparison, or reference it in a review, please cite the following paper:
+```
+@article{karpukhin2024detpp,
+  title={DeTPP: Leveraging Object Detection for Robust Long-Horizon Event Prediction},
+  author={Karpukhin, Ivan and Savchenko, Andrey},
+  journal={arXiv preprint arXiv:2408.13131},
+  year={2024},
+  url ={https://arxiv.org/abs/2408.13131}
 }
 ```
