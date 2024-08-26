@@ -143,7 +143,7 @@ pytest tests
 ```
 
 # Citation
-If you use HoTPP in your project, please cite the following paper:
+If you use [HoTPP](https://arxiv.org/pdf/2406.14341) in your project, please cite the following paper:
 ```
 @article{karpukhin2024hotppbenchmark,
   title={HoTPP Benchmark: Are We Good at the Long Horizon Events Forecasting?},
@@ -154,7 +154,7 @@ If you use HoTPP in your project, please cite the following paper:
 }
 ```
 
-If you incorporate ideas from DeTPP, use it for comparison, or reference it in a review, please cite the following paper:
+If you incorporate ideas from [DeTPP](https://arxiv.org/pdf/2408.13131), use it for comparison, or reference it in a review, please cite the following paper:
 ```
 @article{karpukhin2024detpp,
   title={DeTPP: Leveraging Object Detection for Robust Long-Horizon Event Prediction},
