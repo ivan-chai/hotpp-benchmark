@@ -159,7 +159,8 @@ class DetectionLoss(NextKLoss):
         self.revert_delta_and_sort_time_inplace(sequences)
 
         # Estimate next item time and labels distribution.
-        presence = torch.sigmoid(sequences.payload[logits_fields_mapping["_presence"]]).squeeze(-1)  # (B, L, K).
+        presence = torch.sigmoid(sequences.payload[logits_fields_mapping["_presence"]].squeeze(-1)
+                                 - self._matching_thresholds)  # (B, L, K).
         assert presence.ndim == 3
         probs = torch.nn.functional.softmax(
             sequences.payload[logits_fields_mapping[self._labels_field]], dim=-1)  # (B, L, K, C).
