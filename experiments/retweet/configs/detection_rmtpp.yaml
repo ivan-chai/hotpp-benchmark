@@ -1,0 +1,39 @@
+defaults:
+  - default
+  - _self_
+
+name: detection_rmtpp
+
+module:
+  _target_: hotpp.modules.NextKModule
+  seq_encoder:
+    rnn_partial:
+      _target_: hotpp.nn.GRU
+      _partial_: true
+      hidden_size: ${rnn_hidden_size}
+  loss:
+    _target_: hotpp.losses.DetectionLoss
+    k: 64
+    loss_subset: 0.5
+    prefetch_factor: 0.5
+    horizon: ${metric.horizon}
+    next_item_loss:
+      _target_: hotpp.losses.NextItemLoss
+      losses:
+        _presence:
+          _target_: hotpp.losses.BinaryCrossEntropyLoss
+        timestamps:
+          _target_: hotpp.losses.TimeRMTPPLoss
+          delta: start
+          init_influence: -0.1
+          influence_dim: 1  # TODO: k.
+          time_smoothing: ${time_smoothing}
+          max_intensity: ${max_intensity}
+          thinning_params: ${thinning_params}
+        labels:
+          _target_: hotpp.losses.CrossEntropyLoss
+          num_classes: ${num_classes}
+    match_weights:
+      _presence: 1
+      labels: 1
+      timestamps: 0.1

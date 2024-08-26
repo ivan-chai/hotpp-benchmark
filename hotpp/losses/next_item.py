@@ -48,32 +48,25 @@ class NextItemLoss(torch.nn.Module):
         """Get time delta type."""
         return self._losses[field].delta
 
-    def forward(self, inputs, outputs, states):
+    def forward(self, inputs, outputs, states, reduction="mean"):
         """Extract targets and compute loss between predictions and targets.
 
         Args:
-            inputs: Input features with shape (B, L).
-            outputs: Model outputs with shape (B, L, D).
-            states: Hidden model states with shape (N, B, L, D), where N is the number of layers.
+            inputs: Input features with shape (B, L, *).
+            outputs: Model outputs with shape (B, L, *, D) or (B, 1, *, D).
+            states (unused): Hidden model states with shape (N, B, L, *, D), where N is the number of layers.
+            reduction: `mean` or `none`.
 
         Returns:
             Losses dict and metrics dict.
         """
-        # Align lengths.
-        l = min(outputs.shape[1], inputs.shape[1])
-        lengths = torch.minimum(outputs.seq_lens, inputs.seq_lens)
-        inputs = PaddedBatch({k: (v[:, :l] if k in inputs.seq_names else v)
-                              for k, v in inputs.payload.items()},
-                             lengths, inputs.seq_names)
-        outputs = PaddedBatch(outputs.payload[:, :l], lengths)
-
         # Compute losses. It is assumed that predictions lengths are equal to targets lengths.
         outputs = self._split_outputs(outputs)
         mask = inputs.seq_len_mask.bool() if (inputs.seq_lens != inputs.shape[1]).any() else None
         losses = {}
         metrics = {}
-        for name, output in outputs.items():
-            losses[name], loss_metrics = self._losses[name](inputs.payload[name], output, mask)
+        for name in set(inputs.payload) & set(outputs):
+            losses[name], loss_metrics = self._losses[name](inputs.payload[name], outputs[name], mask, reduction=reduction)
             for k, v in loss_metrics.items():
                 metrics[f"{name}-{k}"] = v
         return losses, metrics
@@ -93,7 +86,7 @@ class NextItemLoss(torch.nn.Module):
         seq_lens = outputs.seq_lens
         outputs = self._split_outputs(outputs)
         result = {}
-        for name in (fields or self._losses):
+        for name in (self._losses if fields is None else fields):
             prediction = self._prediction if isinstance(self._prediction, str) else self._prediction[name]
             if prediction == "mean":
                 result[name] = self._losses[name].predict_means(outputs[name]).squeeze(-1)  # (B, L).
