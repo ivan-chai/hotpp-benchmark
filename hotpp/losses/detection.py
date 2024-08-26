@@ -163,7 +163,7 @@ class DetectionLoss(NextKLoss):
         assert presence.ndim == 3
         probs = torch.nn.functional.softmax(
             sequences.payload[logits_fields_mapping[self._labels_field]], dim=-1)  # (B, L, K, C).
-        times = torch.sigmoid(sequences.payload[self._timestamps_field])  # (B, L, K).
+        times = sequences.payload[self._timestamps_field]  # (B, L, K).
 
         # neg_cum_prod is equal to 1, (1 - p1), (1 - p1)(1 - p2), ...
         neg_cum_prod = (1 - presence.roll(1, -1))  # (B, L, K).
@@ -172,6 +172,7 @@ class DetectionLoss(NextKLoss):
 
         # weights is equal to p1, (1 - p1)p2, (1 - p1)(1 - p2)p3, ...
         weights = neg_cum_prod * presence  # (B, L, K).
+        weights /= weights.sum(-1, keepdim=True)
 
         next_times = (times * weights).sum(-1)  # (B, L).
         next_probs = (probs * weights.unsqueeze(-1)).sum(-2)  # (B, L, C).
