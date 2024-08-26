@@ -18,13 +18,15 @@ class DetectionLoss(NextKLoss):
         momentum: Activation statistics momentum value.
     """
     def __init__(self, next_item_loss, k, horizon,
-                 timestamps_field="timestamps", loss_subset=1, prefetch_factor=1,
+                 timestamps_field="timestamps", labels_field="labels",
+                 loss_subset=1, prefetch_factor=1,
                  match_weights=None, momentum=0.1):
         super().__init__(
             next_item_loss=next_item_loss,
             k=k,
             timestamps_field=timestamps_field
         )
+        self._labels_field = labels_field
         self._horizon = horizon
         self._loss_subset = loss_subset
         self._prefetch_factor = prefetch_factor
@@ -138,13 +140,49 @@ class DetectionLoss(NextKLoss):
         Returns:
             PaddedBatch with predictions with shape (B, L) or (B, L, C) for logits.
         """
-        sequences = self.predict_next_k(outputs, states,
-                                        fields=fields,
-                                        logits_fields_mapping=logits_fields_mapping)  # (B, L, K) or (B, L, K, C).
+        logits_fields_mapping = dict(logits_fields_mapping or {})
+        logits_fields_mapping["_presence"] = "_presence_logit"
+        if self._labels_field not in logits_fields_mapping:
+            logits_fields_mapping[self._labels_field] = "_labels_logits"
+        b, l = outputs.shape
+        lengths = outputs.seq_lens
+        outputs = PaddedBatch(outputs.payload.reshape(b * l, self._k, self._next_item.input_size),
+                              outputs.seq_lens)  # (BL, K, P).
+        states = states.reshape(len(states), b * l, 1, -1)  # (N, BL, 1, D).
+        next_values = self._next_item.predict_next(outputs, states,
+                                                   fields=fields,
+                                                   logits_fields_mapping=logits_fields_mapping)  # (BL, K) or (BL, K, C).
 
-        # Extract first.
-        next_values = PaddedBatch({k: v[:, :, 0] for k, v in sequences.payload.items()},
-                                  sequences.seq_lens)
+        # Reshape and sort.
+        sequences = PaddedBatch({k: v.reshape(b, l, self._k, *v.shape[2:]) for k, v in next_values.payload.items()},
+                                lengths)  # (B, L, K) or (B, L, K, C).
+        self.revert_delta_and_sort_time_inplace(sequences)
+
+        # Estimate next item time and labels distribution.
+        presence = torch.sigmoid(sequences.payload[logits_fields_mapping["_presence"]]).squeeze(-1)  # (B, L, K).
+        assert presence.ndim == 3
+        probs = torch.nn.functional.softmax(
+            sequences.payload[logits_fields_mapping[self._labels_field]], dim=-1)  # (B, L, K, C).
+        times = torch.sigmoid(sequences.payload[self._timestamps_field])  # (B, L, K).
+
+        # neg_cum_prod is equal to 1, (1 - p1), (1 - p1)(1 - p2), ...
+        neg_cum_prod = (1 - presence.roll(1, -1))  # (B, L, K).
+        neg_cum_prod[..., 0] = 1
+        neg_cum_prod.cumprod_(-1)  # (B, L, K).
+
+        # weights is equal to p1, (1 - p1)p2, (1 - p1)(1 - p2)p3, ...
+        weights = neg_cum_prod * presence  # (B, L, K).
+
+        next_times = (times * weights).sum(-1)  # (B, L).
+        next_probs = (probs * weights.unsqueeze(-1)).sum(-2)  # (B, L, C).
+        next_labels = next_probs.argmax(-1)  # (B, L).
+
+        next_values = PaddedBatch({
+            self._timestamps_field: next_times,
+            self._labels_field: next_labels,
+            logits_fields_mapping[self._labels_field]: next_probs.clip(min=1e-6).log()
+        }, lengths)
+
         return next_values
 
     def predict_next_k(self, outputs, states, fields=None, logits_fields_mapping=None):

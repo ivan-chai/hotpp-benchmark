@@ -4,7 +4,7 @@ import hydra
 import torch
 from omegaconf import OmegaConf
 
-from .train import train
+from .train_multiseed import train_multiseed
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +14,7 @@ def main(conf):
     OmegaConf.set_struct(conf, False)
     conf.pop("logger")
     conf["test_only"] = True
-    train(conf)
+    train_multiseed(conf)
 
 
 if __name__ == "__main__":

@@ -19,16 +19,15 @@ def update_model_path(path, seed):
     return base + f"-seed-{seed}" + ext
 
 
-@hydra.main(version_base="1.2", config_path=None)
-def main(conf):
+def train_multiseed(conf):
     if "num_evaluation_seeds" not in conf:
         raise ValueError("Need the total number of evaluation seeds.")
     if "multiseed_report" not in conf:
         raise ValueError("Need the path to the multiseed evaluation report.")
     OmegaConf.set_struct(conf, False)
     base_model_path = conf["model_path"]
-    conf.pop("logger")
-    conf.pop("report")  # Don't overwrite single-seed test results.
+    conf.pop("logger", None)
+    conf.pop("report", None)  # Don't overwrite single-seed test results.
     by_metric = defaultdict(list)
     for seed in range(conf.num_evaluation_seeds):
         conf["seed_everything"] = seed
@@ -50,6 +49,11 @@ def main(conf):
         multiseed_metrics[k + " (std)"] = float(np.std(vs))
     with open(conf.multiseed_report, "w") as fp:
         dump_report(multiseed_metrics, fp)
+
+
+@hydra.main(version_base="1.2", config_path=None)
+def main(conf):
+    train_multiseed(conf)
 
 
 if __name__ == "__main__":
