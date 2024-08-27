@@ -2,6 +2,8 @@ import torch
 
 from torch_linear_assignment import batch_linear_assignment
 from hotpp.data import PaddedBatch
+from hotpp.utils.torch import deterministic
+from .common import ScaleGradient
 from .next_item import NextItemLoss
 from .next_k import NextKLoss
 
@@ -15,12 +17,16 @@ class DetectionLoss(NextKLoss):
         losses: Mapping from the feature name to the loss function.
         loss_subset: The fraction of positions to compute loss for.
         prefetch_factor: Extract times more targets than predicted events (equal to `k`) for scoring.
+        match_weights: Weights of particular fields in matching.
         momentum: Activation statistics momentum value.
+        next_item_weight: The weight of the next-item loss.
     """
     def __init__(self, next_item_loss, k, horizon,
                  timestamps_field="timestamps", labels_field="labels",
                  loss_subset=1, prefetch_factor=1,
-                 match_weights=None, momentum=0.1):
+                 match_weights=None, momentum=0.1,
+                 next_item_timestamps_weight=0,
+                 next_item_labels_weight=0):
         super().__init__(
             next_item_loss=next_item_loss,
             k=k,
@@ -34,6 +40,8 @@ class DetectionLoss(NextKLoss):
         if self.get_delta_type(timestamps_field) != "start":
             raise ValueError("Need `start` delta time for the detection loss.")
         self._momentum = momentum
+        self._next_item_timestamps_weight = next_item_timestamps_weight
+        self._next_item_labels_weight = next_item_labels_weight
         self.register_buffer("_matching_priors", torch.ones(k))
         self.register_buffer("_matching_thresholds", torch.zeros(k))
 
@@ -107,7 +115,7 @@ class DetectionLoss(NextKLoss):
                 presence_logits = PaddedBatch(presence_logits, outputs.seq_lens)
                 self.update_matching_statistics(matching, presence_logits)
 
-        # Compute losses.
+        # Compute matching losses.
         if (matching.payload < 0).all():
             losses = {name: outputs.payload.mean() * 0 for name in self.fields}
             return losses, matching_metrics
@@ -126,6 +134,20 @@ class DetectionLoss(NextKLoss):
         losses = {k: v[matching_mask].mean() for k, v in losses.items()}
         losses["_presence"] = presence_losses[index_mask].mean()
 
+        # Compute next-item loss.
+        if (self._next_item_timestamps_weight > 0) or (self._next_item_labels_weight > 0):
+            predictions = self.predict_next(outputs, states,
+                                            fields=(self._timestamps_field, self._labels_field),
+                                            logits_fields_mapping={self._labels_field: "_labels_logits"})
+            predictions = {
+                self._timestamps_field: predictions.payload[self._timestamps_field].unsqueeze(-1),  # (B, L, 1).
+                self._labels_field: predictions.payload["_labels_logits"]  # (B, L, C).
+            }
+            next_item_losses, _ = self._next_item(inputs, predictions, states)
+            field = self._timestamps_field
+            losses[f"next_item_{field}"] = ScaleGradient.apply(next_item_losses[field], self._next_item_timestamps_weight)
+            field = self._labels_field
+            losses[f"next_item_{field}"] = ScaleGradient.apply(next_item_losses[field], self._next_item_labels_weight)
         return losses, matching_metrics
 
     def predict_next(self, outputs, states, fields=None, logits_fields_mapping=None):
@@ -159,28 +181,41 @@ class DetectionLoss(NextKLoss):
         self.revert_delta_and_sort_time_inplace(sequences)
 
         # Estimate next item time and labels distribution.
-        presence = torch.sigmoid(sequences.payload[logits_fields_mapping["_presence"]].squeeze(-1))  # (B, L, K).
-        assert presence.ndim == 3
+        log_presence = torch.nn.functional.logsigmoid(sequences.payload[logits_fields_mapping["_presence"]].squeeze(-1))  # (B, L, K).
+        log_not_presence = torch.nn.functional.logsigmoid(-sequences.payload[logits_fields_mapping["_presence"]].squeeze(-1))  # (B, L, K).
+        assert log_presence.ndim == 3
         probs = torch.nn.functional.softmax(
             sequences.payload[logits_fields_mapping[self._labels_field]], dim=-1)  # (B, L, K, C).
         times = sequences.payload[self._timestamps_field]  # (B, L, K).
 
-        # neg_cum_prod is equal to 1, (1 - p1), (1 - p1)(1 - p2), ...
-        neg_cum_prod = (1 - presence.roll(1, -1))  # (B, L, K).
-        neg_cum_prod[..., 0] = 1
-        neg_cum_prod.cumprod_(-1)  # (B, L, K).
+        # log_cum_prod is equal to log of 1, (1 - p1), (1 - p1)(1 - p2), ...
+        roll_log_not_presence = torch.cat([torch.zeros_like(log_not_presence[..., :1]), log_not_presence[..., :-1]], -1)   # (B, L, K).
+        with deterministic(False):
+            log_cum_prod = roll_log_not_presence.cumsum(-1)  # (B, L, K).
 
-        # weights is equal to p1, (1 - p1)p2, (1 - p1)(1 - p2)p3, ...
-        weights = neg_cum_prod * presence  # (B, L, K).
-        weights /= weights.sum(-1, keepdim=True)
+        # weights is equal to normalized p1, (1 - p1)p2, (1 - p1)(1 - p2)p3, ...
+        weights = torch.nn.functional.softmax(log_cum_prod + log_presence, -1)  # (B, L, K).
 
-        next_times = (times * weights).sum(-1)  # (B, L).
-        next_probs = (probs * weights.unsqueeze(-1)).sum(-2)  # (B, L, C).
-        next_labels = next_probs.argmax(-1)  # (B, L).
+        # Compute mode.
+        top_indices = (probs * weights.unsqueeze(-1)).max(-1)[0].argmax(-1)  # (B, L).
+        time_prediction = self._next_item._prediction if isinstance(self._next_item._prediction, str) else self._next_item._prediction[self._timestamps_field]
+        label_prediction = self._next_item._prediction if isinstance(self._next_item._prediction, str) else self._next_item._prediction[self._labels_field]
+        if time_prediction == "mode":
+            next_times = times.take_along_dim(top_indices.unsqueeze(-1), -1).squeeze(-1)  # (B, L).
+        elif time_prediction == "mean":
+            next_times = (times * weights).sum(-1)  # (B, L).
+        else:
+            raise ValueError(f"Unknown prediction type: {time_prediction}.")
+        if label_prediction == "mode":
+            next_probs = probs.take_along_dim(top_indices.unsqueeze(-1).unsqueeze(-1), -2).squeeze(-2)  # (B, L, C).
+        elif label_prediction == "mean":
+            next_probs = (probs * weights.unsqueeze(-1)).sum(-2)  # (B, L, C).
+        else:
+            raise ValueError(f"Unknown prediction type: {label_prediction}.")
 
         next_values = PaddedBatch({
             self._timestamps_field: next_times,
-            self._labels_field: next_labels,
+            self._labels_field: next_probs.argmax(-1),  # (B, L).
             logits_fields_mapping[self._labels_field]: next_probs.clip(min=1e-6).log()
         }, lengths)
 
@@ -398,7 +433,7 @@ class DetectionLoss(NextKLoss):
 
         Returns:
             A tuple of:
-                - indices with shape (B, I).
+                - indices of last seen event with shape (B, I).
                 - relative matching with shape (B, I, K).
                 - losses with shape (B, I, K, T).
                 - metrics dictionary.

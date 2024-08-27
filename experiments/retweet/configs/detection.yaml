@@ -19,6 +19,10 @@ module:
     horizon: ${metric.horizon}
     next_item_loss:
       _target_: hotpp.losses.NextItemLoss
+      prediction:
+        timestamps: mode
+        labels: mean
+        _presence: mode
       losses:
         _presence:
           _target_: hotpp.losses.BinaryCrossEntropyLoss

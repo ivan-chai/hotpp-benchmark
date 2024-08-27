@@ -1,4 +1,4 @@
-date: '2024-08-26 19:02:22'
+date: '2024-08-27 12:42:04'
 num_seeds: 5
 test/T-mAP (mean): 0.5577823877334595
 test/T-mAP (std): 0.00472270103967673
@@ -24,12 +24,12 @@ test/mean-target-length (mean): 21.358747482299805
 test/mean-target-length (std): 0.0
 test/next-item-accuracy (mean): 0.5717845916748047
 test/next-item-accuracy (std): 0.003403340969654711
-test/next-item-mae (mean): 28.537853240966797
-test/next-item-mae (std): 0.09004153953831688
-test/next-item-mean-time-step (mean): 29.76118049621582
-test/next-item-mean-time-step (std): 0.03309970367008197
-test/next-item-rmse (mean): 74.7439208984375
-test/next-item-rmse (std): 0.2100359870937524
+test/next-item-mae (mean): 28.756076431274415
+test/next-item-mae (std): 0.15801245468228214
+test/next-item-mean-time-step (mean): 29.88317527770996
+test/next-item-mean-time-step (std): 0.02573854438721334
+test/next-item-rmse (mean): 76.04882202148437
+test/next-item-rmse (std): 0.2568525325015432
 test/optimal-transport-distance (mean): 145.18404846191407
 test/optimal-transport-distance (std): 0.32119889188274303
 test/prediction_match_rate (mean): 0.30200695991516113
@@ -60,12 +60,12 @@ val/mean-target-length (mean): 20.682857513427734
 val/mean-target-length (std): 0.0
 val/next-item-accuracy (mean): 0.5744919419288635
 val/next-item-accuracy (std): 0.003589348027979599
-val/next-item-mae (mean): 29.101921844482423
-val/next-item-mae (std): 0.08863927606710434
-val/next-item-mean-time-step (mean): 30.474784469604494
-val/next-item-mean-time-step (std): 0.032743796558269034
-val/next-item-rmse (mean): 76.24867553710938
-val/next-item-rmse (std): 0.21546184150906655
+val/next-item-mae (mean): 29.320914459228515
+val/next-item-mae (std): 0.15301197653011317
+val/next-item-mean-time-step (mean): 30.610500717163085
+val/next-item-mean-time-step (std): 0.025480849905310597
+val/next-item-rmse (mean): 77.56959991455078
+val/next-item-rmse (std): 0.25862362578667575
 val/optimal-transport-distance (mean): 147.2426971435547
 val/optimal-transport-distance (std): 0.3207271983036038
 val/prediction_match_rate (mean): 0.2989720106124878
