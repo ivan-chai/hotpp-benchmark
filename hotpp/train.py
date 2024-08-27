@@ -86,7 +86,7 @@ def train(conf):
     model = hydra.utils.instantiate(conf.module)
     dm = hydra.utils.instantiate(conf.data_module)
 
-    if conf.test_only:
+    if conf.get("test_only", False):
         if "model_path" not in conf:
             raise ValueError("Need model_path for a model initialization")
         logger.info(f"Load weights from '{conf.model_path}'")
