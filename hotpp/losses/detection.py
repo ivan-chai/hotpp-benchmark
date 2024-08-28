@@ -16,15 +16,19 @@ class DetectionLoss(NextKLoss):
         horizon: Predicted interval.
         losses: Mapping from the feature name to the loss function.
         loss_subset: The fraction of positions to compute loss for.
+        loss_valid_only: Skip tails and evaluate only full windows. Turn off for datasets with short sequences.
         prefetch_factor: Extract times more targets than predicted events (equal to `k`) for scoring.
         match_weights: Weights of particular fields in matching.
         momentum: Activation statistics momentum value.
-        next_item_weight: The weight of the next-item loss.
+        next_item_adapter: String or dictionary for different fields (`first`, `mean`, or `mode`).
+        next_item_timestamps_weight: The weight of the adapter-based next-item timestamps loss.
+        next_item_labels_weight: The weight of the adapter-based next-item labels loss.
     """
     def __init__(self, next_item_loss, k, horizon,
                  timestamps_field="timestamps", labels_field="labels",
-                 loss_subset=1, prefetch_factor=1,
+                 loss_subset=1, loss_valid_only=True, prefetch_factor=1,
                  match_weights=None, momentum=0.1,
+                 next_item_adapter="mean",
                  next_item_timestamps_weight=0,
                  next_item_labels_weight=0):
         super().__init__(
@@ -35,11 +39,13 @@ class DetectionLoss(NextKLoss):
         self._labels_field = labels_field
         self._horizon = horizon
         self._loss_subset = loss_subset
+        self._loss_valid_only = loss_valid_only
         self._prefetch_factor = prefetch_factor
         self._match_weights = match_weights
         if self.get_delta_type(timestamps_field) != "start":
             raise ValueError("Need `start` delta time for the detection loss.")
         self._momentum = momentum
+        self._next_item_adapter = next_item_adapter
         self._next_item_timestamps_weight = next_item_timestamps_weight
         self._next_item_labels_weight = next_item_labels_weight
         self.register_buffer("_matching_priors", torch.ones(k))
@@ -179,44 +185,56 @@ class DetectionLoss(NextKLoss):
         sequences = PaddedBatch({k: v.reshape(b, l, self._k, *v.shape[2:]) for k, v in next_values.payload.items()},
                                 lengths)  # (B, L, K) or (B, L, K, C).
         self.revert_delta_and_sort_time_inplace(sequences)
+        # Sequences contain time shift from the last seen timestamps.
+        # Events are sorted by timestamp.
 
-        # Estimate next item time and labels distribution.
+        # Prepare data.
         log_presence = torch.nn.functional.logsigmoid(sequences.payload[logits_fields_mapping["_presence"]].squeeze(-1))  # (B, L, K).
         log_not_presence = torch.nn.functional.logsigmoid(-sequences.payload[logits_fields_mapping["_presence"]].squeeze(-1))  # (B, L, K).
         assert log_presence.ndim == 3
-        probs = torch.nn.functional.softmax(
+        log_probs = torch.nn.functional.log_softmax(
             sequences.payload[logits_fields_mapping[self._labels_field]], dim=-1)  # (B, L, K, C).
         times = sequences.payload[self._timestamps_field]  # (B, L, K).
 
+        # Compute probability of each event being the first.
         # log_cum_prod is equal to log of 1, (1 - p1), (1 - p1)(1 - p2), ...
         roll_log_not_presence = torch.cat([torch.zeros_like(log_not_presence[..., :1]), log_not_presence[..., :-1]], -1)   # (B, L, K).
         with deterministic(False):
             log_cum_prod = roll_log_not_presence.cumsum(-1)  # (B, L, K).
+        # weights are equal to normalized p1, (1 - p1)p2, (1 - p1)(1 - p2)p3, ...
+        log_weights = torch.nn.functional.log_softmax(log_cum_prod + log_presence, -1)  # (B, L, K).
 
-        # weights is equal to normalized p1, (1 - p1)p2, (1 - p1)(1 - p2)p3, ...
-        weights = torch.nn.functional.softmax(log_cum_prod + log_presence, -1)  # (B, L, K).
+        # Find most probable event.
+        top_indices = (log_probs + log_weights.unsqueeze(-1)).max(-1)[0].argmax(-1)  # (B, L).
 
-        # Compute mode.
-        top_indices = (probs * weights.unsqueeze(-1)).max(-1)[0].argmax(-1)  # (B, L).
-        time_prediction = self._next_item._prediction if isinstance(self._next_item._prediction, str) else self._next_item._prediction[self._timestamps_field]
-        label_prediction = self._next_item._prediction if isinstance(self._next_item._prediction, str) else self._next_item._prediction[self._labels_field]
-        if time_prediction == "mode":
+        # Predict next items.
+        if isinstance(self._next_item_adapter, str):
+            time_adapter = self._next_item_adapter
+            label_adapter = self._next_item_adapter
+        else:
+            time_adapter = self._next_item_adapter[self._timestamps_field]
+            label_adapter = self._next_item_adapter[self._labels_field]
+        if time_adapter == "first":
+            next_times = times[:, :, 0]
+        elif time_adapter == "mode":
             next_times = times.take_along_dim(top_indices.unsqueeze(-1), -1).squeeze(-1)  # (B, L).
-        elif time_prediction == "mean":
+        elif time_adapter == "mean":
             next_times = (times * weights).sum(-1)  # (B, L).
         else:
             raise ValueError(f"Unknown prediction type: {time_prediction}.")
-        if label_prediction == "mode":
-            next_probs = probs.take_along_dim(top_indices.unsqueeze(-1).unsqueeze(-1), -2).squeeze(-2)  # (B, L, C).
-        elif label_prediction == "mean":
-            next_probs = (probs * weights.unsqueeze(-1)).sum(-2)  # (B, L, C).
+        if label_adapter == "first":
+            next_log_probs = log_probs[:, :, 0]
+        elif label_adapter == "mode":
+            next_log_probs = log_probs.take_along_dim(top_indices.unsqueeze(-1).unsqueeze(-1), -2).squeeze(-2)  # (B, L, C).
+        elif label_adapter == "mean":
+            next_log_probs = (log_probs + log_weights.unsqueeze(-1)).logsumexp(2)  # (B, L, C).
         else:
             raise ValueError(f"Unknown prediction type: {label_prediction}.")
 
         next_values = PaddedBatch({
             self._timestamps_field: next_times,
-            self._labels_field: next_probs.argmax(-1),  # (B, L).
-            logits_fields_mapping[self._labels_field]: next_probs.clip(min=1e-6).log()
+            self._labels_field: next_log_probs.argmax(-1),  # (B, L).
+            logits_fields_mapping[self._labels_field]: next_log_probs  # (B, L, C).
         }, lengths)
 
         return next_values
@@ -318,22 +336,35 @@ class DetectionLoss(NextKLoss):
         b, l = inputs.shape
         device = inputs.device
         fields = list(sorted(set(self.fields) - {"_presence"}))
-        inputs, lengths = dict(inputs.payload), inputs.seq_lens
-        joined = torch.stack([inputs[name] for name in fields], -1)  # (B, L, N).
+        inputs, lengths, length_mask = dict(inputs.payload), inputs.seq_lens, inputs.seq_len_mask
+
+        # Pad events with out-of-horizon.
+        inf_ts = inputs[self._timestamps_field][length_mask].max().item() + self._horizon + 1
+        inputs[self._timestamps_field].masked_fill_(~length_mask, inf_ts)
 
         # Extract windows.
         k = int(round(self._k * self._prefetch_factor))
-        joined_windows = self.extract_windows(joined, k + 1)   # (B, L - k, k + 1, N).
-        assert joined_windows.shape[:3] == (b, max(l - k, 0), k + 1)
-        windows_lengths = (lengths - k).clip(min=0)
-        if windows_lengths.numel() == 0:
-            return PaddedBatch(torch.full((b, 0, self._k), -1, device=device),
-                               torch.zeros(b, dtype=torch.long, device=device))
+        joined = torch.stack([inputs[name] for name in fields], -1)  # (B, L, N).
+        d = joined.shape[-1]
+        parts = [joined.roll(-i, 1) for i in range(k + 1)]
+        joined_windows = torch.stack(parts, 2)  # (B, L, k + 1, N).
+        assert joined_windows.shape[:3] == (b, l, k + 1)
 
         # Split.
         windows = {}
         for i, name in enumerate(fields):
-            windows[name] = joined_windows[..., i].to(inputs[name].dtype)
+            windows[name] = joined_windows[..., i].to(inputs[name].dtype)  # (B, L, k + 1).
+
+        if self._loss_valid_only:
+            # Exclude partial windows.
+            windows = {name: window[:, :l - k] for name, window in windows.items()}
+            windows_lengths = (lengths - k).clip(min=0)
+        else:
+            # Pad partial windows with out of horizon.
+            mask = torch.arange(l, device=device)[:, None] + torch.arange(k + 1, device=device) >= l  # (L, k + 1)
+            windows[self._timestamps_field].masked_fill_(mask[None], inf_ts)
+            windows_lengths = lengths
+
         return PaddedBatch(windows, windows_lengths)
 
     def match_targets(self, outputs: PaddedBatch, targets: PaddedBatch, subset_indices: PaddedBatch):
