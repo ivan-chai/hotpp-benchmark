@@ -40,7 +40,6 @@ class DetectionLoss(NextKLoss):
         self._horizon = horizon
         self._loss_subset = loss_subset
         self._loss_valid_only = loss_valid_only
-        self._prefetch_factor = prefetch_factor
         self._match_weights = match_weights
         if self.get_delta_type(timestamps_field) != "start":
             raise ValueError("Need `start` delta time for the detection loss.")
@@ -48,6 +47,7 @@ class DetectionLoss(NextKLoss):
         self._next_item_adapter = next_item_adapter
         self._next_item_timestamps_weight = next_item_timestamps_weight
         self._next_item_labels_weight = next_item_labels_weight
+        self._prefetch_k = int(round(self._k * prefetch_factor))
         self.register_buffer("_matching_priors", torch.ones(k))
         self.register_buffer("_matching_thresholds", torch.zeros(k))
 
@@ -189,8 +189,10 @@ class DetectionLoss(NextKLoss):
         # Events are sorted by timestamp.
 
         # Prepare data.
-        log_presence = torch.nn.functional.logsigmoid(sequences.payload[logits_fields_mapping["_presence"]].squeeze(-1))  # (B, L, K).
-        log_not_presence = torch.nn.functional.logsigmoid(-sequences.payload[logits_fields_mapping["_presence"]].squeeze(-1))  # (B, L, K).
+        presence_logits = sequences.payload[logits_fields_mapping["_presence"]].squeeze(-1)  # (B, L, K).
+        presence = presence_logits > self._matching_thresholds  # (B, L, K).
+        log_presence = torch.nn.functional.logsigmoid(presence_logits)  # (B, L, K).
+        log_not_presence = torch.nn.functional.logsigmoid(-presence_logits)  # (B, L, K).
         assert log_presence.ndim == 3
         log_probs = torch.nn.functional.log_softmax(
             sequences.payload[logits_fields_mapping[self._labels_field]], dim=-1)  # (B, L, K, C).
@@ -205,6 +207,7 @@ class DetectionLoss(NextKLoss):
         log_weights = torch.nn.functional.log_softmax(log_cum_prod + log_presence, -1)  # (B, L, K).
 
         # Find most probable event.
+        first_indices = (torch.arange(presence.shape[-1] - 1, -1, -1, device=presence.device) * presence).argmax(-1)  # (B, L).
         top_indices = (log_probs + log_weights.unsqueeze(-1)).max(-1)[0].argmax(-1)  # (B, L).
 
         # Predict next items.
@@ -215,7 +218,7 @@ class DetectionLoss(NextKLoss):
             time_adapter = self._next_item_adapter[self._timestamps_field]
             label_adapter = self._next_item_adapter[self._labels_field]
         if time_adapter == "first":
-            next_times = times[:, :, 0]
+            next_times = times.take_along_dim(first_indices.unsqueeze(-1), -1).squeeze(-1)  # (B, L).
         elif time_adapter == "mode":
             next_times = times.take_along_dim(top_indices.unsqueeze(-1), -1).squeeze(-1)  # (B, L).
         elif time_adapter == "mean":
@@ -223,7 +226,7 @@ class DetectionLoss(NextKLoss):
         else:
             raise ValueError(f"Unknown prediction type: {time_prediction}.")
         if label_adapter == "first":
-            next_log_probs = log_probs[:, :, 0]
+            next_log_probs = log_probs.take_along_dim(first_indices.unsqueeze(-1).unsqueeze(-1), -2).squeeze(-2)  # (B, L, C).
         elif label_adapter == "mode":
             next_log_probs = log_probs.take_along_dim(top_indices.unsqueeze(-1).unsqueeze(-1), -2).squeeze(-2)  # (B, L, C).
         elif label_adapter == "mean":
@@ -324,8 +327,11 @@ class DetectionLoss(NextKLoss):
                                   inputs.seq_lens)  # (B, L).
             return True, indices
         b, l = inputs.shape
+        k = self._prefetch_k
         n_indices = min(max(int(round(l * self._loss_subset)), 1), l)
-        weights = torch.rand(b, l, device=inputs.device) * inputs.seq_len_mask
+        # Take full windows first.
+        mask = torch.arange(l, device=inputs.device)[None] + k < inputs.seq_lens[:, None]  # (B, L).
+        weights = torch.rand(b, l, device=inputs.device) * mask
         subset_indices = weights.topk(n_indices, dim=1)[1].sort(dim=1)[0]  # (B, I).
         lengths = (subset_indices < inputs.seq_lens[:, None]).sum(1)
         return False, PaddedBatch(subset_indices, lengths)
@@ -343,7 +349,7 @@ class DetectionLoss(NextKLoss):
         inputs[self._timestamps_field].masked_fill_(~length_mask, inf_ts)
 
         # Extract windows.
-        k = int(round(self._k * self._prefetch_factor))
+        k = self._prefetch_k
         joined = torch.stack([inputs[name] for name in fields], -1)  # (B, L, N).
         d = joined.shape[-1]
         parts = [joined.roll(-i, 1) for i in range(k + 1)]
@@ -476,7 +482,9 @@ class DetectionLoss(NextKLoss):
                               torch.minimum(outputs.seq_lens, target_windows.seq_lens))  # (B, L', K, P).
         assert (target_windows.seq_lens == outputs.seq_lens).all()
 
-        full, indices = self.get_loss_indices(target_windows)
+        full, indices = self.get_loss_indices(inputs)
+        indices = PaddedBatch(indices.payload[:, :l],
+                              (indices.payload < target_windows.seq_lens[:, None]).sum(1))
         if not full:
             target_windows = self.select_subset(target_windows, indices)  # (B, I, k + 1).
             outputs = self.select_subset(outputs, indices)  # (B, I, K, P).
