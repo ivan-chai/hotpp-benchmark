@@ -219,7 +219,7 @@ class DetectionLoss(NextKLoss):
         elif time_adapter == "mode":
             next_times = times.take_along_dim(top_indices.unsqueeze(-1), -1).squeeze(-1)  # (B, L).
         elif time_adapter == "mean":
-            next_times = (times * weights).sum(-1)  # (B, L).
+            next_times = (times * log_weights.exp()).sum(-1)  # (B, L).
         else:
             raise ValueError(f"Unknown prediction type: {time_prediction}.")
         if label_adapter == "first":
