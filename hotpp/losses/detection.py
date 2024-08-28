@@ -184,13 +184,15 @@ class DetectionLoss(NextKLoss):
         # Reshape and sort.
         sequences = PaddedBatch({k: v.reshape(b, l, self._k, *v.shape[2:]) for k, v in next_values.payload.items()},
                                 lengths)  # (B, L, K) or (B, L, K, C).
+        presence = sequences.payload[logits_fields_mapping["_presence"]].squeeze(-1) > self._matching_thresholds  # (B, L, K).
+        sequences = PaddedBatch(sequences.payload | {"_presence": presence}, sequences.seq_lens)
         self.revert_delta_and_sort_time_inplace(sequences)
         # Sequences contain time shift from the last seen timestamps.
         # Events are sorted by timestamp.
 
         # Prepare data.
+        presence = sequences.payload["_presence"]
         presence_logits = sequences.payload[logits_fields_mapping["_presence"]].squeeze(-1)  # (B, L, K).
-        presence = presence_logits > self._matching_thresholds  # (B, L, K).
         log_presence = torch.nn.functional.logsigmoid(presence_logits)  # (B, L, K).
         log_not_presence = torch.nn.functional.logsigmoid(-presence_logits)  # (B, L, K).
         assert log_presence.ndim == 3
@@ -226,9 +228,9 @@ class DetectionLoss(NextKLoss):
         else:
             raise ValueError(f"Unknown prediction type: {time_prediction}.")
         if label_adapter == "first":
-            next_log_probs = log_probs.take_along_dim(first_indices.unsqueeze(-1).unsqueeze(-1), -2).squeeze(-2)  # (B, L, C).
+            next_log_probs = (log_probs + log_weights.unsqueeze(-1)).take_along_dim(first_indices.unsqueeze(-1).unsqueeze(-1), -2).squeeze(-2)  # (B, L, C).
         elif label_adapter == "mode":
-            next_log_probs = log_probs.take_along_dim(top_indices.unsqueeze(-1).unsqueeze(-1), -2).squeeze(-2)  # (B, L, C).
+            next_log_probs = (log_probs + log_weights.unsqueeze(-1)).take_along_dim(top_indices.unsqueeze(-1).unsqueeze(-1), -2).squeeze(-2)  # (B, L, C).
         elif label_adapter == "mean":
             next_log_probs = (log_probs + log_weights.unsqueeze(-1)).logsumexp(2)  # (B, L, C).
         else:
@@ -321,19 +323,19 @@ class DetectionLoss(NextKLoss):
            full: Flag indicating full set of indices
            indices: Batch of indices with shape (B, I) or None if loss must be evaluated at each step.
         """
-        if self._loss_subset >= 1:
-            b, l = inputs.shape
-            indices = PaddedBatch(torch.arange(l, device=inputs.device)[None].repeat(b, 1),
-                                  inputs.seq_lens)  # (B, L).
-            return True, indices
         b, l = inputs.shape
-        k = self._prefetch_k
-        n_indices = min(max(int(round(l * self._loss_subset)), 1), l)
+        tail = self._prefetch_k if self._loss_valid_only else 0
+        l_valid = l - tail
+        if self._loss_subset >= 1:
+            indices = PaddedBatch(torch.arange(max(l_valid, 0), device=inputs.device)[None].repeat(b, 1),
+                                  (inputs.seq_lens - tail).clip(min=0))  # (B, L).
+            return True, indices
         # Take full windows first.
-        mask = torch.arange(l, device=inputs.device)[None] + k < inputs.seq_lens[:, None]  # (B, L).
-        weights = torch.rand(b, l, device=inputs.device) * mask
+        n_indices = min(max(int(round((l_valid) * self._loss_subset)), 1), (l_valid))
+        mask = torch.arange(l_valid, device=inputs.device)[None] + tail < inputs.seq_lens[:, None]  # (B, L).
+        weights = torch.rand(b, l_valid, device=inputs.device) * mask
         subset_indices = weights.topk(n_indices, dim=1)[1].sort(dim=1)[0]  # (B, I).
-        lengths = (subset_indices < inputs.seq_lens[:, None]).sum(1)
+        lengths = (subset_indices + tail < inputs.seq_lens[:, None]).sum(1)
         return False, PaddedBatch(subset_indices, lengths)
 
     def extract_structured_windows(self, inputs):
