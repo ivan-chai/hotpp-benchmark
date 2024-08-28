@@ -102,15 +102,15 @@ class DetectionLoss(NextKLoss):
         Returns:
             Losses dict and metrics dict.
         """
-        indices, matching, losses, matching_metrics = self.get_subset_matching(inputs, outputs)
-        # (B, I), (B, I, K), (B, I, K, T), dict.
+        indices, full_indices_mask, matching, losses, matching_metrics = self.get_subset_matching(inputs, outputs)
+        # (B, I), (B, I). (B, I, K), (B, I, K, T), dict.
 
         # Update statistics.
         if self.training:
             with torch.no_grad():
                 b, l = outputs.shape
                 reshaped_outputs = PaddedBatch(outputs.payload.flatten(0, 1).reshape(-1, self._k, self._next_item.input_size),
-                                            torch.full([b * l], self._k, dtype=torch.long, device=outputs.device))  # (BL, K, P).
+                                               torch.full([b * l], self._k, dtype=torch.long, device=outputs.device))  # (BL, K, P).
                 reshaped_states = states.flatten(1, 2).unsqueeze(2) if states is not None else None  # (N, BL, 1, D).
                 presence_logits = self._next_item.predict_next(
                     reshaped_outputs, reshaped_states,
@@ -119,7 +119,11 @@ class DetectionLoss(NextKLoss):
                 ).payload["_presence_logit"]  # (BL, K, 1).
                 presence_logits = presence_logits.reshape(b, l, self._k)  # (B, L, K).
                 presence_logits = PaddedBatch(presence_logits, outputs.seq_lens)
-                self.update_matching_statistics(matching, presence_logits)
+                if full_indices_mask is not None:
+                    stat_matching = PaddedBatch(matching.payload, full_indices_mask.sum(1))
+                else:
+                    stat_matching = matching
+                self.update_matching_statistics(stat_matching, presence_logits)
 
         # Compute matching losses.
         if (matching.payload < 0).all():
@@ -321,6 +325,7 @@ class DetectionLoss(NextKLoss):
 
         Returns:
            full: Flag indicating full set of indices
+           full_indices_mask: Mask of indices with full windows.
            indices: Batch of indices with shape (B, I) or None if loss must be evaluated at each step.
         """
         b, l = inputs.shape
@@ -329,14 +334,18 @@ class DetectionLoss(NextKLoss):
         if self._loss_subset >= 1:
             indices = PaddedBatch(torch.arange(max(l_valid, 0), device=inputs.device)[None].repeat(b, 1),
                                   (inputs.seq_lens - tail).clip(min=0))  # (B, L).
-            return True, indices
+            return True, None, indices
         # Take full windows first.
-        n_indices = min(max(int(round((l_valid) * self._loss_subset)), 1), (l_valid))
+        n_indices = min(max(int(round((l_valid) * self._loss_subset)), 1), l_valid)
         mask = torch.arange(l_valid, device=inputs.device)[None] + tail < inputs.seq_lens[:, None]  # (B, L).
         weights = torch.rand(b, l_valid, device=inputs.device) * mask
         subset_indices = weights.topk(n_indices, dim=1)[1].sort(dim=1)[0]  # (B, I).
         lengths = (subset_indices + tail < inputs.seq_lens[:, None]).sum(1)
-        return False, PaddedBatch(subset_indices, lengths)
+        if self._loss_valid_only:
+            full_indices_mask = None
+        else:
+            full_indices_mask = subset_indices + self._prefetch_k < inputs.seq_lens[:, None]
+        return False, full_indices_mask, PaddedBatch(subset_indices, lengths)
 
     def extract_structured_windows(self, inputs):
         """Extract windows with shape (B, L - k, k + 1) from inputs with shape (B, L)."""
@@ -368,7 +377,7 @@ class DetectionLoss(NextKLoss):
             windows = {name: window[:, :l - k] for name, window in windows.items()}
             windows_lengths = (lengths - k).clip(min=0)
         else:
-            # Pad partial windows with out of horizon.
+            # Pad partial windows with out-of-horizon.
             mask = torch.arange(l, device=device)[:, None] + torch.arange(k + 1, device=device) >= l  # (L, k + 1)
             windows[self._timestamps_field].masked_fill_(mask[None], inf_ts)
             windows_lengths = lengths
@@ -484,7 +493,7 @@ class DetectionLoss(NextKLoss):
                               torch.minimum(outputs.seq_lens, target_windows.seq_lens))  # (B, L', K, P).
         assert (target_windows.seq_lens == outputs.seq_lens).all()
 
-        full, indices = self.get_loss_indices(inputs)
+        full, full_indices_mask, indices = self.get_loss_indices(inputs)
         indices = PaddedBatch(indices.payload[:, :l],
                               (indices.payload < target_windows.seq_lens[:, None]).sum(1))
         if not full:
@@ -502,4 +511,4 @@ class DetectionLoss(NextKLoss):
             outputs, target_windows, indices
         ) # (B, I, K) with indices in the range [-1, L - 1].
 
-        return indices, matching, losses, metrics
+        return indices, full_indices_mask, matching, losses, metrics
