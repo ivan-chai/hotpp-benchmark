@@ -41,7 +41,7 @@ def calibrate(conf, model, dm):
 @hydra.main(version_base="1.2", config_path=None)
 def main(conf):
     OmegaConf.set_struct(conf, False)
-    conf.pop("logger")
+    conf.pop("logger", None)
 
     model = hydra.utils.instantiate(conf.module)
     dm = hydra.utils.instantiate(conf.data_module)

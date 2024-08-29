@@ -54,6 +54,7 @@ class NextItemLoss(torch.nn.Module):
         Args:
             inputs: Input features with shape (B, L, *).
             outputs: Model outputs with shape (B, L, *, D) or (B, 1, *, D).
+                Outputs can be dictionary with predictions for particular fields.
             states (unused): Hidden model states with shape (N, B, L, *, D), where N is the number of layers.
             reduction: `mean` or `none`.
 
@@ -61,7 +62,8 @@ class NextItemLoss(torch.nn.Module):
             Losses dict and metrics dict.
         """
         # Compute losses. It is assumed that predictions lengths are equal to targets lengths.
-        outputs = self._split_outputs(outputs)
+        if not isinstance(outputs, dict):
+            outputs = self._split_outputs(outputs)
         mask = inputs.seq_len_mask.bool() if (inputs.seq_lens != inputs.shape[1]).any() else None
         losses = {}
         metrics = {}

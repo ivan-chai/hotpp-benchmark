@@ -17,13 +17,17 @@ module:
     loss_subset: 0.5
     prefetch_factor: 0.5
     horizon: ${metric.horizon}
+    next_item_adapter:
+      timestamps: mode
+      labels: mean
+      _presence: mode
     next_item_loss:
       _target_: hotpp.losses.NextItemLoss
       losses:
         _presence:
           _target_: hotpp.losses.BinaryCrossEntropyLoss
         timestamps:
-          _target_: hotpp.losses.TimeMSELoss
+          _target_: hotpp.losses.TimeMAELoss
           delta: start
           max_delta: ${max_duration}
           smoothing: ${time_smoothing}
@@ -32,5 +36,5 @@ module:
           num_classes: ${num_classes}
     match_weights:
       _presence: 4
-      timestamps: 0.5
+      timestamps: 2
       labels: 1

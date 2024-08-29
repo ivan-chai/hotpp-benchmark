@@ -17,6 +17,10 @@ module:
     loss_subset: 0.33
     prefetch_factor: 0.5
     horizon: ${metric.horizon}
+    next_item_adapter:
+      timestamps: mode
+      labels: mean
+      _presence: mode
     next_item_loss:
       _target_: hotpp.losses.NextItemLoss
       losses:

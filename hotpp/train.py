@@ -86,21 +86,27 @@ def train(conf):
     model = hydra.utils.instantiate(conf.module)
     dm = hydra.utils.instantiate(conf.data_module)
 
-    trainer = get_trainer(conf)
-    trainer.fit(model, dm, ckpt_path=resume_from_checkpoint)
+    if conf.get("test_only", False):
+        if "model_path" not in conf:
+            raise ValueError("Need model_path for a model initialization")
+        logger.info(f"Load weights from '{conf.model_path}'")
+        model.load_state_dict(torch.load(conf.model_path))
+    else:
+        trainer = get_trainer(conf)
+        trainer.fit(model, dm, ckpt_path=resume_from_checkpoint)
 
-    checkpoint_callback = trainer.checkpoint_callback
-    if checkpoint_callback is not None:
-        checkpoint_path = checkpoint_callback.best_model_path
-        if not checkpoint_path:
-            logging.warning("Empty checkpoint path")
-        else:
-            model.load_state_dict(torch.load(checkpoint_path)["state_dict"])
-            logging.info(f"Loaded the best model from '{checkpoint_callback.best_model_path}'")
+        checkpoint_callback = trainer.checkpoint_callback
+        if checkpoint_callback is not None:
+            checkpoint_path = checkpoint_callback.best_model_path
+            if not checkpoint_path:
+                logging.warning("Empty checkpoint path")
+            else:
+                model.load_state_dict(torch.load(checkpoint_path)["state_dict"])
+                logging.info(f"Loaded the best model from '{checkpoint_callback.best_model_path}'")
 
-    if "model_path" in conf:
-        torch.save(model.state_dict(), conf.model_path)
-        logger.info(f"Model weights saved to '{conf.model_path}'")
+        if "model_path" in conf:
+            torch.save(model.state_dict(), conf.model_path)
+            logger.info(f"Model weights saved to '{conf.model_path}'")
 
     metrics = test(conf, model, dm)
     return model, metrics

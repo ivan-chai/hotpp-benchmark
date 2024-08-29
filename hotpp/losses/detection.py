@@ -2,6 +2,8 @@ import torch
 
 from torch_linear_assignment import batch_linear_assignment
 from hotpp.data import PaddedBatch
+from hotpp.utils.torch import deterministic
+from .common import ScaleGradient
 from .next_item import NextItemLoss
 from .next_k import NextKLoss
 
@@ -10,33 +12,58 @@ class DetectionLoss(NextKLoss):
     """The loss similar to Next-K, but with the matching loss.
 
     Args:
-        k: The maximum number of future events to predict.
-        horizon: Predicted interval.
-        losses: Mapping from the feature name to the loss function.
-        loss_subset: The fraction of positions to compute loss for.
-        prefetch_factor: Extract times more targets than predicted events (equal to `k`) for scoring.
+        next_item_loss: A base NextItemLoss for pairwise comparisons.
+        k: The maximum number of future events to predict
+            (must be larger than the average horizon sequence length).
+        horizon: Predicted time interval.
+        timestamps_field: The name of timestamps field used for ordering.
+        labels_field: The name of the labels field.
+        loss_subset: The fraction of indices to compute the loss for
+            (controls trade-off between the training speed and quality).
+        drop_partial_windows: Compute the loss only for full-horizon ground truth windows.
+            Turn off for datasets with short sequences.
+        prefetch_factor: Extract times more targets than predicted events (equal to `k`) for matching.
+        match_weights: Weights of particular fields in matching cost computation.
         momentum: Activation statistics momentum value.
+        next_item_adapter: String or dictionary with adapter names used for next-item predictions
+            (either `first`, `mean`, or `mode`).
     """
     def __init__(self, next_item_loss, k, horizon,
-                 timestamps_field="timestamps", loss_subset=1, prefetch_factor=1,
-                 match_weights=None, momentum=0.1):
+                 timestamps_field="timestamps", labels_field="labels",
+                 loss_subset=1, drop_partial_windows=False, prefetch_factor=1,
+                 match_weights=None, momentum=0.1,
+                 next_item_adapter="mean"):
         super().__init__(
             next_item_loss=next_item_loss,
             k=k,
             timestamps_field=timestamps_field
         )
+        self._labels_field = labels_field
         self._horizon = horizon
         self._loss_subset = loss_subset
-        self._prefetch_factor = prefetch_factor
+        self._drop_partial_windows = drop_partial_windows
         self._match_weights = match_weights
         if self.get_delta_type(timestamps_field) != "start":
             raise ValueError("Need `start` delta time for the detection loss.")
         self._momentum = momentum
+        self._next_item_adapter = next_item_adapter
+        self._prefetch_k = int(round(self._k * prefetch_factor))
+
+        # Calibration statistics used for prediction.
         self.register_buffer("_matching_priors", torch.ones(k))
         self.register_buffer("_matching_thresholds", torch.zeros(k))
 
-    def update_matching_statistics(self, matching, presence_logits):
-        # (B, I, K), (B, I, K).
+    def update_calibration_statistics(self, matching, presence_logits):
+        """Update calibration statistics.
+
+        The method uses exponential smoothing to track head matching frequencies.
+        These frequencies are used to choose the optimal presence threshold during inference.
+
+        Args:
+            matching: Loss matching with shape (B, L1, K).
+            presence_logits: Predicted presence logits with shape (B, L2, K).
+        """
+        # (B, L1, K), (B, L2, K).
         matching = matching.payload[matching.seq_len_mask]  # (V, K).
         if len(matching) > 0:
             means = (matching >= 0).float().mean(0)  # (K).
@@ -94,7 +121,7 @@ class DetectionLoss(NextKLoss):
             with torch.no_grad():
                 b, l = outputs.shape
                 reshaped_outputs = PaddedBatch(outputs.payload.flatten(0, 1).reshape(-1, self._k, self._next_item.input_size),
-                                            torch.full([b * l], self._k, dtype=torch.long, device=outputs.device))  # (BL, K, P).
+                                               torch.full([b * l], self._k, dtype=torch.long, device=outputs.device))  # (BL, K, P).
                 reshaped_states = states.flatten(1, 2).unsqueeze(2) if states is not None else None  # (N, BL, 1, D).
                 presence_logits = self._next_item.predict_next(
                     reshaped_outputs, reshaped_states,
@@ -103,9 +130,10 @@ class DetectionLoss(NextKLoss):
                 ).payload["_presence_logit"]  # (BL, K, 1).
                 presence_logits = presence_logits.reshape(b, l, self._k)  # (B, L, K).
                 presence_logits = PaddedBatch(presence_logits, outputs.seq_lens)
-                self.update_matching_statistics(matching, presence_logits)
+                full_matching = PaddedBatch(matching.payload, indices.payload["full_mask"].sum(1))
+                self.update_calibration_statistics(full_matching, presence_logits)
 
-        # Compute losses.
+        # Compute matching losses.
         if (matching.payload < 0).all():
             losses = {name: outputs.payload.mean() * 0 for name in self.fields}
             return losses, matching_metrics
@@ -138,13 +166,80 @@ class DetectionLoss(NextKLoss):
         Returns:
             PaddedBatch with predictions with shape (B, L) or (B, L, C) for logits.
         """
-        sequences = self.predict_next_k(outputs, states,
-                                        fields=fields,
-                                        logits_fields_mapping=logits_fields_mapping)  # (B, L, K) or (B, L, K, C).
+        logits_fields_mapping = dict(logits_fields_mapping or {})
+        logits_fields_mapping["_presence"] = "_presence_logit"
+        if self._labels_field not in logits_fields_mapping:
+            logits_fields_mapping[self._labels_field] = "_labels_logits"
+        b, l = outputs.shape
+        lengths = outputs.seq_lens
+        outputs = PaddedBatch(outputs.payload.reshape(b * l, self._k, self._next_item.input_size),
+                              outputs.seq_lens)  # (BL, K, P).
+        states = states.reshape(len(states), b * l, 1, -1)  # (N, BL, 1, D).
+        next_values = self._next_item.predict_next(outputs, states,
+                                                   fields=fields,
+                                                   logits_fields_mapping=logits_fields_mapping)  # (BL, K) or (BL, K, C).
 
-        # Extract first.
-        next_values = PaddedBatch({k: v[:, :, 0] for k, v in sequences.payload.items()},
-                                  sequences.seq_lens)
+        # Reshape and sort.
+        sequences = PaddedBatch({k: v.reshape(b, l, self._k, *v.shape[2:]) for k, v in next_values.payload.items()},
+                                lengths)  # (B, L, K) or (B, L, K, C).
+        presence = sequences.payload[logits_fields_mapping["_presence"]].squeeze(-1) > self._matching_thresholds  # (B, L, K).
+        sequences = PaddedBatch(sequences.payload | {"_presence": presence}, sequences.seq_lens)
+        self.revert_delta_and_sort_time_inplace(sequences)
+        # Sequences contain time shift from the last seen timestamps.
+        # Events are sorted by timestamp.
+
+        # Prepare data.
+        presence = sequences.payload["_presence"]
+        presence_logits = sequences.payload[logits_fields_mapping["_presence"]].squeeze(-1)  # (B, L, K).
+        log_presence = torch.nn.functional.logsigmoid(presence_logits)  # (B, L, K).
+        log_not_presence = torch.nn.functional.logsigmoid(-presence_logits)  # (B, L, K).
+        assert log_presence.ndim == 3
+        log_probs = torch.nn.functional.log_softmax(
+            sequences.payload[logits_fields_mapping[self._labels_field]], dim=-1)  # (B, L, K, C).
+        times = sequences.payload[self._timestamps_field]  # (B, L, K).
+
+        # Compute probability of each event being the first.
+        # log_cum_prod is equal to log of 1, (1 - p1), (1 - p1)(1 - p2), ...
+        roll_log_not_presence = torch.cat([torch.zeros_like(log_not_presence[..., :1]), log_not_presence[..., :-1]], -1)   # (B, L, K).
+        with deterministic(False):
+            log_cum_prod = roll_log_not_presence.cumsum(-1)  # (B, L, K).
+        # weights are equal to normalized p1, (1 - p1)p2, (1 - p1)(1 - p2)p3, ...
+        log_weights = torch.nn.functional.log_softmax(log_cum_prod + log_presence, -1)  # (B, L, K).
+
+        # Find most probable event.
+        first_indices = (torch.arange(presence.shape[-1] - 1, -1, -1, device=presence.device) * presence).argmax(-1)  # (B, L).
+        top_indices = (log_probs + log_weights.unsqueeze(-1)).max(-1)[0].argmax(-1)  # (B, L).
+
+        # Predict next items.
+        if isinstance(self._next_item_adapter, str):
+            time_adapter = self._next_item_adapter
+            label_adapter = self._next_item_adapter
+        else:
+            time_adapter = self._next_item_adapter[self._timestamps_field]
+            label_adapter = self._next_item_adapter[self._labels_field]
+        if time_adapter == "first":
+            next_times = times.take_along_dim(first_indices.unsqueeze(-1), -1).squeeze(-1)  # (B, L).
+        elif time_adapter == "mode":
+            next_times = times.take_along_dim(top_indices.unsqueeze(-1), -1).squeeze(-1)  # (B, L).
+        elif time_adapter == "mean":
+            next_times = (times * log_weights.exp()).sum(-1)  # (B, L).
+        else:
+            raise ValueError(f"Unknown prediction type: {time_prediction}.")
+        if label_adapter == "first":
+            next_log_probs = (log_probs + log_weights.unsqueeze(-1)).take_along_dim(first_indices.unsqueeze(-1).unsqueeze(-1), -2).squeeze(-2)  # (B, L, C).
+        elif label_adapter == "mode":
+            next_log_probs = (log_probs + log_weights.unsqueeze(-1)).take_along_dim(top_indices.unsqueeze(-1).unsqueeze(-1), -2).squeeze(-2)  # (B, L, C).
+        elif label_adapter == "mean":
+            next_log_probs = (log_probs + log_weights.unsqueeze(-1)).logsumexp(2)  # (B, L, C).
+        else:
+            raise ValueError(f"Unknown prediction type: {label_prediction}.")
+
+        next_values = PaddedBatch({
+            self._timestamps_field: next_times,
+            self._labels_field: next_log_probs.argmax(-1),  # (B, L).
+            logits_fields_mapping[self._labels_field]: next_log_probs  # (B, L, C).
+        }, lengths)
+
         return next_values
 
     def predict_next_k(self, outputs, states, fields=None, logits_fields_mapping=None):
@@ -202,16 +297,16 @@ class DetectionLoss(NextKLoss):
         """
         if isinstance(batch, torch.Tensor):
             b, l = indices.shape
-            return batch.take_along_dim(indices.payload.reshape(b, l, *([1] * (batch.ndim - 2))), 1)
+            return batch.take_along_dim(indices.payload["index"].reshape(b, l, *([1] * (batch.ndim - 2))), 1)
         payload, lengths = batch.payload, batch.seq_lens
         if isinstance(payload, torch.Tensor):
             payload = self.select_subset(payload, indices)
         else:
             payload = {k: (self.select_subset(v, indices) if k in batch.seq_names else v)
                        for k, v in payload.items()}
-        if indices.payload.numel() > 0:
-            valid, subset_lengths = torch.min((indices.payload < lengths[:, None]).long(), dim=1)  # (B), (B).
-            subset_lengths[valid.bool()] = indices.shape[1]
+        if indices.payload["index"].numel() > 0:
+            valid_mask = indices.payload["full_mask"] if self._drop_partial_windows else indices.seq_len_mask
+            subset_lengths = valid_mask.sum(1)
         else:
             subset_lengths = torch.zeros_like(lengths)
         return PaddedBatch(payload, subset_lengths)
@@ -223,53 +318,59 @@ class DetectionLoss(NextKLoss):
            inputs: Input features with shape (B, L).
 
         Returns:
-           full: Flag indicating full set of indices
            indices: Batch of indices with shape (B, I) or None if loss must be evaluated at each step.
         """
-        if self._loss_subset >= 1:
-            b, l = inputs.shape
-            indices = PaddedBatch(torch.arange(l, device=inputs.device)[None].repeat(b, 1),
-                                  inputs.seq_lens)  # (B, L).
-            return True, indices
         b, l = inputs.shape
+        k = self._prefetch_k
         n_indices = min(max(int(round(l * self._loss_subset)), 1), l)
-        weights = torch.rand(b, l, device=inputs.device) * inputs.seq_len_mask
-        subset_indices = weights.topk(n_indices, dim=1)[1].sort(dim=1)[0]  # (B, I).
-        lengths = (subset_indices < inputs.seq_lens[:, None]).sum(1)
-        return False, PaddedBatch(subset_indices, lengths)
+        # Take full windows first.
+        mask = torch.arange(l, device=inputs.device)[None] + k < inputs.seq_lens[:, None]  # (B, L).
+        weights = torch.rand(b, l, device=inputs.device) * mask
+        indices = weights.topk(n_indices, dim=1)[1].sort(dim=1)[0]  # (B, I).
+        lengths = (indices < inputs.seq_lens[:, None]).sum(1)
+        full_mask = indices + k < inputs.seq_lens[:, None]
+        return PaddedBatch({"index": indices,
+                            "full_mask": full_mask},
+                           lengths)
 
     def extract_structured_windows(self, inputs):
-        """Extract windows with shape (B, L - k, k + 1) from inputs with shape (B, L)."""
+        """Extract windows with shape (B, L, k + 1) from inputs with shape (B, L)."""
         # Join targets before windowing.
         b, l = inputs.shape
         device = inputs.device
         fields = list(sorted(set(self.fields) - {"_presence"}))
-        inputs, lengths = dict(inputs.payload), inputs.seq_lens
-        joined = torch.stack([inputs[name] for name in fields], -1)  # (B, L, N).
+        inputs, lengths, length_mask = dict(inputs.payload), inputs.seq_lens, inputs.seq_len_mask
+
+        # Pad events with out-of-horizon.
+        inf_ts = inputs[self._timestamps_field][length_mask].max().item() + self._horizon + 1
+        inputs[self._timestamps_field].masked_fill_(~length_mask, inf_ts)
 
         # Extract windows.
-        k = int(round(self._k * self._prefetch_factor))
-        joined_windows = self.extract_windows(joined, k + 1)   # (B, L - k, k + 1, N).
-        assert joined_windows.shape[:3] == (b, max(l - k, 0), k + 1)
-        windows_lengths = (lengths - k).clip(min=0)
-        if windows_lengths.numel() == 0:
-            return PaddedBatch(torch.full((b, 0, self._k), -1, device=device),
-                               torch.zeros(b, dtype=torch.long, device=device))
+        k = self._prefetch_k
+        joined = torch.stack([inputs[name] for name in fields], -1)  # (B, L, N).
+        d = joined.shape[-1]
+        parts = [joined.roll(-i, 1) for i in range(k + 1)]
+        joined_windows = torch.stack(parts, 2)  # (B, L, k + 1, N).
+        assert joined_windows.shape[:3] == (b, l, k + 1)
 
         # Split.
         windows = {}
         for i, name in enumerate(fields):
-            windows[name] = joined_windows[..., i].to(inputs[name].dtype)
-        return PaddedBatch(windows, windows_lengths)
+            windows[name] = joined_windows[..., i].to(inputs[name].dtype)  # (B, L, k + 1).
 
-    def match_targets(self, outputs: PaddedBatch, targets: PaddedBatch, subset_indices: PaddedBatch):
+        # Pad partial windows with out-of-horizon.
+        mask = torch.arange(l, device=device)[:, None] + torch.arange(k + 1, device=device) >= l  # (L, k + 1)
+        windows[self._timestamps_field].masked_fill_(mask[None], inf_ts)
+
+        return PaddedBatch(windows, lengths)
+
+    def match_targets(self, outputs: PaddedBatch, targets: PaddedBatch):
         """Find closest prediction to each target.
 
         Args:
           outputs: Model outputs with shape (B, L, K, D).
           targets: Mapping from a field name to a tensor with target windows (B, L, 1 + T).
             The first value in each window is the current step, which is ignored during matching.
-          subset_indices: Align matching indices with original sequence (before subsetting).
 
         Returns:
           - Relative matching with shape (B, L, K), with values in the range [-1, T - 1]
@@ -359,32 +460,34 @@ class DetectionLoss(NextKLoss):
 
         Returns:
             A tuple of:
-                - indices with shape (B, I).
+                - indices of last seen event with shape (B, I).
                 - relative matching with shape (B, I, K).
                 - losses with shape (B, I, K, T).
                 - metrics dictionary.
         """
-        target_windows = self.extract_structured_windows(inputs)  # (B, L', k + 1), where first event is an input for the model.
-        b, l = target_windows.shape
-        # Truncate outputs to the number of windows and extract k predictions.
-        outputs = PaddedBatch(outputs.payload[:, :l].reshape(b, min(l, outputs.shape[1]), self._k, self._next_item.input_size),
-                              torch.minimum(outputs.seq_lens, target_windows.seq_lens))  # (B, L', K, P).
+        b, l = inputs.shape
+        target_windows = self.extract_structured_windows(inputs)  # (B, L, k + 1), where first event is an input for the model.
+        assert target_windows.shape == (b, l)
+
+        # Reshape outputs.
+        outputs = PaddedBatch(outputs.payload.reshape(b, l, self._k, self._next_item.input_size),
+                              outputs.seq_lens)  # (B, L, K, P).
         assert (target_windows.seq_lens == outputs.seq_lens).all()
 
-        full, indices = self.get_loss_indices(target_windows)
-        if not full:
-            target_windows = self.select_subset(target_windows, indices)  # (B, I, k + 1).
-            outputs = self.select_subset(outputs, indices)  # (B, I, K, P).
+        # Subset outputs and targets.
+        indices = self.get_loss_indices(inputs)
+        target_windows = self.select_subset(target_windows, indices)  # (B, I, k + 1).
+        outputs = self.select_subset(outputs, indices)  # (B, I, K, P).
 
+        # Compute matching and return.
         l = outputs.shape[1]
         if l == 0:
             matching = PaddedBatch(torch.full([b, l, self._k], -1, dtype=torch.long, device=inputs.device),
                                    target_windows.seq_lens)
             return indices, matching, {}, {}
 
-        #with torch.no_grad():
         matching, losses, metrics = self.match_targets(
-            outputs, target_windows, indices
+            outputs, target_windows
         ) # (B, I, K) with indices in the range [-1, L - 1].
 
         return indices, matching, losses, metrics
