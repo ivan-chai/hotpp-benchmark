@@ -15,7 +15,6 @@ module:
     _target_: hotpp.losses.DetectionLoss
     k: 64
     loss_subset: 0.5
-    drop_partial_windows: false
     prefetch_factor: 0.5
     horizon: ${metric.horizon}
     next_item_adapter:

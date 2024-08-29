@@ -32,7 +32,7 @@ class DetectionLoss(NextKLoss):
     """
     def __init__(self, next_item_loss, k, horizon,
                  timestamps_field="timestamps", labels_field="labels",
-                 loss_subset=1, drop_partial_windows=True, prefetch_factor=1,
+                 loss_subset=1, drop_partial_windows=False, prefetch_factor=1,
                  match_weights=None, momentum=0.1,
                  next_item_adapter="mean",
                  next_item_loss_weight=0):
