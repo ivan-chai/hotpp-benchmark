@@ -27,15 +27,12 @@ class DetectionLoss(NextKLoss):
         momentum: Activation statistics momentum value.
         next_item_adapter: String or dictionary with adapter names used for next-item predictions
             (either `first`, `mean`, or `mode`).
-        next_item_loss_weight: The weight of the adapter-based next-item loss.
-            Can be a dictionary with weights for each field.
     """
     def __init__(self, next_item_loss, k, horizon,
                  timestamps_field="timestamps", labels_field="labels",
                  loss_subset=1, drop_partial_windows=False, prefetch_factor=1,
                  match_weights=None, momentum=0.1,
-                 next_item_adapter="mean",
-                 next_item_loss_weight=0):
+                 next_item_adapter="mean"):
         super().__init__(
             next_item_loss=next_item_loss,
             k=k,
@@ -50,13 +47,6 @@ class DetectionLoss(NextKLoss):
             raise ValueError("Need `start` delta time for the detection loss.")
         self._momentum = momentum
         self._next_item_adapter = next_item_adapter
-        try:
-            self._next_item_loss_weight = dict(next_item_loss_weight)
-        except TypeError:
-            self._next_item_loss_weight = {
-                timestamps_field: next_item_loss_weight,
-                labels_field: next_item_loss_weight
-            }
         self._prefetch_k = int(round(self._k * prefetch_factor))
 
         # Calibration statistics used for prediction.
@@ -162,20 +152,6 @@ class DetectionLoss(NextKLoss):
         losses = {k: v[matching_mask].mean() for k, v in losses.items()}
         losses["_presence"] = presence_losses[index_mask].mean()
 
-        # Compute next-item loss.
-        if any(weight > 0 for weight in self._next_item_loss_weight.values()):
-            predictions = self.predict_next(outputs, states,
-                                            fields=(self._timestamps_field, self._labels_field),
-                                            logits_fields_mapping={self._labels_field: "_labels_logits"})
-            predictions = {
-                self._timestamps_field: predictions.payload[self._timestamps_field].unsqueeze(-1),  # (B, L, 1).
-                self._labels_field: predictions.payload["_labels_logits"]  # (B, L, C).
-            }
-            next_item_losses, _ = self._next_item(inputs, predictions, states)
-            field = self._timestamps_field
-            losses[f"next_item_{field}"] = ScaleGradient.apply(next_item_losses[field], self._next_item_loss_weight[self._timestamps_field])
-            field = self._labels_field
-            losses[f"next_item_{field}"] = ScaleGradient.apply(next_item_losses[field], self._next_item_loss_weight[self._labels_field])
         return losses, matching_metrics
 
     def predict_next(self, outputs, states, fields=None, logits_fields_mapping=None):
@@ -215,7 +191,6 @@ class DetectionLoss(NextKLoss):
         # Prepare data.
         presence = sequences.payload["_presence"]
         presence_logits = sequences.payload[logits_fields_mapping["_presence"]].squeeze(-1)  # (B, L, K).
-        presence_logits = presence_logits.detach()  # Don't pass gradient to presence during next-item loss computation.
         log_presence = torch.nn.functional.logsigmoid(presence_logits)  # (B, L, K).
         log_not_presence = torch.nn.functional.logsigmoid(-presence_logits)  # (B, L, K).
         assert log_presence.ndim == 3
