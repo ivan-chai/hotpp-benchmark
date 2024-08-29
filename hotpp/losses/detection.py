@@ -63,6 +63,8 @@ class DetectionLoss(NextKLoss):
         self.register_buffer("_matching_priors", torch.ones(k))
         self.register_buffer("_matching_thresholds", torch.zeros(k))
 
+        self.next_time_scale = torch.nn.Parameter(torch.ones([])) if self._next_item_loss_weight[timestamps_field] > 0 else 1
+
     def update_calibration_statistics(self, matching, presence_logits):
         """Update calibration statistics.
 
@@ -166,16 +168,25 @@ class DetectionLoss(NextKLoss):
         if any(weight > 0 for weight in self._next_item_loss_weight.values()):
             predictions = self.predict_next(outputs, states,
                                             fields=(self._timestamps_field, self._labels_field),
-                                            logits_fields_mapping={self._labels_field: "_labels_logits"})
-            predictions = {
-                self._timestamps_field: predictions.payload[self._timestamps_field].unsqueeze(-1),  # (B, L, 1).
-                self._labels_field: predictions.payload["_labels_logits"]  # (B, L, C).
-            }
-            next_item_losses, _ = self._next_item(inputs, predictions, states)
-            field = self._timestamps_field
-            losses[f"next_item_{field}"] = ScaleGradient.apply(next_item_losses[field], self._next_item_loss_weight[self._timestamps_field])
-            field = self._labels_field
-            losses[f"next_item_{field}"] = ScaleGradient.apply(next_item_losses[field], self._next_item_loss_weight[self._labels_field])
+                                            logits_fields_mapping={self._labels_field: "_labels_logits"})  # (B, L).
+            # A workaround for "start" time delta scheme in the next-item loss function.
+            fixed_predictions = {
+                self._timestamps_field: predictions.payload[self._timestamps_field][:, :-1].flatten()[:, None, None],  # (BL, 1, 1).
+                self._labels_field: predictions.payload["_labels_logits"][:, :-1].flatten(0, 1).unsqueeze(1)  # (BL, 1, C).
+            }  # (BL, 1, P).
+            b, l = inputs.shape
+            fixed_times = inputs.payload[self._timestamps_field]  # (B, L).
+            fixed_times = torch.stack([fixed_times[:, :-1], fixed_times[:, 1:]], 2).flatten(0, 1)  # (BL, 2).
+            fixed_inputs = PaddedBatch({self._timestamps_field: fixed_times,
+                                        self._labels_field: inputs.payload[self._labels_field][:, 1:].flatten(0, 1).unsqueeze(1).repeat(1, 2)},
+                                       torch.full([b * (l - 1)], 2, device=inputs.device))  # (BL, 2).
+            fixed_states = states[:, :, :-1].flatten(1, 2).unsqueeze(2) if states is not None else None  # (N, BL, 1, D).
+
+            next_item_losses, _ = self._next_item(fixed_inputs, fixed_predictions, fixed_states, reduction="none")  # (BL, 1).
+            mask = inputs.seq_len_mask[:, 1:].flatten()  # (BL).
+            next_item_losses = {k: v[mask].mean() for k, v in next_item_losses.items()}
+            for field in [self._timestamps_field, self._labels_field]:
+                losses[f"next_item_{field}"] = ScaleGradient.apply(next_item_losses[field], self._next_item_loss_weight[field])
         return losses, matching_metrics
 
     def predict_next(self, outputs, states, fields=None, logits_fields_mapping=None):
@@ -250,6 +261,7 @@ class DetectionLoss(NextKLoss):
             next_times = (times * log_weights.exp()).sum(-1)  # (B, L).
         else:
             raise ValueError(f"Unknown prediction type: {time_prediction}.")
+        next_times = self.next_time_scale * next_times
         if label_adapter == "first":
             next_log_probs = (log_probs + log_weights.unsqueeze(-1)).take_along_dim(first_indices.unsqueeze(-1).unsqueeze(-1), -2).squeeze(-2)  # (B, L, C).
         elif label_adapter == "mode":

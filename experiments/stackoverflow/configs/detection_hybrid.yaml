@@ -22,7 +22,7 @@ module:
       labels: mean
       _presence: mode
     next_item_loss_weight:
-      timestamps: 0
+      timestamps: 1
       labels: 1
     next_item_loss:
       _target_: hotpp.losses.NextItemLoss
