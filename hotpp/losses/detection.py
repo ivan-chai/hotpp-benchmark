@@ -215,6 +215,7 @@ class DetectionLoss(NextKLoss):
         # Prepare data.
         presence = sequences.payload["_presence"]
         presence_logits = sequences.payload[logits_fields_mapping["_presence"]].squeeze(-1)  # (B, L, K).
+        presence_logits = presence_logits.detach()  # Don't pass gradient to presence during next-item loss computation.
         log_presence = torch.nn.functional.logsigmoid(presence_logits)  # (B, L, K).
         log_not_presence = torch.nn.functional.logsigmoid(-presence_logits)  # (B, L, K).
         assert log_presence.ndim == 3
