@@ -12,25 +12,30 @@ class DetectionLoss(NextKLoss):
     """The loss similar to Next-K, but with the matching loss.
 
     Args:
-        k: The maximum number of future events to predict.
-        horizon: Predicted interval.
-        losses: Mapping from the feature name to the loss function.
-        loss_subset: The fraction of positions to compute loss for.
-        loss_valid_only: Skip tails and evaluate only full windows. Turn off for datasets with short sequences.
-        prefetch_factor: Extract times more targets than predicted events (equal to `k`) for scoring.
-        match_weights: Weights of particular fields in matching.
+        next_item_loss: A base NextItemLoss for pairwise comparisons.
+        k: The maximum number of future events to predict
+            (must be larger than the average horizon sequence length).
+        horizon: Predicted time interval.
+        timestamps_field: The name of timestamps field used for ordering.
+        labels_field: The name of the labels field.
+        loss_subset: The fraction of indices to compute the loss for
+            (controls trade-off between the training speed and quality).
+        loss_valid_only: Compute the loss only for full-horizon ground truth windows.
+            Turn off for datasets with short sequences.
+        prefetch_factor: Extract times more targets than predicted events (equal to `k`) for matching.
+        match_weights: Weights of particular fields in matching cost computation.
         momentum: Activation statistics momentum value.
-        next_item_adapter: String or dictionary for different fields (`first`, `mean`, or `mode`).
-        next_item_timestamps_weight: The weight of the adapter-based next-item timestamps loss.
-        next_item_labels_weight: The weight of the adapter-based next-item labels loss.
+        next_item_adapter: String or dictionary with adapter names used for next-item predictions
+            (either `first`, `mean`, or `mode`).
+        next_item_loss_weight: The weight of the adapter-based next-item loss.
+            Can be a dictionary with weights for each field.
     """
     def __init__(self, next_item_loss, k, horizon,
                  timestamps_field="timestamps", labels_field="labels",
                  loss_subset=1, loss_valid_only=True, prefetch_factor=1,
                  match_weights=None, momentum=0.1,
                  next_item_adapter="mean",
-                 next_item_timestamps_weight=0,
-                 next_item_labels_weight=0):
+                 next_item_loss_weight=0):
         super().__init__(
             next_item_loss=next_item_loss,
             k=k,
@@ -45,14 +50,24 @@ class DetectionLoss(NextKLoss):
             raise ValueError("Need `start` delta time for the detection loss.")
         self._momentum = momentum
         self._next_item_adapter = next_item_adapter
-        self._next_item_timestamps_weight = next_item_timestamps_weight
-        self._next_item_labels_weight = next_item_labels_weight
+        self._next_item_loss_weight = next_item_loss_weight
         self._prefetch_k = int(round(self._k * prefetch_factor))
+
+        # Calibration statistics used for prediction.
         self.register_buffer("_matching_priors", torch.ones(k))
         self.register_buffer("_matching_thresholds", torch.zeros(k))
 
-    def update_matching_statistics(self, matching, presence_logits):
-        # (B, I, K), (B, I, K).
+    def update_calibration_statistics(self, matching, presence_logits):
+        """Update calibration statistics.
+
+        The method uses exponential smoothing to track head matching frequencies.
+        These frequencies are used to choose the optimal presence threshold during inference.
+
+        Args:
+            matching: Loss matching with shape (B, L1, K).
+            presence_logits: Predicted presence logits with shape (B, L2, K).
+        """
+        # (B, L1, K), (B, L2, K).
         matching = matching.payload[matching.seq_len_mask]  # (V, K).
         if len(matching) > 0:
             means = (matching >= 0).float().mean(0)  # (K).
@@ -123,7 +138,7 @@ class DetectionLoss(NextKLoss):
                     stat_matching = PaddedBatch(matching.payload, full_indices_mask.sum(1))
                 else:
                     stat_matching = matching
-                self.update_matching_statistics(stat_matching, presence_logits)
+                self.update_calibration_statistics(stat_matching, presence_logits)
 
         # Compute matching losses.
         if (matching.payload < 0).all():
@@ -145,7 +160,11 @@ class DetectionLoss(NextKLoss):
         losses["_presence"] = presence_losses[index_mask].mean()
 
         # Compute next-item loss.
-        if (self._next_item_timestamps_weight > 0) or (self._next_item_labels_weight > 0):
+        next_item_weights = ({self._timestamps_field: self._next_item_loss_weight,
+                              self._labels_field: self._next_item_loss_weight}
+                             if not isinstance(self._next_item_loss_weight, dict)
+                             else self._next_item_loss_weight)
+        if any(weight > 0 for weight in next_item_weights.values()):
             predictions = self.predict_next(outputs, states,
                                             fields=(self._timestamps_field, self._labels_field),
                                             logits_fields_mapping={self._labels_field: "_labels_logits"})
@@ -155,9 +174,9 @@ class DetectionLoss(NextKLoss):
             }
             next_item_losses, _ = self._next_item(inputs, predictions, states)
             field = self._timestamps_field
-            losses[f"next_item_{field}"] = ScaleGradient.apply(next_item_losses[field], self._next_item_timestamps_weight)
+            losses[f"next_item_{field}"] = ScaleGradient.apply(next_item_losses[field], next_item_weights[self._timestamps_field])
             field = self._labels_field
-            losses[f"next_item_{field}"] = ScaleGradient.apply(next_item_losses[field], self._next_item_labels_weight)
+            losses[f"next_item_{field}"] = ScaleGradient.apply(next_item_losses[field], next_item_weights[self._labels_field])
         return losses, matching_metrics
 
     def predict_next(self, outputs, states, fields=None, logits_fields_mapping=None):

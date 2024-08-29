@@ -15,14 +15,15 @@ module:
     _target_: hotpp.losses.DetectionLoss
     k: 48
     loss_subset: 0.25
+    loss_valid_only: false
     prefetch_factor: 0.5
     horizon: ${metric.horizon}
+    next_item_adapter:
+      timestamps: mode
+      labels: mean
+      _presence: mode
     next_item_loss:
       _target_: hotpp.losses.NextItemLoss
-      prediction:
-        timestamps: mode
-        labels: mean
-        _presence: mode
       losses:
         _presence:
           _target_: hotpp.losses.BinaryCrossEntropyLoss
