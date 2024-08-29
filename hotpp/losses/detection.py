@@ -50,7 +50,13 @@ class DetectionLoss(NextKLoss):
             raise ValueError("Need `start` delta time for the detection loss.")
         self._momentum = momentum
         self._next_item_adapter = next_item_adapter
-        self._next_item_loss_weight = next_item_loss_weight
+        try:
+            self._next_item_loss_weight = dict(next_item_loss_weight)
+        except TypeError:
+            self._next_item_loss_weight = {
+                timestamps_field: next_item_loss_weight,
+                labels_field: next_item_loss_weight
+            }
         self._prefetch_k = int(round(self._k * prefetch_factor))
 
         # Calibration statistics used for prediction.
@@ -157,11 +163,7 @@ class DetectionLoss(NextKLoss):
         losses["_presence"] = presence_losses[index_mask].mean()
 
         # Compute next-item loss.
-        next_item_weights = ({self._timestamps_field: self._next_item_loss_weight,
-                              self._labels_field: self._next_item_loss_weight}
-                             if not isinstance(self._next_item_loss_weight, dict)
-                             else self._next_item_loss_weight)
-        if any(weight > 0 for weight in next_item_weights.values()):
+        if any(weight > 0 for weight in self._next_item_loss_weight.values()):
             predictions = self.predict_next(outputs, states,
                                             fields=(self._timestamps_field, self._labels_field),
                                             logits_fields_mapping={self._labels_field: "_labels_logits"})
@@ -171,9 +173,9 @@ class DetectionLoss(NextKLoss):
             }
             next_item_losses, _ = self._next_item(inputs, predictions, states)
             field = self._timestamps_field
-            losses[f"next_item_{field}"] = ScaleGradient.apply(next_item_losses[field], next_item_weights[self._timestamps_field])
+            losses[f"next_item_{field}"] = ScaleGradient.apply(next_item_losses[field], self._next_item_loss_weight[self._timestamps_field])
             field = self._labels_field
-            losses[f"next_item_{field}"] = ScaleGradient.apply(next_item_losses[field], next_item_weights[self._labels_field])
+            losses[f"next_item_{field}"] = ScaleGradient.apply(next_item_losses[field], self._next_item_loss_weight[self._labels_field])
         return losses, matching_metrics
 
     def predict_next(self, outputs, states, fields=None, logits_fields_mapping=None):
