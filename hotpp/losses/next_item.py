@@ -110,6 +110,6 @@ class NextItemLoss(torch.nn.Module):
             loss = self._losses[name]
             result[name] = outputs.payload[..., offset:offset + loss.input_size]
             offset += loss.input_size
-        if offset != self.input_size:
+        if offset != outputs.payload.shape[-1]:
             raise ValueError("Predictions tensor has inconsistent size.")
         return result

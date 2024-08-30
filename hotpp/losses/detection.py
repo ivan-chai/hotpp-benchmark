@@ -216,8 +216,10 @@ class DetectionLoss(NextKLoss):
         next_values = {}
 
         if "head" in adapters:
-            head_outputs = PaddedBatch(outputs.payload[:, :, :self._next_item.input_size], outputs.seq_lens)
-            head_predictions = self._next_item.predict_next(outputs, states, fields, logits_fields_mapping)
+            b, l, _ = outputs.payload.shape
+            head_outputs = outputs.payload.reshape(b, l, self._k, -1)
+            head_outputs = PaddedBatch(head_outputs[:, :, 0], outputs.seq_lens)
+            head_predictions = self._next_item.predict_next(head_outputs, states, fields, logits_fields_mapping)
             for field, adapter in self._next_item_adapter.items():
                 if adapter == "head":
                     if field in fields:
