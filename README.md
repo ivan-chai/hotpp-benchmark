@@ -1,7 +1,4 @@
-<div align="center">
-  <img align="left" src="./docs/logo.png" width="15%">
-  <h1> HoTPP: A Long-Horizon Event Sequence Prediction Benchmark </h1>
-</div>
+<h1> <img align="left" src="./docs/logo.png" width="15%"> HoTPP: A Long-Horizon Event Sequence Prediction Benchmark </h1>
 
 <h4 align="center">
     <p>
