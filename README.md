@@ -8,6 +8,7 @@
         <a href="#Installation">Installation</a> |
         <a href="#Training-and-evaluation">Usage</a> |
         <a href="#Evaluation-results">Results</a> |
+        <a href="#Library-architecture">Extension</a> |
         <a href="#Citation">Citing</a>
     <p>
 </h4>
@@ -21,12 +22,11 @@ Sometimes the following parameters are necessary for successful dependency insta
 CXX=<c++-compiler> CC=<gcc-compiler> pip install .
 ```
 
-# Repository structure
+# Training and evaluation
 The code is divided into the core library and dataset-specific scripts and configuration files.
 
 The dataset-specific part is located in the `experiments` folder. Each subfolder includes data preparation scripts, model configuration files, and a README file. Data files and logs are usually stored in the same directory. All scripts must be executed from the directory of the specific dataset. Refer to the individual README files for more details.
 
-# Training and evaluation
 To train the model, use the following command:
 ```sh
 python3 -m hotpp.train --config-dir configs --config-name <model>
