@@ -17,9 +17,7 @@ module:
     loss_subset: 0.5
     prefetch_factor: 0.5
     horizon: ${metric.horizon}
-    next_item_adapter:
-      timestamps: first
-      labels: first
+    next_item_adapter: head
     next_item_loss_weight:
       timestamps: 4
       labels: 4
