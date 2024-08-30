@@ -26,7 +26,7 @@ class DetectionLoss(NextKLoss):
         match_weights: Weights of particular fields in matching cost computation.
         momentum: Activation statistics momentum value.
         next_item_adapter: String or dictionary with adapter names used for next-item predictions
-            (either `first`, `mean`, or `mode`).
+            (either `head`, `first`, `mean`, `mode` or `label_mode`).
         next_item_loss_weight: The weight of the adapter-based next-item loss.
             Can be a dictionary with weights for each field.
     """
@@ -49,7 +49,13 @@ class DetectionLoss(NextKLoss):
         if self.get_delta_type(timestamps_field) != "start":
             raise ValueError("Need `start` delta time for the detection loss.")
         self._momentum = momentum
-        self._next_item_adapter = next_item_adapter
+        try:
+            self._next_item_adapter = dict(next_item_adapter)
+        except ValueError:
+            self._next_item_adapter = {
+                timestamps_field: next_item_adapter,
+                labels_field: next_item_adapter
+            }
         try:
             self._next_item_loss_weight = dict(next_item_loss_weight)
         except TypeError:
@@ -63,7 +69,8 @@ class DetectionLoss(NextKLoss):
         self.register_buffer("_matching_priors", torch.ones(k))
         self.register_buffer("_matching_thresholds", torch.zeros(k))
 
-        self.next_time_scale = torch.nn.Parameter(torch.ones([])) if self._next_item_loss_weight[timestamps_field] > 0 else 1
+        if self._next_item_adapter[timestamps_field] != "head":
+            self.next_time_scale = torch.nn.Parameter(torch.ones([])) if self._next_item_loss_weight[timestamps_field] > 0 else 1
 
     def update_calibration_statistics(self, matching, presence_logits):
         """Update calibration statistics.
@@ -201,83 +208,105 @@ class DetectionLoss(NextKLoss):
         Returns:
             PaddedBatch with predictions with shape (B, L) or (B, L, C) for logits.
         """
-        logits_fields_mapping = dict(logits_fields_mapping or {})
-        logits_fields_mapping["_presence"] = "_presence_logit"
-        if self._labels_field not in logits_fields_mapping:
-            logits_fields_mapping[self._labels_field] = "_labels_logits"
-        b, l = outputs.shape
-        lengths = outputs.seq_lens
-        outputs = PaddedBatch(outputs.payload.reshape(b * l, self._k, self._next_item.input_size),
-                              outputs.seq_lens)  # (BL, K, P).
-        states = states.reshape(len(states), b * l, 1, -1)  # (N, BL, 1, D).
-        next_values = self._next_item.predict_next(outputs, states,
-                                                   fields=fields,
-                                                   logits_fields_mapping=logits_fields_mapping)  # (BL, K) or (BL, K, C).
+        adapters = set(self._next_item_adapter.values())
+        unknown_adapters = adapters - {"head", "first", "mean", "mode", "label_mode"}
+        if unknown_adapters:
+            raise ValueError(f"Unknown adapters: {unknown_adapters}.")
 
-        # Reshape and sort.
-        sequences = PaddedBatch({k: v.reshape(b, l, self._k, *v.shape[2:]) for k, v in next_values.payload.items()},
-                                lengths)  # (B, L, K) or (B, L, K, C).
-        presence = sequences.payload[logits_fields_mapping["_presence"]].squeeze(-1) > self._matching_thresholds  # (B, L, K).
-        sequences = PaddedBatch(sequences.payload | {"_presence": presence}, sequences.seq_lens)
-        self.revert_delta_and_sort_time_inplace(sequences)
-        # Sequences contain time shift from the last seen timestamps.
-        # Events are sorted by timestamp.
+        next_values = {}
 
-        # Prepare data.
-        presence = sequences.payload["_presence"]
-        presence_logits = sequences.payload[logits_fields_mapping["_presence"]].squeeze(-1)  # (B, L, K).
-        presence_logits = presence_logits.detach()  # Don't pass gradient to presence during next-item loss computation.
-        log_presence = torch.nn.functional.logsigmoid(presence_logits)  # (B, L, K).
-        log_not_presence = torch.nn.functional.logsigmoid(-presence_logits)  # (B, L, K).
-        assert log_presence.ndim == 3
-        log_probs = torch.nn.functional.log_softmax(
-            sequences.payload[logits_fields_mapping[self._labels_field]], dim=-1)  # (B, L, K, C).
-        times = sequences.payload[self._timestamps_field]  # (B, L, K).
+        if "head" in adapters:
+            head_outputs = PaddedBatch(outputs.payload[:, :, :self._next_item.input_size], outputs.seq_lens)
+            head_predictions = self._next_item.predict_next(outputs, states, fields, logits_fields_mapping)
+            for field, adapter in self._next_item_adapter.items():
+                if adapter == "head":
+                    if field in fields:
+                        next_values[field] = head_predictions.payload[field]
+                    logits_field = logits_fields_mapping.get(field, None)
+                    if logits_field:
+                        next_values[logits_field] = head_predictions.payload[logits_field]
 
-        # Compute probability of each event being the first.
-        # log_cum_prod is equal to log of 1, (1 - p1), (1 - p1)(1 - p2), ...
-        roll_log_not_presence = torch.cat([torch.zeros_like(log_not_presence[..., :1]), log_not_presence[..., :-1]], -1)   # (B, L, K).
-        with deterministic(False):
-            log_cum_prod = roll_log_not_presence.cumsum(-1)  # (B, L, K).
-        # weights are equal to normalized p1, (1 - p1)p2, (1 - p1)(1 - p2)p3, ...
-        log_weights = torch.nn.functional.log_softmax(log_cum_prod + log_presence, -1)  # (B, L, K).
+        if adapters - {"head"}:
+            # Add logits to the prediction fields.
+            logits_fields_mapping = dict(logits_fields_mapping or {})
+            for field in ["_presence", self._labels_field]:
+                if field not in logits_fields_mapping:
+                    logits_fields_mapping[field] = field + "_logits"
+            presence_logits_field = logits_fields_mapping["_presence"]
+            labels_logits_field = logits_fields_mapping[self._labels_field]
 
-        # Find most probable event.
-        first_indices = (torch.arange(presence.shape[-1] - 1, -1, -1, device=presence.device) * presence).argmax(-1)  # (B, L).
-        top_indices = (log_probs + log_weights.unsqueeze(-1)).max(-1)[0].argmax(-1)  # (B, L).
+            # Reshape and apply the base predictor.
+            b, l = outputs.shape
+            lengths = outputs.seq_lens
+            outputs = PaddedBatch(outputs.payload.reshape(b * l, self._k, self._next_item.input_size),
+                                  outputs.seq_lens)  # (BL, K, P).
+            states = states.reshape(len(states), b * l, 1, -1)  # (N, BL, 1, D).
+            predictions = self._next_item.predict_next(outputs, states,
+                                                       fields=fields,
+                                                       logits_fields_mapping=logits_fields_mapping)  # (BL, K) or (BL, K, C).
 
-        # Predict next items.
-        if isinstance(self._next_item_adapter, str):
-            time_adapter = self._next_item_adapter
-            label_adapter = self._next_item_adapter
-        else:
-            time_adapter = self._next_item_adapter[self._timestamps_field]
-            label_adapter = self._next_item_adapter[self._labels_field]
-        if time_adapter == "first":
-            next_times = times.take_along_dim(first_indices.unsqueeze(-1), -1).squeeze(-1)  # (B, L).
-        elif time_adapter == "mode":
-            next_times = times.take_along_dim(top_indices.unsqueeze(-1), -1).squeeze(-1)  # (B, L).
-        elif time_adapter == "mean":
-            next_times = (times * log_weights.exp()).sum(-1)  # (B, L).
-        else:
-            raise ValueError(f"Unknown prediction type: {time_prediction}.")
-        next_times = self.next_time_scale * next_times
-        if label_adapter == "first":
-            next_log_probs = (log_probs + log_weights.unsqueeze(-1)).take_along_dim(first_indices.unsqueeze(-1).unsqueeze(-1), -2).squeeze(-2)  # (B, L, C).
-        elif label_adapter == "mode":
-            next_log_probs = (log_probs + log_weights.unsqueeze(-1)).take_along_dim(top_indices.unsqueeze(-1).unsqueeze(-1), -2).squeeze(-2)  # (B, L, C).
-        elif label_adapter == "mean":
-            next_log_probs = (log_probs + log_weights.unsqueeze(-1)).logsumexp(2)  # (B, L, C).
-        else:
-            raise ValueError(f"Unknown prediction type: {label_prediction}.")
+            # Reshape, predict presence, and sort.
+            sequences = PaddedBatch({k: v.reshape(b, l, self._k, *v.shape[2:]) for k, v in predictions.payload.items()},
+                                    lengths)  # (B, L, K) or (B, L, K, C).
+            presence = sequences.payload[presence_logits_field].squeeze(-1) > self._matching_thresholds  # (B, L, K).
+            sequences = PaddedBatch(sequences.payload | {"_presence": presence}, sequences.seq_lens)
+            self.revert_delta_and_sort_time_inplace(sequences)
+            # Sequences contain time shift from the last seen timestamps.
+            # Events are sorted by timestamp.
 
-        next_values = PaddedBatch({
-            self._timestamps_field: next_times,
-            self._labels_field: next_log_probs.argmax(-1),  # (B, L).
-            logits_fields_mapping[self._labels_field]: next_log_probs  # (B, L, C).
-        }, lengths)
+            # Prepare data.
+            presence = sequences.payload["_presence"]
+            presence_logits = sequences.payload[presence_logits_field].squeeze(-1)  # (B, L, K).
+            presence_logits = presence_logits.detach()  # Don't pass gradient to presence during next-item loss computation.
+            log_presence = torch.nn.functional.logsigmoid(presence_logits)  # (B, L, K).
+            log_not_presence = torch.nn.functional.logsigmoid(-presence_logits)  # (B, L, K).
+            assert log_presence.ndim == 3
+            log_probs = torch.nn.functional.log_softmax(
+                sequences.payload[logits_fields_mapping[self._labels_field]], dim=-1)  # (B, L, K, C).
 
-        return next_values
+            # Compute probability of each event being the first.
+            # log_cum_prod is equal to log of 1, (1 - p1), (1 - p1)(1 - p2), ...
+            # log_weights are equal to log normalized p1, (1 - p1)p2, (1 - p1)(1 - p2)p3, ...
+            roll_log_not_presence = torch.cat([torch.zeros_like(log_not_presence[..., :1]), log_not_presence[..., :-1]], -1)   # (B, L, K).
+            with deterministic(False):
+                log_cum_prod = roll_log_not_presence.cumsum(-1)  # (B, L, K).
+            log_weights = torch.nn.functional.log_softmax(log_cum_prod + log_presence, -1)  # (B, L, K).
+            weighted_logits = log_probs + log_weights.unsqueeze(-1)  # (B, L, K, C).
+
+            # Find the first and the most probable event.
+            indices = {}
+            if "first" in adapters:
+                # Get the first event with presence logit greater than the threshold.
+                indices["first"] = (torch.arange(presence.shape[-1] - 1, -1, -1, device=presence.device) * presence).argmax(-1)  # (B, L).
+            if "mode" in adapters:
+                # Get the event with maximum probability of being the first.
+                indices["mode"] = log_weights.argmax(-1)  # (B, L).
+            if "label_mode" in adapters:
+                # Get the event with maximum probability of being the first.
+                indices["label_mode"] = weighted_logits.max(-1)[0].argmax(-1)  # (B, L).
+
+            for field, adapter in self._next_item_adapter.items():
+                if field == self._labels_field:
+                    field = labels_logits_field
+                if adapter == "mean":
+                    if field == labels_logits_field:
+                        next_values[field] = weighted_logits.logsumexp(2)  # (B, L, C).
+                    else:
+                        next_values[field] = (sequences.payload[field] * log_weights.exp()).sum(-1)  # (B, L).
+                elif adapter in indices:
+                    seq_values = sequences.payload[field]
+                    shaped_indices = indices[adapter].unsqueeze(-1)
+                    if seq_values.ndim == 4:
+                        shaped_indices = shaped_indices.unsqueeze(-1)
+                    next_values[field] = seq_values.take_along_dim(shaped_indices, 2).squeeze(2)
+                else:
+                    raise ValueError(f"Unknown adapter {adapter}.")
+            if self._next_item_adapter.get(self._labels_field, "head") != "head":
+                next_values[self._labels_field] = next_values[labels_logits_field].argmax(-1)
+            if self._next_item_adapter.get(self._timestamps_field, "head") != "head":
+                next_values[self._timestamps_field] = self.next_time_scale * next_values[self._timestamps_field]
+
+        return PaddedBatch(next_values, outputs.seq_lens)
 
     def predict_next_k(self, outputs, states, fields=None, logits_fields_mapping=None):
         """Predict K future events.
