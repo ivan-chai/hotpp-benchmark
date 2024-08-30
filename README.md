@@ -6,8 +6,8 @@
 <h4 align="center">
     <p>
         <a href="#Installation">Installation</a> |
-        <a href="#Training and evaluation">Usage</a> |
-        <a href="#Evaluation results">Results</a> |
+        <a href="#Training-and-evaluation">Usage</a> |
+        <a href="#Evaluation-results">Results</a> |
         <a href="#Citation">Citing</a>
     <p>
 </h4>
