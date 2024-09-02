@@ -21,7 +21,8 @@ class DetectionLoss(NextKLoss):
         loss_subset: The fraction of indices to compute the loss for
             (controls trade-off between the training speed and quality).
         drop_partial_windows: Compute the loss only for full-horizon ground truth windows.
-            Turn off for datasets with short sequences.
+            Turn off for datasets with short sequences. Possible values: True, False, and `calibration`,
+            where `calibration` means drop partial windows only during calibration.
         prefetch_factor: Extract times more targets than predicted events (equal to `k`) for matching.
         match_weights: Weights of particular fields in matching cost computation.
         momentum: Activation statistics momentum value.
@@ -32,7 +33,7 @@ class DetectionLoss(NextKLoss):
     """
     def __init__(self, next_item_loss, k, horizon,
                  timestamps_field="timestamps", labels_field="labels",
-                 loss_subset=1, drop_partial_windows=False, prefetch_factor=1,
+                 loss_subset=1, drop_partial_windows="calibration", prefetch_factor=1,
                  match_weights=None, momentum=0.1,
                  next_item_adapter="mean",
                  next_item_loss_weight=0):
@@ -44,6 +45,8 @@ class DetectionLoss(NextKLoss):
         self._labels_field = labels_field
         self._horizon = horizon
         self._loss_subset = loss_subset
+        if drop_partial_windows not in {True, False, "calibration"}:
+            raise ValueError(f"Unknown drop_partial_windows value: {drop_partial_windows}")
         self._drop_partial_windows = drop_partial_windows
         self._match_weights = match_weights
         if self.get_delta_type(timestamps_field) != "start":
@@ -149,7 +152,10 @@ class DetectionLoss(NextKLoss):
                 ).payload["_presence_logit"]  # (BL, K, 1).
                 presence_logits = presence_logits.reshape(b, l, self._k)  # (B, L, K).
                 presence_logits = PaddedBatch(presence_logits, outputs.seq_lens)
-                full_matching = PaddedBatch(matching.payload, indices.payload["full_mask"].sum(1))
+                if self._drop_partial_windows in {True, "calibration"}:
+                    full_matching = PaddedBatch(matching.payload, indices.payload["full_mask"].sum(1))
+                else:
+                    full_matching = matching
                 self.update_calibration_statistics(full_matching, presence_logits)
 
         # Compute matching losses.
@@ -369,7 +375,7 @@ class DetectionLoss(NextKLoss):
             payload = {k: (self.select_subset(v, indices) if k in batch.seq_names else v)
                        for k, v in payload.items()}
         if indices.payload["index"].numel() > 0:
-            valid_mask = indices.payload["full_mask"] if self._drop_partial_windows else indices.seq_len_mask
+            valid_mask = indices.payload["full_mask"] if self._drop_partial_windows in {True} else indices.seq_len_mask
             subset_lengths = valid_mask.sum(1)
         else:
             subset_lengths = torch.zeros_like(lengths)

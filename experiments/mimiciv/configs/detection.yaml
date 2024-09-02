@@ -16,6 +16,7 @@ module:
     k: 32
     loss_subset: 0.8
     prefetch_factor: 0.5
+    drop_partial_windows: False
     horizon: ${metric.horizon}
     next_item_adapter:
       timestamps: mode
