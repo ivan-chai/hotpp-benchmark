@@ -105,7 +105,7 @@ class HorizonMetric:
             indices_lens: The number of indices for each element in the batch with shape (B).
             seq_predicted_timestamps: Predicted timestamps with shape (B, I, N).
             seq_predicted_labels_logits: Predicted labels logits with shape (B, I, N, C).
-            seq_predicted_weights (optional): Choose > 0 for T-mAP and use top-K to select the required number of events for OTD.
+            seq_predicted_weights (optional): Choose > 0 during OTD computation and use top-K if > 0 doesn't produce the required number of events.
         """
         features = PaddedBatch({"timestamps": timestamps, "labels": labels}, seq_lens)
         indices = PaddedBatch(indices, indices_lens)
@@ -128,8 +128,6 @@ class HorizonMetric:
         # Apply horizon.
         targets_mask = self._get_horizon_mask(initial_timestamps, targets)  # (B, I, K).
         predictions_mask = self._get_horizon_mask(initial_timestamps, predictions)  # (B, I, N).
-        if seq_predicted_weights is not None:
-            predictions_mask.logical_and_(predictions.payload["_weights"] > 0)
         self._target_lengths.append(targets_mask[seq_mask].sum(1).cpu().flatten())  # (V).
         self._predicted_lengths.append(predictions_mask[seq_mask].sum(1).cpu().flatten())  # (BI).
 
@@ -152,7 +150,7 @@ class HorizonMetric:
 
         # Update OTD.
         if self.otd is not None:
-            if predictions_mask.shape[-1] < self.otd_steps:
+            if predicted_timestamps.shape[-1] < self.otd_steps:
                 raise RuntimeError("Need more predicted events for OTD evaluation.")
             predicted_labels = predictions.payload["labels_logits"].argmax(-1)  # (B, I, N).
             if seq_predicted_weights is not None:
