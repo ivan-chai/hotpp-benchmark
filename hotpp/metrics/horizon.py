@@ -127,13 +127,13 @@ class HorizonMetric:
 
         # Apply horizon.
         targets_mask = self._get_horizon_mask(initial_timestamps, targets)  # (B, I, K).
-        predictions_mask = self._get_horizon_mask(initial_timestamps, predictions)  # (B, I, N).
+        horizon_predictions_mask = self._get_horizon_mask(initial_timestamps, predictions)  # (B, I, N).
         if seq_predicted_weights is not None:
-            weighted_predictions_mask = predictions_mask.logical_and(seq_predicted_weights > 0)
+            predictions_mask = horizon_predictions_mask.logical_and(seq_predicted_weights > 0)
         else:
-            weighted_predictions_mask = predictions_mask
+            predictions_mask = horizon_predictions_mask
         self._target_lengths.append(targets_mask[seq_mask].sum(1).cpu().flatten())  # (V).
-        self._predicted_lengths.append(weighted_predictions_mask[seq_mask].sum(1).cpu().flatten())  # (BI).
+        self._predicted_lengths.append(predictions_mask[seq_mask].sum(1).cpu().flatten())  # (BI).
 
         # Update deltas stats.
         predicted_timestamps = predictions.payload["timestamps"][seq_mask]  # (V, N).
@@ -147,7 +147,7 @@ class HorizonMetric:
                 target_mask=targets_mask[seq_mask][:, :self.map_target_length],  # (V, K).
                 target_times=targets.payload["timestamps"][seq_mask][:, :self.map_target_length],  # (V, K).
                 target_labels=targets.payload["labels"][seq_mask][:, :self.map_target_length],  # (V, K).
-                predicted_mask=predictions_mask[seq_mask],  # (V, N).
+                predicted_mask=horizon_predictions_mask[seq_mask],  # (V, N).
                 predicted_times=predicted_timestamps,  # (V, N).
                 predicted_labels_scores=predictions.payload["labels_logits"][seq_mask],  # (V, N, C).
             )
