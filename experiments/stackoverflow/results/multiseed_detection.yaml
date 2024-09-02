@@ -1,4 +1,4 @@
-date: '2024-08-29 11:28:01'
+date: '2024-09-02 12:41:08'
 num_seeds: 5
 test/T-mAP (mean): 0.1968717783689499
 test/T-mAP (std): 0.002496849380742753
@@ -24,12 +24,12 @@ test/mean-target-length (mean): 15.583646774291992
 test/mean-target-length (std): 0.0
 test/next-item-accuracy (mean): 0.4477786600589752
 test/next-item-accuracy (std): 0.0010629498636127747
-test/next-item-mae (mean): 0.6753753662109375
-test/next-item-mae (std): 0.005476744894423332
-test/next-item-mean-time-step (mean): 0.8887588381767273
-test/next-item-mean-time-step (std): 0.005910713478644002
-test/next-item-rmse (mean): 1.1036405086517334
-test/next-item-rmse (std): 0.008335246659416984
+test/next-item-mae (mean): 0.6806507468223572
+test/next-item-mae (std): 0.008944551483181963
+test/next-item-mean-time-step (mean): 0.8891106009483337
+test/next-item-mean-time-step (std): 0.005568656387268581
+test/next-item-rmse (mean): 1.094867730140686
+test/next-item-rmse (std): 0.005409176365860599
 test/optimal-transport-distance (mean): 12.769977188110351
 test/optimal-transport-distance (std): 0.03465493345308002
 test/prediction_match_rate (mean): 0.19530466198921204
@@ -60,12 +60,12 @@ val/mean-target-length (mean): 15.263496398925781
 val/mean-target-length (std): 0.0
 val/next-item-accuracy (mean): 0.4671303629875183
 val/next-item-accuracy (std): 0.0005116679505794941
-val/next-item-mae (mean): 0.6874615907669067
-val/next-item-mae (std): 0.006467883649379474
-val/next-item-mean-time-step (mean): 0.9173756003379822
-val/next-item-mean-time-step (std): 0.005363638547002494
-val/next-item-rmse (mean): 1.1295630216598511
-val/next-item-rmse (std): 0.010633943199303981
+val/next-item-mae (mean): 0.6916067242622376
+val/next-item-mae (std): 0.008004001688259862
+val/next-item-mean-time-step (mean): 0.9178797841072083
+val/next-item-mean-time-step (std): 0.005344618171177354
+val/next-item-rmse (mean): 1.1206345319747926
+val/next-item-rmse (std): 0.007822770082244105
 val/optimal-transport-distance (mean): 12.63357162475586
 val/optimal-transport-distance (std): 0.05761511812090375
 val/prediction_match_rate (mean): 0.18754538893699646
