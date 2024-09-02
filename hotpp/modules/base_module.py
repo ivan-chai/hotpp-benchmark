@@ -246,7 +246,8 @@ class BaseModule(pl.LightningModule):
                                   indices.payload,
                                   indices.seq_lens,
                                   sequences.payload[self._timestamps_field],
-                                  sequences.payload[self._labels_logits_field])
+                                  sequences.payload[self._labels_logits_field],
+                                  seq_predicted_weights=sequences.payload.get("_weights", None))
 
     def _compute_single_batch_metrics(self, inputs, outputs, states):
         """Slow debug metrics."""

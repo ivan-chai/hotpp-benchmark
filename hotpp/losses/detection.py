@@ -335,17 +335,13 @@ class DetectionLoss(NextKLoss):
 
         # Extract presence.
         presence_logit = next_values.payload["_presence_logit"]  # (BL, K, 1).
-        presence = presence_logit.squeeze(2) > self._matching_thresholds
-        next_values.payload["_presence"] = presence
+        next_values.payload["_weights"] = presence_logit.squeeze(2) - self._matching_thresholds
+        next_values.payload["_presence"] = next_values.payload["_weights"] > 0
 
         # Update logits with presence value.
         for field, logit_field in logits_fields_mapping.items():
             if field != "_presence":
                 next_values.payload[logit_field] += presence_logit  # (BL, K, C).
-
-        # Replace disabled events with maximum time offset.
-        if self._timestamps_field in next_values.payload:
-            next_values.payload[self._timestamps_field].masked_fill_(~presence.bool(), self._horizon + 1)
 
         # Reshape and return.
         sequences = PaddedBatch({k: v.reshape(b, l, self._k, *v.shape[2:]) for k, v in next_values.payload.items()},
