@@ -128,8 +128,12 @@ class HorizonMetric:
         # Apply horizon.
         targets_mask = self._get_horizon_mask(initial_timestamps, targets)  # (B, I, K).
         predictions_mask = self._get_horizon_mask(initial_timestamps, predictions)  # (B, I, N).
+        if seq_predicted_weights is not None:
+            weighted_predictions_mask = predictions_mask.logical_and(seq_predicted_weights > 0)
+        else:
+            weighted_predictions_mask = predictions_mask
         self._target_lengths.append(targets_mask[seq_mask].sum(1).cpu().flatten())  # (V).
-        self._predicted_lengths.append(predictions_mask[seq_mask].sum(1).cpu().flatten())  # (BI).
+        self._predicted_lengths.append(weighted_predictions_mask[seq_mask].sum(1).cpu().flatten())  # (BI).
 
         # Update deltas stats.
         predicted_timestamps = predictions.payload["timestamps"][seq_mask]  # (V, N).
@@ -179,7 +183,7 @@ class HorizonMetric:
             predicted_lengths = torch.cat(self._predicted_lengths)
             values.update({
                 "mean-target-length": target_lengths.sum().item() / target_lengths.numel(),
-                "mean-predicted-length":predicted_lengths.sum().item() / predicted_lengths.numel(),
+                "mean-predicted-length": predicted_lengths.sum().item() / predicted_lengths.numel(),
                 "horizon-mean-time-step": torch.stack(self._horizon_predicted_deltas_sums).sum() / self._horizon_n_predicted_deltas
             })
         values.update(self.next_item.compute())
