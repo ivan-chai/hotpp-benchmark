@@ -91,7 +91,8 @@ class HorizonMetric:
                               predicted_labels_logits=predicted_labels_logits[:, :-1])
 
     def update_horizon(self, seq_lens, timestamps, labels,
-                       indices, indices_lens, seq_predicted_timestamps, seq_predicted_labels_logits):
+                       indices, indices_lens, seq_predicted_timestamps, seq_predicted_labels_logits,
+                       seq_predicted_weights=None):
         """Update sequence metrics with new observations.
 
         NOTE: Timestamps and labels must be provided without offset w.r.t. predictions, i.e. input features.
@@ -104,11 +105,14 @@ class HorizonMetric:
             indices_lens: The number of indices for each element in the batch with shape (B).
             seq_predicted_timestamps: Predicted timestamps with shape (B, I, N).
             seq_predicted_labels_logits: Predicted labels logits with shape (B, I, N, C).
+            seq_predicted_weights (optional): Choose > 0 during OTD computation and use top-K if > 0 doesn't produce the required number of events.
         """
         features = PaddedBatch({"timestamps": timestamps, "labels": labels}, seq_lens)
         indices = PaddedBatch(indices, indices_lens)
-        predictions = PaddedBatch({"timestamps": seq_predicted_timestamps, "labels_logits": seq_predicted_labels_logits},
-                                  indices_lens)
+        predictions = {"timestamps": seq_predicted_timestamps, "labels_logits": seq_predicted_labels_logits}
+        if seq_predicted_weights is not None:
+            predictions["_weights"] = seq_predicted_weights
+        predictions = PaddedBatch(predictions, indices_lens)
         if not features.seq_len_mask.take_along_dim(indices.payload, 1).masked_select(indices.seq_len_mask).all():
             raise ValueError("Some indices are out of sequence lengths")
 
@@ -123,7 +127,11 @@ class HorizonMetric:
 
         # Apply horizon.
         targets_mask = self._get_horizon_mask(initial_timestamps, targets)  # (B, I, K).
-        predictions_mask = self._get_horizon_mask(initial_timestamps, predictions)  # (B, I, N).
+        horizon_predictions_mask = self._get_horizon_mask(initial_timestamps, predictions)  # (B, I, N).
+        if seq_predicted_weights is not None:
+            predictions_mask = horizon_predictions_mask.logical_and(seq_predicted_weights > 0)
+        else:
+            predictions_mask = horizon_predictions_mask
         self._target_lengths.append(targets_mask[seq_mask].sum(1).cpu().flatten())  # (V).
         self._predicted_lengths.append(predictions_mask[seq_mask].sum(1).cpu().flatten())  # (BI).
 
@@ -139,21 +147,33 @@ class HorizonMetric:
                 target_mask=targets_mask[seq_mask][:, :self.map_target_length],  # (V, K).
                 target_times=targets.payload["timestamps"][seq_mask][:, :self.map_target_length],  # (V, K).
                 target_labels=targets.payload["labels"][seq_mask][:, :self.map_target_length],  # (V, K).
-                predicted_mask=predictions_mask[seq_mask],  # (V, N).
+                predicted_mask=horizon_predictions_mask[seq_mask],  # (V, N).
                 predicted_times=predicted_timestamps,  # (V, N).
                 predicted_labels_scores=predictions.payload["labels_logits"][seq_mask],  # (V, N, C).
             )
 
         # Update OTD.
         if self.otd is not None:
-            if predictions_mask.shape[-1] < self.otd_steps:
+            if predicted_timestamps.shape[-1] < self.otd_steps:
                 raise RuntimeError("Need more predicted events for OTD evaluation.")
             predicted_labels = predictions.payload["labels_logits"].argmax(-1)  # (B, I, N).
+            if seq_predicted_weights is not None:
+                otd_weights = predictions.payload["_weights"][seq_mask]  # (V, S).
+                otd_mask = otd_weights > 0  # (V, S).
+                otd_mask.logical_and_(otd_mask.cumsum(1) <= self.otd_steps)
+                not_enough = otd_mask.sum(1) < self.otd_steps  # (V).
+                top_indices = otd_weights[not_enough].topk(self.otd_steps, dim=1)[1]  # (E, R).
+                otd_mask[not_enough] = otd_mask[not_enough].scatter(1, top_indices, torch.full_like(top_indices, True, dtype=torch.bool))
+                otd_predicted_timestamps = predicted_timestamps[otd_mask].reshape(-1, self.otd_steps)  # (V, S).
+                otd_predicted_labels = predicted_labels[seq_mask][otd_mask].reshape(-1, self.otd_steps)  # (V, S).
+            else:
+                otd_predicted_timestamps = predicted_timestamps[:, :self.otd_steps]  # (V, S).
+                otd_predicted_labels = predicted_labels[seq_mask][:, :self.otd_steps]  # (V, S).
             self.otd.update(
                 target_times=targets.payload["timestamps"][seq_mask][:, :self.otd_steps],  # (V, S).
                 target_labels=targets.payload["labels"][seq_mask][:, :self.otd_steps],  # (V, S).
-                predicted_times=predictions.payload["timestamps"][seq_mask][:, :self.otd_steps],  # (V, S).
-                predicted_labels=predicted_labels[seq_mask][:, :self.otd_steps],  # (V, S).
+                predicted_times=otd_predicted_timestamps,  # (V, S).
+                predicted_labels=otd_predicted_labels,  # (V, S).
             )
 
     def compute(self):
@@ -163,7 +183,7 @@ class HorizonMetric:
             predicted_lengths = torch.cat(self._predicted_lengths)
             values.update({
                 "mean-target-length": target_lengths.sum().item() / target_lengths.numel(),
-                "mean-predicted-length":predicted_lengths.sum().item() / predicted_lengths.numel(),
+                "mean-predicted-length": predicted_lengths.sum().item() / predicted_lengths.numel(),
                 "horizon-mean-time-step": torch.stack(self._horizon_predicted_deltas_sums).sum() / self._horizon_n_predicted_deltas
             })
         values.update(self.next_item.compute())
