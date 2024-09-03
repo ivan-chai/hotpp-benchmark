@@ -223,6 +223,7 @@ class BaseModule(pl.LightningModule):
     def on_before_optimizer_step(self, optimizer=None, optimizer_idx=None):
         self.log("grad_norm", self._get_grad_norm(), prog_bar=True)
 
+    @torch.autocast("cuda", enabled=False)
     def _update_metric(self, metric, features, outputs, states):
         lengths = torch.minimum(outputs.seq_lens, features.seq_lens)
         next_items = self.predict_next(features, outputs, states,
@@ -249,6 +250,7 @@ class BaseModule(pl.LightningModule):
                                   sequences.payload[self._labels_logits_field],
                                   seq_predicted_weights=sequences.payload.get("_weights", None))
 
+    @torch.autocast("cuda", enabled=False)
     def _compute_single_batch_metrics(self, inputs, outputs, states):
         """Slow debug metrics."""
         metrics = {}
