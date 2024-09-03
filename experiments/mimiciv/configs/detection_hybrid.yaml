@@ -1,0 +1,46 @@
+defaults:
+  - default
+  - _self_
+
+name: detection_hybrid
+
+module:
+  _target_: hotpp.modules.NextKModule
+  seq_encoder:
+    rnn_partial:
+      _target_: hotpp.nn.GRU
+      _partial_: true
+      hidden_size: ${rnn_hidden_size}
+  loss:
+    _target_: hotpp.losses.DetectionLoss
+    k: 64
+    loss_subset: 1
+    prefetch_factor: 0.5
+    horizon: ${metric.horizon}
+    drop_partial_windows: False
+    next_item_adapter: head
+    next_item_loss_weight:
+      timestamps: 4
+      labels: 4
+    next_item_loss:
+      _target_: hotpp.losses.NextItemLoss
+      losses:
+        _presence:
+          _target_: hotpp.losses.BinaryCrossEntropyLoss
+        timestamps:
+          _target_: hotpp.losses.TimeMAELoss
+          delta: start
+          max_delta: ${max_duration}
+          smoothing: ${time_smoothing}
+        labels:
+          _target_: hotpp.losses.CrossEntropyLoss
+          num_classes: ${num_classes}
+    match_weights:
+      _presence: 0.61
+      timestamps: 0.47
+      labels: 0.65
+
+trainer:
+  deterministic: false
+  check_val_every_n_epoch: 1
+  precision: 32
