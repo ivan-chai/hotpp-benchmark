@@ -6,6 +6,7 @@
         <a href="#Training-and-evaluation">Usage</a> |
         <a href="#Evaluation-results">Results</a> |
         <a href="#Library-architecture">Extension</a> |
+        <a href="https://arxiv.org/pdf/2406.14341">Paper</a> |
         <a href="#Citation">Citing</a>
     <p>
 </h4>
