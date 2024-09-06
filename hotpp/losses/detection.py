@@ -2,7 +2,7 @@ import torch
 
 from torch_linear_assignment import batch_linear_assignment
 from hotpp.data import PaddedBatch
-from hotpp.utils.torch import deterministic
+from hotpp.utils.torch import deterministic, module_mode
 from .common import ScaleGradient
 from .next_item import NextItemLoss
 from .next_k import NextKLoss
@@ -149,11 +149,12 @@ class DetectionLoss(NextKLoss):
                 reshaped_outputs = PaddedBatch(outputs.payload.reshape(-1, self._k, self._next_item.input_size),
                                                torch.full([b * l], self._k, dtype=torch.long, device=outputs.device))  # (BL, K, P).
                 reshaped_states = states.flatten(1, 2).unsqueeze(2) if states is not None else None  # (N, BL, 1, D).
-                presence_logits = self._next_item.predict_next(
-                    reshaped_outputs, reshaped_states,
-                    fields=set(),
-                    logits_fields_mapping={"_presence": "_presence_logit"}
-                ).payload["_presence_logit"]  # (BL, K, 1).
+                with module_mode(self, training=False):
+                    presence_logits = self._next_item.predict_next(
+                        reshaped_outputs, reshaped_states,
+                        fields=set(),
+                        logits_fields_mapping={"_presence": "_presence_logit"}
+                    ).payload["_presence_logit"]  # (BL, K, 1).
                 presence_logits = presence_logits.reshape(b, l, self._k)  # (B, L, K).
                 if self._drop_partial_windows in {True, "calibration"}:
                     full_matching = PaddedBatch(matching.payload, indices.payload["full_mask"].sum(1))
