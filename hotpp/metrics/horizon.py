@@ -12,6 +12,7 @@ class HorizonMetric:
     Args:
         horizon: Prediction horizon.
         horizon_evaluation_step: The period for horizon metrics evaluation.
+        max_time_delta: Maximum time delta for next item metrics.
         map_deltas: The list of time delta thresholds for mAP evaluation.
         map_target_length: The maximum target length for mAP evaluation.
             Must be large enough to include all horizon events.
@@ -19,13 +20,13 @@ class HorizonMetric:
         otd_insert_cost: OTD insert cost.
         otd_delete_cost: OTD delete cost.
     """
-    def __init__(self, horizon, horizon_evaluation_step=1,
+    def __init__(self, horizon, horizon_evaluation_step=1, max_time_delta=None,
                  map_deltas=None, map_target_length=None,
                  otd_steps=None, otd_insert_cost=None, otd_delete_cost=None):
         self.horizon = horizon
         self.horizon_evaluation_step = horizon_evaluation_step
 
-        self.next_item = NextItemMetric()
+        self.next_item = NextItemMetric(max_time_delta=max_time_delta)
         if map_deltas is not None:
             if map_target_length is None:
                 raise ValueError("Need the max target sequence length for mAP computation")

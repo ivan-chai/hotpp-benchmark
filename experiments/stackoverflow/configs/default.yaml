@@ -35,6 +35,7 @@ data_module:
 
 metric:
   _target_: hotpp.metrics.HorizonMetric
+  max_time_delta: ${max_time_delta}
   horizon: 10  # minutes.
   horizon_evaluation_step: 4
   map_deltas: [2]

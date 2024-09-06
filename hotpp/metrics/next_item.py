@@ -4,8 +4,9 @@ import torch
 class NextItemMetric(torch.nn.Module):
     """Next item (event) prediction evaluation metrics."""
 
-    def __init__(self):
+    def __init__(self, max_time_delta=None):
         super().__init__()
+        self.max_time_delta = max_time_delta
         self.reset()
 
     def update(self, mask, target_timestamps, target_labels,
@@ -26,6 +27,8 @@ class NextItemMetric(torch.nn.Module):
         self._n_labels += is_correct.numel()
 
         ae = (target_timestamps - predicted_timestamps).abs()  # (B, L).
+        if self.max_time_delta is not None:
+            ae = ae.clip(max=self.max_time_delta)
         ae = ae.masked_select(mask)  # (V).
         assert ae.numel() == is_correct.numel()
         self._ae_sums.append(ae.float().mean().cpu() * ae.numel())
