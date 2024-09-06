@@ -96,7 +96,7 @@ class DetectionLoss(NextKLoss):
             bottom_indices = indices.floor().long().clip(max=len(presence_logits) - 1)  # (K).
             up_indices = indices.ceil().long().clip(max=len(presence_logits) - 1)  # (K).
             bottom_quantiles = presence_logits.take_along_dim(bottom_indices[None], 0).squeeze(0)  # (K).
-            up_quantiles = presence_logits.take_along_dim(up_indices[None] + 1, 0).squeeze(0)  # (K).
+            up_quantiles = presence_logits.take_along_dim(up_indices[None], 0).squeeze(0)  # (K).
             quantiles = 0.5 * (bottom_quantiles + up_quantiles)
             self._matching_thresholds *= (1 - self._momentum)
             self._matching_thresholds += self._momentum * quantiles
