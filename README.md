@@ -1,6 +1,18 @@
-<img src="./docs/logo.png" width="200">
+<h1> <img align="left" src="./docs/logo.png" width="15%"> HoTPP: A Long-Horizon Event Sequence Prediction Benchmark </h1>
 
-# HoTPP: A Long-Horizon Event Sequence Prediction Benchmark
+<h4 align="center">
+    <p>
+        <a href="#Installation">Installation</a> |
+        <a href="#Training-and-evaluation">Usage</a> |
+        <a href="#Evaluation-results">Results</a> |
+        <a href="#Library-architecture">Extension</a> |
+        <a href="https://arxiv.org/pdf/2406.14341">Paper HoTPP</a> |
+        <a href="https://arxiv.org/pdf/2408.13131">Paper DeTPP</a> |
+        <a href="#Citation">Citing</a>
+    <p>
+</h4>
+
+
 The HoTPP benchmark focuses on the long-horizon prediction of event sequences. Each event is characterized by its timestamp, label, and possible additional structured data. Sequences of this type are also known as Marked Temporal Point Processes (MTPPs).
 
 # Installation
@@ -9,12 +21,11 @@ Sometimes the following parameters are necessary for successful dependency insta
 CXX=<c++-compiler> CC=<gcc-compiler> pip install .
 ```
 
-# Repository structure
+# Training and evaluation
 The code is divided into the core library and dataset-specific scripts and configuration files.
 
 The dataset-specific part is located in the `experiments` folder. Each subfolder includes data preparation scripts, model configuration files, and a README file. Data files and logs are usually stored in the same directory. All scripts must be executed from the directory of the specific dataset. Refer to the individual README files for more details.
 
-# Training and evaluation
 To train the model, use the following command:
 ```sh
 python3 -m hotpp.train --config-dir configs --config-name <model>
