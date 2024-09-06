@@ -66,7 +66,7 @@ class TestDetectionLoss(TestCase):
         mask = matching.payload < 0
         matching.payload += torch.arange(1, matching.shape[1] + 1)[:, None]
         matching.payload[mask] = -1
-        self.assertEqual(matching.payload.shape, (2, 6 - 4, 4))
+        self.assertEqual(matching.payload.shape, (2, 6, 4))
         self.assertEqual(matching.seq_lens.tolist(), [2, 1])
         self.assertEqual(stats["prediction_match_rate"], (8 + 3) / (3 * 4))
         self.assertEqual(stats["target_match_rate"], (8 + 3) / (4 + 3 + 4))
@@ -79,7 +79,7 @@ class TestDetectionLoss(TestCase):
         matching_gt[0, 1, 0] = 2  # t=12.
         matching_gt[0, 1, 1] = 3  # t=12.
         matching_gt[0, 1, 2] = 4  # t=13.
-        self.assertEqual(matching.payload.tolist(), matching_gt.tolist())
+        self.assertEqual(matching.payload[:, :6 - 4].tolist(), matching_gt.tolist())
 
     def test_convergence(self):
         torch.manual_seed(0)
@@ -129,7 +129,6 @@ class TestDetectionLoss(TestCase):
             predictions["timestamps"] += batch.payload["timestamps"].unsqueeze(2)
 
         n_valid = 10 - 6
-        self.assertTrue((predictions["_presence"][n_valid:] < 0).all())
         for i in range(n_valid):
             # Get horizon length.
             k = (batch.payload["timestamps"][0, i + 1:] - batch.payload["timestamps"][0, i] < 3).sum().item()

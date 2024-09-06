@@ -95,8 +95,12 @@ class DetectionLoss(NextKLoss):
         presence_logits = presence_logits.payload[presence_logits.seq_len_mask]  # (V, K).
         if len(presence_logits) > 0:
             presence_logits = torch.sort(presence_logits, dim=0)[0]  # (V, K).
-            indices = ((1 - self._matching_priors) * len(presence_logits)).round().long().clip(max=len(presence_logits) - 1)  # (K).
-            quantiles = presence_logits.take_along_dim(indices[None], 0).squeeze(0)  # (K).
+            indices = (1 - self._matching_priors) * len(presence_logits)
+            bottom_indices = indices.floor().long().clip(max=len(presence_logits) - 1)  # (K).
+            up_indices = indices.ceil().long().clip(max=len(presence_logits) - 1)  # (K).
+            bottom_quantiles = presence_logits.take_along_dim(bottom_indices[None], 0).squeeze(0)  # (K).
+            up_quantiles = presence_logits.take_along_dim(up_indices[None] + 1, 0).squeeze(0)  # (K).
+            quantiles = 0.5 * (bottom_quantiles + up_quantiles)
             self._matching_thresholds *= (1 - self._momentum)
             self._matching_thresholds += self._momentum * quantiles
 
@@ -142,7 +146,7 @@ class DetectionLoss(NextKLoss):
         if self.training:
             with torch.no_grad():
                 b, l = outputs.shape
-                reshaped_outputs = PaddedBatch(outputs.payload.flatten(0, 1).reshape(-1, self._k, self._next_item.input_size),
+                reshaped_outputs = PaddedBatch(outputs.payload.reshape(-1, self._k, self._next_item.input_size),
                                                torch.full([b * l], self._k, dtype=torch.long, device=outputs.device))  # (BL, K, P).
                 reshaped_states = states.flatten(1, 2).unsqueeze(2) if states is not None else None  # (N, BL, 1, D).
                 presence_logits = self._next_item.predict_next(
@@ -151,11 +155,12 @@ class DetectionLoss(NextKLoss):
                     logits_fields_mapping={"_presence": "_presence_logit"}
                 ).payload["_presence_logit"]  # (BL, K, 1).
                 presence_logits = presence_logits.reshape(b, l, self._k)  # (B, L, K).
-                presence_logits = PaddedBatch(presence_logits, outputs.seq_lens)
                 if self._drop_partial_windows in {True, "calibration"}:
                     full_matching = PaddedBatch(matching.payload, indices.payload["full_mask"].sum(1))
+                    presence_logits = PaddedBatch(presence_logits, (outputs.seq_lens - self._prefetch_k))
                 else:
                     full_matching = matching
+                    presence_logits = PaddedBatch(presence_logits, outputs.seq_lens)
                 self.update_calibration_statistics(full_matching, presence_logits)
 
         # Compute matching losses.
