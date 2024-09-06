@@ -99,6 +99,7 @@ class TestDetectionLoss(TestCase):
 
         optimizer = torch.optim.Adam(model.parameters(), lr=0.1)
         model.train()
+        loss.train()
         for step in range(100):
             prediction = model()
             prediction = PaddedBatch(torch.cat([prediction.payload[k] for k in loss.fields], -1),
@@ -114,6 +115,7 @@ class TestDetectionLoss(TestCase):
         print()
 
         model.eval()
+        loss.eval()
         with torch.no_grad():
             outputs = model()
             outputs = PaddedBatch(torch.cat([outputs.payload[k] for k in loss.fields], -1),
