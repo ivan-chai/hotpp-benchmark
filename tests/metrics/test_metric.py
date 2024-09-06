@@ -132,46 +132,67 @@ class TestMetrics(TestCase):
     def test_otd_metric(self):
         metric = OTDMetric(insert_cost=0.5, delete_cost=1)
 
-        # The first problem:
-        #
-        #     O    P    M    O
-        # C   1    1    1    1
-        # O   .1   1    1    .2
-        # P   1    .0   1    1
-        #
-        # Optimal cost: insert C + .1 + .0 + delete P + delete O = 0.5 + 0.1 + 2 = 2.6
-        #
-        # The second problem:
-        #
-        #     T    R    U    E
-        # T   .0   1    1    1
-        # O   1    1    1    1
-        # R   1    .3   1    1
-        #
-        # Optimal cost: .0 + insert O + .3 + delete U + delete E = 0.5 + 0.3 + 2 = 2.8
-        #
-        # The third problem:
-        #
-        # 0 1 1 1
-        # 1 0 1 1
-        # 1 1 0 1
-        #
-        # Optimal cost: delete = 1
-        gt_distances = torch.tensor([2.6, 2.8, 1])
+        # Problem 0
+        # Target
+        # L: 1 1 1 1
+        # T: 0 0 0 0
+        # Prediction
+        # L: 1 1 1 1
+        # T: 0 1 2 3
+        # Costs
+        # 0 1 1.5 1.5
 
-        costs = torch.tensor([
-            [[ 1,  1,  1,  1],
-             [.1,  1,  1, .2],
-             [ 1, .0,  1,  1]],
-            [[.0,  1,  1,  1],
-             [ 1,  1,  1,  1],
-             [ 1, .3,  1,  1]],
-            [[ 0,  1,  1,  1],
-             [ 1,  0,  1,  1],
-             [ 1,  1,  0,  1]]
-        ])  # (3, 3, 4).
-        distances = metric._get_min_distance(costs)
-        self.assertTrue(distances.allclose(gt_distances))
+        # Problem 1
+        # Target
+        # L: 1 0 2 1
+        # T: 0 0 1 2
+        # Prediction
+        # L: 2 0 1 1
+        # T: 1 1 2 2
+        # Costs
+        # 0 1 1.5 0
+
+        gt_distances = torch.tensor([4, 2.5])
+
+        target_labels = torch.tensor([
+            [1, 1, 1, 1],
+            [1, 0, 2, 1]
+        ])
+        target_timestamps = torch.tensor([
+            [0, 0, 0, 0],
+            [0, 0, 1, 2]
+        ])
+        predicted_labels = torch.tensor([
+            [1, 1, 1, 1],
+            [2, 0, 1, 1]
+        ])
+        predicted_timestamps = torch.tensor([
+            [0, 1, 2, 3],
+            [1, 1, 2, 2]
+        ])
+
+        metric.update(target_timestamps, target_labels, predicted_timestamps, predicted_labels)
+        result = metric.compute()
+        self.assertAlmostEqual(result["optimal-transport-distance"], gt_distances.mean().item())
+
+    def test_otd_metric_order(self):
+        metric = OTDMetric(insert_cost=1, delete_cost=1)
+        target_times = torch.tensor([[0, 0]])
+        target_labels = torch.tensor([[0, 1]])
+        predicted_times = torch.tensor([[0, 0]])
+        predicted_labels = torch.tensor([[0, 1]])
+        metric.update(target_times, target_labels, predicted_times, predicted_labels)
+        result = metric.compute()
+        self.assertAlmostEqual(result["optimal-transport-distance"], 0)
+
+        metric = OTDMetric(insert_cost=1, delete_cost=1)
+        target_times = torch.tensor([[0, 0]])
+        target_labels = torch.tensor([[0, 1]])
+        predicted_times = torch.tensor([[0, 0]])
+        predicted_labels = torch.tensor([[1, 0]])
+        metric.update(target_times, target_labels, predicted_times, predicted_labels)
+        result = metric.compute()
+        self.assertAlmostEqual(result["optimal-transport-distance"], 0)
 
     def test_end_to_end(self):
         metric = HorizonMetric(self.horizon, horizon_evaluation_step=3,
