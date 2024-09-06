@@ -3,7 +3,6 @@ import torch
 from torch_linear_assignment import batch_linear_assignment
 from hotpp.data import PaddedBatch
 from hotpp.utils.torch import deterministic, module_mode
-from .common import ScaleGradient
 from .next_item import NextItemLoss
 from .next_k import NextKLoss
 
@@ -27,16 +26,13 @@ class DetectionLoss(NextKLoss):
         match_weights: Weights of particular fields in matching cost computation.
         momentum: Activation statistics momentum value.
         next_item_adapter: String or dictionary with adapter names used for next-item predictions
-            (either `head`, `first`, `mean`, `mode` or `label_mode`).
-        next_item_loss_weight: The weight of the adapter-based next-item loss.
-            Can be a dictionary with weights for each field.
+            (either `first`, `mean`, `mode` or `label_mode`).
     """
     def __init__(self, next_item_loss, k, horizon,
                  timestamps_field="timestamps", labels_field="labels",
                  loss_subset=1, drop_partial_windows="calibration", prefetch_factor=1,
                  match_weights=None, momentum=0.1,
-                 next_item_adapter="mean",
-                 next_item_loss_weight=0):
+                 next_item_adapter="mean"):
         super().__init__(
             next_item_loss=next_item_loss,
             k=k,
@@ -59,21 +55,11 @@ class DetectionLoss(NextKLoss):
                 timestamps_field: next_item_adapter,
                 labels_field: next_item_adapter
             }
-        try:
-            self._next_item_loss_weight = dict(next_item_loss_weight)
-        except TypeError:
-            self._next_item_loss_weight = {
-                timestamps_field: next_item_loss_weight,
-                labels_field: next_item_loss_weight
-            }
         self._prefetch_k = int(round(self._k * prefetch_factor))
 
         # Calibration statistics used for prediction.
         self.register_buffer("_matching_priors", torch.ones(k))
         self.register_buffer("_matching_thresholds", torch.zeros(k))
-
-        if self._next_item_adapter[timestamps_field] != "head":
-            self.next_time_scale = torch.nn.Parameter(torch.ones([])) if self._next_item_loss_weight[timestamps_field] > 0 else 1
 
     def update_calibration_statistics(self, matching, presence_logits):
         """Update calibration statistics.
@@ -182,30 +168,6 @@ class DetectionLoss(NextKLoss):
 
         losses = {k: v[matching_mask].mean() for k, v in losses.items()}
         losses["_presence"] = presence_losses[index_mask].mean()
-
-        # Compute next-item loss.
-        if any(weight > 0 for weight in self._next_item_loss_weight.values()):
-            predictions = self.predict_next(outputs, states,
-                                            fields=(self._timestamps_field, self._labels_field),
-                                            logits_fields_mapping={self._labels_field: "_labels_logits"})  # (B, L).
-            # A workaround for "start" time delta scheme in the next-item loss function.
-            fixed_predictions = {
-                self._timestamps_field: predictions.payload[self._timestamps_field][:, :-1].flatten()[:, None, None],  # (BL, 1, 1).
-                self._labels_field: predictions.payload["_labels_logits"][:, :-1].flatten(0, 1).unsqueeze(1)  # (BL, 1, C).
-            }  # (BL, 1, P).
-            b, l = inputs.shape
-            fixed_times = inputs.payload[self._timestamps_field]  # (B, L).
-            fixed_times = torch.stack([fixed_times[:, :-1], fixed_times[:, 1:]], 2).flatten(0, 1)  # (BL, 2).
-            fixed_inputs = PaddedBatch({self._timestamps_field: fixed_times,
-                                        self._labels_field: inputs.payload[self._labels_field][:, 1:].flatten(0, 1).unsqueeze(1).repeat(1, 2)},
-                                       torch.full([b * (l - 1)], 2, device=inputs.device))  # (BL, 2).
-            fixed_states = states[:, :, :-1].flatten(1, 2).unsqueeze(2) if states is not None else None  # (N, BL, 1, D).
-
-            next_item_losses, _ = self._next_item(fixed_inputs, fixed_predictions, fixed_states, reduction="none")  # (BL, 1).
-            mask = inputs.seq_len_mask[:, 1:].flatten()  # (BL).
-            next_item_losses = {k: v[mask].mean() for k, v in next_item_losses.items()}
-            for field in [self._timestamps_field, self._labels_field]:
-                losses[f"next_item_{field}"] = ScaleGradient.apply(next_item_losses[field], self._next_item_loss_weight[field])
         return losses, matching_metrics
 
     def predict_next(self, outputs, states, fields=None, logits_fields_mapping=None):
@@ -221,26 +183,13 @@ class DetectionLoss(NextKLoss):
             PaddedBatch with predictions with shape (B, L) or (B, L, C) for logits.
         """
         adapters = set(self._next_item_adapter.values())
-        unknown_adapters = adapters - {"head", "first", "mean", "mode", "label_mode"}
+        unknown_adapters = adapters - {"first", "mean", "mode", "label_mode"}
         if unknown_adapters:
             raise ValueError(f"Unknown adapters: {unknown_adapters}.")
 
         next_values = {}
 
-        if "head" in adapters:
-            b, l, _ = outputs.payload.shape
-            head_outputs = outputs.payload.reshape(b, l, self._k, -1)
-            head_outputs = PaddedBatch(head_outputs[:, :, 0], outputs.seq_lens)
-            head_predictions = self._next_item.predict_next(head_outputs, states, fields, logits_fields_mapping)
-            for field, adapter in self._next_item_adapter.items():
-                if adapter == "head":
-                    if field in fields:
-                        next_values[field] = head_predictions.payload[field]
-                    logits_field = logits_fields_mapping.get(field, None)
-                    if logits_field:
-                        next_values[logits_field] = head_predictions.payload[logits_field]
-
-        if adapters - {"head"}:
+        if adapters:
             # Add logits to the prediction fields.
             logits_fields_mapping = dict(logits_fields_mapping or {})
             for field in ["_presence", self._labels_field]:
@@ -315,10 +264,10 @@ class DetectionLoss(NextKLoss):
                     next_values[field] = seq_values.take_along_dim(shaped_indices, 2).squeeze(2)
                 else:
                     raise ValueError(f"Unknown adapter {adapter}.")
-            if self._next_item_adapter.get(self._labels_field, "head") != "head":
+            if self._next_item_adapter.get(self._labels_field):
                 next_values[self._labels_field] = next_values[labels_logits_field].argmax(-1)
-            if self._next_item_adapter.get(self._timestamps_field, "head") != "head":
-                next_values[self._timestamps_field] = self.next_time_scale * next_values[self._timestamps_field]
+            if self._next_item_adapter.get(self._timestamps_field):
+                next_values[self._timestamps_field] = next_values[self._timestamps_field]
 
         return PaddedBatch(next_values, outputs.seq_lens)
 
