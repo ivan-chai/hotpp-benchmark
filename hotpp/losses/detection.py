@@ -133,7 +133,7 @@ class DetectionLoss(NextKLoss):
                     logits_fields_mapping={"_presence": "_presence_logit"}
                 ).payload["_presence_logit"]  # (BL, K, 1).
                 presence_logits = presence_logits.reshape(b, l, self._k)  # (B, L, K).
-                presence_logits = PaddedBatch(presence_logits, (outputs.seq_lens - self._prefetch_k))
+                presence_logits = PaddedBatch(presence_logits, (outputs.seq_lens - self._prefetch_k).clip(min=0))
                 full_matching = PaddedBatch(matching.payload, indices.payload["full_mask"].sum(1))
                 self.update_calibration_statistics(full_matching, presence_logits)
 
