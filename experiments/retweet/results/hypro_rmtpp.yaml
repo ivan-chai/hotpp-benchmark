@@ -1,4 +1,4 @@
-date: '2024-08-15 16:57:47'
+date: '2024-09-06 19:02:16'
 test/T-mAP: 0.5067098736763
 test/horizon-mean-time-step: 14.175300598144531
 test/loss: 1.5372627973556519
@@ -8,10 +8,11 @@ test/mean-predicted-length: 12.87237548828125
 test/mean-target-energy: 0.7178207635879517
 test/mean-target-length: 21.358747482299805
 test/next-item-accuracy: 0.5987492799758911
-test/next-item-mae: 25.848596572875977
+test/next-item-mae: 18.75479507446289
 test/next-item-mean-time-step: 30.360029220581055
-test/next-item-rmse: 68.63469696044922
-test/optimal-transport-distance: 171.938232421875
+test/next-item-rmse: 32.065940856933594
+test/next-k-label-distribution-delta: 6.938858509063721
+test/optimal-transport-distance: 169.72177124023438
 val/T-mAP: 0.5346716046333313
 val/horizon-mean-time-step: 14.808979034423828
 val/loss: 1.5291186571121216
@@ -21,7 +22,8 @@ val/mean-predicted-length: 12.568079948425293
 val/mean-target-energy: 0.7110556960105896
 val/mean-target-length: 20.682857513427734
 val/next-item-accuracy: 0.6021960377693176
-val/next-item-mae: 26.421340942382812
+val/next-item-mae: 19.021583557128906
 val/next-item-mean-time-step: 31.089214324951172
-val/next-item-rmse: 70.10563659667969
-val/optimal-transport-distance: 172.75729370117188
+val/next-item-rmse: 32.27290344238281
+val/next-k-label-distribution-delta: 6.902475833892822
+val/optimal-transport-distance: 170.56353759765625

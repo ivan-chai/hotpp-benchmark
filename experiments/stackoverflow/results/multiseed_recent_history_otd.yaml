@@ -1,6 +1,6 @@
-date: '2024-08-08 13:13:38'
+date: '2024-09-06 18:22:51'
 num_seeds: 5
-test/T-mAP (mean): 0.067188560962677
+test/T-mAP (mean): 0.06718970835208893
 test/T-mAP (std): 0.0
 test/horizon-mean-time-step (mean): 0.7769157886505127
 test/horizon-mean-time-step (std): 0.0
@@ -12,15 +12,17 @@ test/mean-target-length (mean): 15.583646774291992
 test/mean-target-length (std): 0.0
 test/next-item-accuracy (mean): 0.2642117738723755
 test/next-item-accuracy (std): 0.0
-test/next-item-mae (mean): 0.9337224364280701
+test/next-item-mae (mean): 0.9336374998092651
 test/next-item-mae (std): 0.0
 test/next-item-mean-time-step (mean): 1.0942994356155396
 test/next-item-mean-time-step (std): 0.0
-test/next-item-rmse (mean): 1.4739642143249512
+test/next-item-rmse (mean): 1.4730385541915894
 test/next-item-rmse (std): 0.0
-test/optimal-transport-distance (mean): 14.89876937866211
+test/next-k-label-distribution-delta (mean): 8.117687225341797
+test/next-k-label-distribution-delta (std): 0.0
+test/optimal-transport-distance (mean): 14.55165958404541
 test/optimal-transport-distance (std): 0.0
-val/T-mAP (mean): 0.0867413580417633
+val/T-mAP (mean): 0.08674263954162598
 val/T-mAP (std): 0.0
 val/horizon-mean-time-step (mean): 0.7916256785392761
 val/horizon-mean-time-step (std): 0.0
@@ -32,11 +34,13 @@ val/mean-target-length (mean): 15.263496398925781
 val/mean-target-length (std): 0.0
 val/next-item-accuracy (mean): 0.2764693796634674
 val/next-item-accuracy (std): 0.0
-val/next-item-mae (mean): 0.9616356492042542
+val/next-item-mae (mean): 0.9615771770477295
 val/next-item-mae (std): 0.0
 val/next-item-mean-time-step (mean): 1.1284388303756714
 val/next-item-mean-time-step (std): 0.0
-val/next-item-rmse (mean): 1.5105606317520142
+val/next-item-rmse (mean): 1.509952425956726
 val/next-item-rmse (std): 0.0
-val/optimal-transport-distance (mean): 14.844649314880371
+val/next-k-label-distribution-delta (mean): 7.969967842102051
+val/next-k-label-distribution-delta (std): 0.0
+val/optimal-transport-distance (mean): 14.523416519165039
 val/optimal-transport-distance (std): 0.0
