@@ -138,9 +138,10 @@ class HorizonMetric:
 
         # Update deltas stats.
         predicted_timestamps = predictions.payload["timestamps"][seq_mask]  # (V, N).
-        deltas = predicted_timestamps[:, 1:] - predicted_timestamps[:, :-1]
-        self._horizon_predicted_deltas_sums.append(deltas.float().mean().cpu() * deltas.numel())
-        self._horizon_n_predicted_deltas += deltas.numel()
+        if (len(predicted_timestamps) > 0) and (predicted_timestamps.shape[1] >= 2):
+            deltas = predicted_timestamps[:, 1:] - predicted_timestamps[:, :-1]
+            self._horizon_predicted_deltas_sums.append(deltas.float().mean().cpu() * deltas.numel())
+            self._horizon_n_predicted_deltas += deltas.numel()
 
         # Update T-mAP.
         if self.map is not None:

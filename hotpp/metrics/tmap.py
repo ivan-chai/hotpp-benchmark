@@ -52,6 +52,8 @@ class TMAPMetric:
         """
         device = predicted_labels_scores.device
         b, p, c = predicted_labels_scores.shape
+        if b == 0:
+            return
         predicted_mask = predicted_mask.bool()
         target_mask = target_mask.bool()
         target_labels = target_labels.long()
