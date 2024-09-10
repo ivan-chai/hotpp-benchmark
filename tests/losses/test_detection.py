@@ -45,8 +45,7 @@ class TestDetectionLoss(TestCase):
             "labels": CrossEntropyLoss(3)
         }
         loss = DetectionLoss(NextItemLoss(losses), num_events, horizon,
-                             drop_partial_windows=True,
-                             match_weights={"timestamps": 1})
+                             drop_partial_windows=True, match_weights={"timestamps": 1})
         # Input length is 5, window size is 4 (= 2 / 0.5).
         # There are 2 extracted windows for the first item and 1 window for the second.
         zeros = torch.zeros(2, 6, num_events)
@@ -61,11 +60,13 @@ class TestDetectionLoss(TestCase):
         outputs = PaddedBatch(outputs, torch.tensor([6, 5]))
         windows = loss.extract_structured_windows(batch)  # (B, L - k, k + 1, D).
         indices, matching, losses, stats = loss.get_subset_matching(batch, outputs)  # (B, L - k, T).
+        # Select valid matching.
+        matching = PaddedBatch(matching.payload[:, :2], indices.payload["full_mask"].sum(1))
         # Relative to absolute.
         mask = matching.payload < 0
         matching.payload += torch.arange(1, matching.shape[1] + 1)[:, None]
         matching.payload[mask] = -1
-        self.assertEqual(matching.payload.shape, (2, 6, 4))
+        self.assertEqual(matching.payload.shape, (2, 2, 4))
         self.assertEqual(matching.seq_lens.tolist(), [2, 1])
         self.assertEqual(stats["prediction_match_rate"], (8 + 3) / (3 * 4))
         self.assertEqual(stats["target_match_rate"], (8 + 3) / (4 + 3 + 4))
@@ -78,7 +79,7 @@ class TestDetectionLoss(TestCase):
         matching_gt[0, 1, 0] = 2  # t=12.
         matching_gt[0, 1, 1] = 3  # t=12.
         matching_gt[0, 1, 2] = 4  # t=13.
-        self.assertEqual(matching.payload[:, :6 - 4].tolist(), matching_gt.tolist())
+        self.assertEqual(matching.payload.tolist(), matching_gt.tolist())
 
     def test_convergence(self):
         torch.manual_seed(0)
@@ -90,6 +91,7 @@ class TestDetectionLoss(TestCase):
         }
 
         loss = DetectionLoss(NextItemLoss(losses), k=6, horizon=3,
+                             drop_partial_windows=True,
                              match_weights={"timestamps": 1, "labels": 1})
 
         batch = PaddedBatch({
@@ -130,11 +132,10 @@ class TestDetectionLoss(TestCase):
         for i in range(n_valid):
             # Get horizon length.
             k = (batch.payload["timestamps"][0, i + 1:] - batch.payload["timestamps"][0, i] < 3).sum().item()
-            gt_presence = (torch.arange(6) < k).long()
             gt_times = batch.payload["timestamps"][0, i + 1:i + 1 + k]
             gt_labels = batch.payload["labels"][0, i + 1:i + 1 + k]
-            self.assertEqual(predictions["_presence"][0, i].sum().item(), k)
             mask = predictions["_presence"][0, i].bool()
+            self.assertEqual(predictions["_presence"][0, i].sum().item(), k)
             self.assertEqual(predictions["labels"][0, i, mask].tolist(), gt_labels.tolist())
             self.assertTrue(predictions["timestamps"][0, i, mask].allclose(gt_times, atol=0.1))
 

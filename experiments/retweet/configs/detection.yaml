@@ -20,7 +20,6 @@ module:
     next_item_adapter:
       timestamps: mode
       labels: mean
-      _presence: mode
     next_item_loss:
       _target_: hotpp.losses.NextItemLoss
       losses:

@@ -12,6 +12,7 @@ class HorizonMetric:
     Args:
         horizon: Prediction horizon.
         horizon_evaluation_step: The period for horizon metrics evaluation.
+        max_time_delta: Maximum time delta for next item metrics.
         map_deltas: The list of time delta thresholds for mAP evaluation.
         map_target_length: The maximum target length for mAP evaluation.
             Must be large enough to include all horizon events.
@@ -19,21 +20,21 @@ class HorizonMetric:
         otd_insert_cost: OTD insert cost.
         otd_delete_cost: OTD delete cost.
     """
-    def __init__(self, horizon, horizon_evaluation_step=1,
+    def __init__(self, horizon, horizon_evaluation_step=1, max_time_delta=None,
                  map_deltas=None, map_target_length=None,
                  otd_steps=None, otd_insert_cost=None, otd_delete_cost=None):
         self.horizon = horizon
         self.horizon_evaluation_step = horizon_evaluation_step
 
-        self.next_item = NextItemMetric()
+        self.next_item = NextItemMetric(max_time_delta=max_time_delta)
         if map_deltas is not None:
             if map_target_length is None:
                 raise ValueError("Need the max target sequence length for mAP computation")
             self.map_target_length = map_target_length
-            self.map = TMAPMetric(time_delta_thresholds=map_deltas)
+            self.tmap = TMAPMetric(time_delta_thresholds=map_deltas)
         else:
             self.map_target_length = None
-            self.map = None
+            self.tmap = None
         if otd_steps is not None:
             if (otd_insert_cost is None) or (otd_delete_cost is None):
                 raise ValueError("Need insertion and deletion costs for the OTD metric.")
@@ -48,7 +49,7 @@ class HorizonMetric:
 
     @property
     def horizon_prediction(self):
-        return (self.map is not None) or (self.otd is not None)
+        return (self.tmap is not None) or (self.otd is not None)
 
     def reset(self):
         self._target_lengths = []
@@ -56,8 +57,8 @@ class HorizonMetric:
         self._horizon_predicted_deltas_sums = []
         self._horizon_n_predicted_deltas = 0
         self.next_item.reset()
-        if self.map is not None:
-            self.map.reset()
+        if self.tmap is not None:
+            self.tmap.reset()
         if self.otd is not None:
             self.otd.reset()
 
@@ -91,7 +92,8 @@ class HorizonMetric:
                               predicted_labels_logits=predicted_labels_logits[:, :-1])
 
     def update_horizon(self, seq_lens, timestamps, labels,
-                       indices, indices_lens, seq_predicted_timestamps, seq_predicted_labels_logits):
+                       indices, indices_lens, seq_predicted_timestamps, seq_predicted_labels_logits,
+                       seq_predicted_weights=None):
         """Update sequence metrics with new observations.
 
         NOTE: Timestamps and labels must be provided without offset w.r.t. predictions, i.e. input features.
@@ -104,11 +106,14 @@ class HorizonMetric:
             indices_lens: The number of indices for each element in the batch with shape (B).
             seq_predicted_timestamps: Predicted timestamps with shape (B, I, N).
             seq_predicted_labels_logits: Predicted labels logits with shape (B, I, N, C).
+            seq_predicted_weights (optional): Choose > 0 during OTD computation and use top-K if > 0 doesn't produce the required number of events.
         """
         features = PaddedBatch({"timestamps": timestamps, "labels": labels}, seq_lens)
         indices = PaddedBatch(indices, indices_lens)
-        predictions = PaddedBatch({"timestamps": seq_predicted_timestamps, "labels_logits": seq_predicted_labels_logits},
-                                  indices_lens)
+        predictions = {"timestamps": seq_predicted_timestamps, "labels_logits": seq_predicted_labels_logits}
+        if seq_predicted_weights is not None:
+            predictions["_weights"] = seq_predicted_weights
+        predictions = PaddedBatch(predictions, indices_lens)
         if not features.seq_len_mask.take_along_dim(indices.payload, 1).masked_select(indices.seq_len_mask).all():
             raise ValueError("Some indices are out of sequence lengths")
 
@@ -123,37 +128,54 @@ class HorizonMetric:
 
         # Apply horizon.
         targets_mask = self._get_horizon_mask(initial_timestamps, targets)  # (B, I, K).
-        predictions_mask = self._get_horizon_mask(initial_timestamps, predictions)  # (B, I, N).
+        horizon_predictions_mask = self._get_horizon_mask(initial_timestamps, predictions)  # (B, I, N).
+        if seq_predicted_weights is not None:
+            predictions_mask = horizon_predictions_mask.logical_and(seq_predicted_weights > 0)
+        else:
+            predictions_mask = horizon_predictions_mask
         self._target_lengths.append(targets_mask[seq_mask].sum(1).cpu().flatten())  # (V).
         self._predicted_lengths.append(predictions_mask[seq_mask].sum(1).cpu().flatten())  # (BI).
 
         # Update deltas stats.
         predicted_timestamps = predictions.payload["timestamps"][seq_mask]  # (V, N).
-        deltas = predicted_timestamps[:, 1:] - predicted_timestamps[:, :-1]
-        self._horizon_predicted_deltas_sums.append(deltas.float().mean().cpu() * deltas.numel())
-        self._horizon_n_predicted_deltas += deltas.numel()
+        if (len(predicted_timestamps) > 0) and (predicted_timestamps.shape[1] >= 2):
+            deltas = predicted_timestamps[:, 1:] - predicted_timestamps[:, :-1]
+            self._horizon_predicted_deltas_sums.append(deltas.float().mean().cpu() * deltas.numel())
+            self._horizon_n_predicted_deltas += deltas.numel()
 
         # Update T-mAP.
-        if self.map is not None:
-            self.map.update(
+        if self.tmap is not None:
+            self.tmap.update(
                 target_mask=targets_mask[seq_mask][:, :self.map_target_length],  # (V, K).
                 target_times=targets.payload["timestamps"][seq_mask][:, :self.map_target_length],  # (V, K).
                 target_labels=targets.payload["labels"][seq_mask][:, :self.map_target_length],  # (V, K).
-                predicted_mask=predictions_mask[seq_mask],  # (V, N).
+                predicted_mask=horizon_predictions_mask[seq_mask],  # (V, N).
                 predicted_times=predicted_timestamps,  # (V, N).
                 predicted_labels_scores=predictions.payload["labels_logits"][seq_mask],  # (V, N, C).
             )
 
         # Update OTD.
         if self.otd is not None:
-            if predictions_mask.shape[-1] < self.otd_steps:
+            if predicted_timestamps.shape[-1] < self.otd_steps:
                 raise RuntimeError("Need more predicted events for OTD evaluation.")
             predicted_labels = predictions.payload["labels_logits"].argmax(-1)  # (B, I, N).
+            if seq_predicted_weights is not None:
+                otd_weights = predictions.payload["_weights"][seq_mask]  # (V, S).
+                otd_mask = otd_weights > 0  # (V, S).
+                otd_mask.logical_and_(otd_mask.cumsum(1) <= self.otd_steps)
+                not_enough = otd_mask.sum(1) < self.otd_steps  # (V).
+                top_indices = otd_weights[not_enough].topk(self.otd_steps, dim=1)[1]  # (E, R).
+                otd_mask[not_enough] = otd_mask[not_enough].scatter(1, top_indices, torch.full_like(top_indices, True, dtype=torch.bool))
+                otd_predicted_timestamps = predicted_timestamps[otd_mask].reshape(-1, self.otd_steps)  # (V, S).
+                otd_predicted_labels = predicted_labels[seq_mask][otd_mask].reshape(-1, self.otd_steps)  # (V, S).
+            else:
+                otd_predicted_timestamps = predicted_timestamps[:, :self.otd_steps]  # (V, S).
+                otd_predicted_labels = predicted_labels[seq_mask][:, :self.otd_steps]  # (V, S).
             self.otd.update(
                 target_times=targets.payload["timestamps"][seq_mask][:, :self.otd_steps],  # (V, S).
                 target_labels=targets.payload["labels"][seq_mask][:, :self.otd_steps],  # (V, S).
-                predicted_times=predictions.payload["timestamps"][seq_mask][:, :self.otd_steps],  # (V, S).
-                predicted_labels=predicted_labels[seq_mask][:, :self.otd_steps],  # (V, S).
+                predicted_times=otd_predicted_timestamps,  # (V, S).
+                predicted_labels=otd_predicted_labels,  # (V, S).
             )
 
     def compute(self):
@@ -163,12 +185,12 @@ class HorizonMetric:
             predicted_lengths = torch.cat(self._predicted_lengths)
             values.update({
                 "mean-target-length": target_lengths.sum().item() / target_lengths.numel(),
-                "mean-predicted-length":predicted_lengths.sum().item() / predicted_lengths.numel(),
+                "mean-predicted-length": predicted_lengths.sum().item() / predicted_lengths.numel(),
                 "horizon-mean-time-step": torch.stack(self._horizon_predicted_deltas_sums).sum() / self._horizon_n_predicted_deltas
             })
         values.update(self.next_item.compute())
-        if self.map is not None:
-            values.update(self.map.compute())
+        if self.tmap is not None:
+            values.update(self.tmap.compute())
         if self.otd is not None:
             values.update(self.otd.compute())
         return values

@@ -36,6 +36,7 @@ data_module:
 
 metric:
   _target_: hotpp.metrics.HorizonMetric
+  max_time_delta: ${max_time_delta}
   horizon: 7  # One week.
   horizon_evaluation_step: 64
   map_deltas: [2]

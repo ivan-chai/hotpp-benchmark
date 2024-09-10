@@ -1,4 +1,15 @@
 import torch
+from torch_linear_assignment import batch_linear_assignment
+
+
+def batch_bincount(x, minlength=0):
+    # x: (B, N).
+    # returns: (B, C).
+    b, n = x.shape
+    c = max(x.max().item() + 1, minlength)
+    counts = x.new_zeros(b, c)
+    counts.scatter_add_(dim=1, index=x.long(), src=torch.ones_like(x))
+    return counts
 
 
 class OTDMetric:
@@ -31,20 +42,31 @@ class OTDMetric:
         """
         assert target_times.shape == target_labels.shape == predicted_times.shape == predicted_labels.shape
         b, n = predicted_times.shape
-        costs = (predicted_times[:, :, None] - target_times[:, None, :]).abs().float()  # (B, N, N).
-        infinity = torch.finfo(costs.dtype).max
+        if b == 0:
+            return
+        infinity = self.insert_cost + self.delete_cost
+        costs = (predicted_times[:, :, None] - target_times[:, None, :]).abs().float().clip(max=infinity)  # (B, N, N).
         costs.masked_fill_(predicted_labels[:, :, None] != target_labels[:, None, :], infinity)
         self._costs.append(self._get_min_distance(costs).cpu())  # (B).
 
+        max_labels = max(target_labels.max().item(), predicted_labels.max().item()) + 1
+        target_counts = batch_bincount(target_labels, max_labels)
+        predicted_counts = batch_bincount(predicted_labels, max_labels)
+        self._label_distribution_deltas.append((target_counts - predicted_counts).abs().sum(1))  # (B).
+
     def reset(self):
         self._costs = []
+        self._label_distribution_deltas = []
 
     def compute(self):
         if len(self._costs) == 0:
             return {}
         costs = torch.cat(self._costs)
+        label_distribution_deltas = torch.cat(self._label_distribution_deltas)
+
         return {
-            "optimal-transport-distance": costs.mean().item()
+            "optimal-transport-distance": costs.mean().item(),
+            "next-k-label-distribution-delta": label_distribution_deltas.float().mean().item()
         }
 
     def _get_min_distance(self, costs):
@@ -56,12 +78,11 @@ class OTDMetric:
         Returns:
             Minimum costs with shape (B).
         """
-        b, n, k = costs.shape
-        min_costs = torch.empty(b, n + 1, k + 1, dtype=costs.dtype, device=costs.device)
-        min_costs[:, :, 0] = torch.arange(n + 1, device=costs.device) * self.insert_cost
-        min_costs[:, 0, :] = torch.arange(k + 1, device=costs.device) * self.delete_cost
-        for i in range(n):
-            for j in range(k):
-                c = torch.minimum(min_costs[:, i, j + 1] + self.insert_cost, min_costs[:, i + 1, j] + self.delete_cost)   # (B).
-                min_costs[:, i + 1, j + 1] = torch.minimum(c, min_costs[:, i, j] + costs[:, i, j])
-        return min_costs[:, n, k]
+        matching = batch_linear_assignment(costs)  # (B, N).
+        mask = matching >= 0  # (B, N).
+        matched_costs = costs.take_along_dim(matching.clip(min=0).unsqueeze(2), 2).squeeze(2)  # (B, N).
+        matched_costs = (matched_costs * mask).sum(1)  # (B).
+        n_delete = (~mask).sum(1)  # (B).
+        n_insert = costs.shape[2] - mask.sum(1)  # (B).
+        min_costs = matched_costs + self.insert_cost * n_insert + self.delete_cost * n_delete
+        return min_costs
