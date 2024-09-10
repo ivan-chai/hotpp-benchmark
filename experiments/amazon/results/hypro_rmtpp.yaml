@@ -1,4 +1,4 @@
-date: '2024-08-15 13:46:06'
+date: '2024-09-09 11:13:44'
 test/T-mAP: 0.21306851506233215
 test/horizon-mean-time-step: 0.5797449350357056
 test/loss: 0.10694147646427155
@@ -9,9 +9,11 @@ test/mean-target-energy: -5.691481113433838
 test/mean-target-length: 19.20047378540039
 test/next-item-accuracy: 0.35689619183540344
 test/next-item-mae: 0.2949830889701843
+test/next-item-map: 0.17207545042037964
 test/next-item-mean-time-step: 0.5270792841911316
 test/next-item-rmse: 0.337247759103775
-test/optimal-transport-distance: 6.673852920532227
+test/next-k-label-distribution-delta: 5.888727188110352
+test/optimal-transport-distance: 6.599861145019531
 val/T-mAP: 0.21025756001472473
 val/horizon-mean-time-step: 0.5821677446365356
 val/loss: 0.11164748668670654
@@ -22,6 +24,8 @@ val/mean-target-energy: -5.666600704193115
 val/mean-target-length: 19.335750579833984
 val/next-item-accuracy: 0.3482304811477661
 val/next-item-mae: 0.2968311309814453
+val/next-item-map: 0.17068086564540863
 val/next-item-mean-time-step: 0.52205491065979
 val/next-item-rmse: 0.3387244641780853
-val/optimal-transport-distance: 6.716222286224365
+val/next-k-label-distribution-delta: 5.934376239776611
+val/optimal-transport-distance: 6.639188289642334

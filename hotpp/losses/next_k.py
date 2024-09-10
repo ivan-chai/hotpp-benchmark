@@ -94,7 +94,8 @@ class NextKLoss(torch.nn.Module):
         payload = outputs.payload[:, :mask.shape[1]][mask]  # (V, k, P).
         payload = torch.cat([payload, payload[:, -1:]], dim=1)  # (V, k + 1, P).
         outputs = PaddedBatch(payload, lengths)  # (V, k + 1, P).
-        states = states.masked_select(mask[None, :, :, None]).reshape(len(states), len(lengths), 1, -1)  # (N, V, 1, D).
+        n, _, _, d = states.shape
+        states = states.masked_select(mask[None, :, :, None]).reshape(n, len(lengths), 1, d)  # (N, V, 1, D).
 
         losses, metrics = self._next_item(targets, outputs, states)
         return losses, metrics

@@ -33,7 +33,7 @@ class NextItemLoss(torch.nn.Module):
     def _intepolate_field(self, states, time_deltas, field):
         """Partial interpolator for a particular field."""
         outputs = self._interpolator(states, time_deltas)
-        parameters = self._split_outputs(outputs)[field]
+        parameters = self._split_outputs(outputs.payload)[field]
         return parameters
 
     @property
@@ -63,7 +63,7 @@ class NextItemLoss(torch.nn.Module):
         """
         # Compute losses. It is assumed that predictions lengths are equal to targets lengths.
         if not isinstance(outputs, dict):
-            outputs = self._split_outputs(outputs)
+            outputs = self._split_outputs(outputs.payload)
         mask = inputs.seq_len_mask.bool() if (inputs.seq_lens != inputs.shape[1]).any() else None
         losses = {}
         metrics = {}
@@ -86,7 +86,7 @@ class NextItemLoss(torch.nn.Module):
             PaddedBatch with predictions.
         """
         seq_lens = outputs.seq_lens
-        outputs = self._split_outputs(outputs)
+        outputs = self._split_outputs(outputs.payload)
         result = {}
         for name in (self._losses if fields is None else fields):
             prediction = self._prediction if isinstance(self._prediction, str) else self._prediction[name]
@@ -108,8 +108,13 @@ class NextItemLoss(torch.nn.Module):
         result = {}
         for name in self._order:
             loss = self._losses[name]
-            result[name] = outputs.payload[..., offset:offset + loss.input_size]
+            result[name] = outputs[..., offset:offset + loss.input_size]
             offset += loss.input_size
-        if offset != outputs.payload.shape[-1]:
+        if offset != outputs.shape[-1]:
             raise ValueError("Predictions tensor has inconsistent size.")
         return result
+
+    def _join_outputs(self, outputs_dict):
+        """Inverse of _split_outputs."""
+        outputs = [outputs_dict[name] for name in self._order]
+        return torch.cat(outputs, -1)

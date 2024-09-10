@@ -42,6 +42,8 @@ class OTDMetric:
         """
         assert target_times.shape == target_labels.shape == predicted_times.shape == predicted_labels.shape
         b, n = predicted_times.shape
+        if b == 0:
+            return
         infinity = self.insert_cost + self.delete_cost
         costs = (predicted_times[:, :, None] - target_times[:, None, :]).abs().float().clip(max=infinity)  # (B, N, N).
         costs.masked_fill_(predicted_labels[:, :, None] != target_labels[:, None, :], infinity)
@@ -84,14 +86,3 @@ class OTDMetric:
         n_insert = costs.shape[2] - mask.sum(1)  # (B).
         min_costs = matched_costs + self.insert_cost * n_insert + self.delete_cost * n_delete
         return min_costs
-#
-#
-#        b, n, k = costs.shape
-#        min_costs = torch.empty(b, n + 1, k + 1, dtype=costs.dtype, device=costs.device)
-#        min_costs[:, :, 0] = torch.arange(n + 1, device=costs.device) * self.insert_cost
-#        min_costs[:, 0, :] = torch.arange(k + 1, device=costs.device) * self.delete_cost
-#        for i in range(n):
-#            for j in range(k):
-#                c = torch.minimum(min_costs[:, i, j + 1] + self.insert_cost, min_costs[:, i + 1, j] + self.delete_cost)   # (B).
-#                min_costs[:, i + 1, j + 1] = torch.minimum(c, min_costs[:, i, j] + costs[:, i, j])
-#        return min_costs[:, n, k]

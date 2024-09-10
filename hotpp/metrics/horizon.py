@@ -12,6 +12,7 @@ class HorizonMetric:
     Args:
         horizon: Prediction horizon.
         horizon_evaluation_step: The period for horizon metrics evaluation.
+        max_time_delta: Maximum time delta for next item metrics.
         map_deltas: The list of time delta thresholds for mAP evaluation.
         map_target_length: The maximum target length for mAP evaluation.
             Must be large enough to include all horizon events.
@@ -19,21 +20,21 @@ class HorizonMetric:
         otd_insert_cost: OTD insert cost.
         otd_delete_cost: OTD delete cost.
     """
-    def __init__(self, horizon, horizon_evaluation_step=1,
+    def __init__(self, horizon, horizon_evaluation_step=1, max_time_delta=None,
                  map_deltas=None, map_target_length=None,
                  otd_steps=None, otd_insert_cost=None, otd_delete_cost=None):
         self.horizon = horizon
         self.horizon_evaluation_step = horizon_evaluation_step
 
-        self.next_item = NextItemMetric()
+        self.next_item = NextItemMetric(max_time_delta=max_time_delta)
         if map_deltas is not None:
             if map_target_length is None:
                 raise ValueError("Need the max target sequence length for mAP computation")
             self.map_target_length = map_target_length
-            self.map = TMAPMetric(time_delta_thresholds=map_deltas)
+            self.tmap = TMAPMetric(time_delta_thresholds=map_deltas)
         else:
             self.map_target_length = None
-            self.map = None
+            self.tmap = None
         if otd_steps is not None:
             if (otd_insert_cost is None) or (otd_delete_cost is None):
                 raise ValueError("Need insertion and deletion costs for the OTD metric.")
@@ -48,7 +49,7 @@ class HorizonMetric:
 
     @property
     def horizon_prediction(self):
-        return (self.map is not None) or (self.otd is not None)
+        return (self.tmap is not None) or (self.otd is not None)
 
     def reset(self):
         self._target_lengths = []
@@ -56,8 +57,8 @@ class HorizonMetric:
         self._horizon_predicted_deltas_sums = []
         self._horizon_n_predicted_deltas = 0
         self.next_item.reset()
-        if self.map is not None:
-            self.map.reset()
+        if self.tmap is not None:
+            self.tmap.reset()
         if self.otd is not None:
             self.otd.reset()
 
@@ -137,13 +138,14 @@ class HorizonMetric:
 
         # Update deltas stats.
         predicted_timestamps = predictions.payload["timestamps"][seq_mask]  # (V, N).
-        deltas = predicted_timestamps[:, 1:] - predicted_timestamps[:, :-1]
-        self._horizon_predicted_deltas_sums.append(deltas.float().mean().cpu() * deltas.numel())
-        self._horizon_n_predicted_deltas += deltas.numel()
+        if (len(predicted_timestamps) > 0) and (predicted_timestamps.shape[1] >= 2):
+            deltas = predicted_timestamps[:, 1:] - predicted_timestamps[:, :-1]
+            self._horizon_predicted_deltas_sums.append(deltas.float().mean().cpu() * deltas.numel())
+            self._horizon_n_predicted_deltas += deltas.numel()
 
         # Update T-mAP.
-        if self.map is not None:
-            self.map.update(
+        if self.tmap is not None:
+            self.tmap.update(
                 target_mask=targets_mask[seq_mask][:, :self.map_target_length],  # (V, K).
                 target_times=targets.payload["timestamps"][seq_mask][:, :self.map_target_length],  # (V, K).
                 target_labels=targets.payload["labels"][seq_mask][:, :self.map_target_length],  # (V, K).
@@ -187,8 +189,8 @@ class HorizonMetric:
                 "horizon-mean-time-step": torch.stack(self._horizon_predicted_deltas_sums).sum() / self._horizon_n_predicted_deltas
             })
         values.update(self.next_item.compute())
-        if self.map is not None:
-            values.update(self.map.compute())
+        if self.tmap is not None:
+            values.update(self.tmap.compute())
         if self.otd is not None:
             values.update(self.otd.compute())
         return values
