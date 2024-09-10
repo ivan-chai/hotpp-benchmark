@@ -29,12 +29,10 @@ def get_loader(dm):
     return loader
 
 
-def calibrate(conf, model, dm):
-    pl.seed_everything(conf.seed_everything)
-    dataloader = get_loader(dm)
+def calibrate(model, loader):
     model.eval()
     model._loss.train()
-    for i, batch in enumerate(tqdm(dataloader)):
+    for i, batch in enumerate(tqdm(loader)):
         model.training_step(batch, i)
 
 
@@ -49,9 +47,11 @@ def main(conf):
     if "model_path" not in conf:
         raise ValueError("Need model_path for a model initialization")
     logger.info(f"Load weights from '{conf.model_path}'")
+
     model.load_state_dict(torch.load(conf.model_path))
 
-    calibrate(conf, model, dm)
+    pl.seed_everything(conf.seed_everything)
+    calibrate(model, get_loader(dm))
 
     torch.save(model.state_dict(), conf.model_path)
     logger.info(f"New weights are dumped to '{conf.model_path}'")
