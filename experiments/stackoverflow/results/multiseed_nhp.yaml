@@ -1,4 +1,4 @@
-date: '2024-09-06 18:24:56'
+date: '2024-09-09 10:54:49'
 num_seeds: 5
 test/T-mAP (mean): 0.12300479710102082
 test/T-mAP (std): 0.0038606301530495824
@@ -16,6 +16,8 @@ test/next-item-accuracy (mean): 0.445286625623703
 test/next-item-accuracy (std): 0.0005320661489235946
 test/next-item-mae (mean): 0.7154345750808716
 test/next-item-mae (std): 0.003713030172319977
+test/next-item-map (mean): 0.10809711813926696
+test/next-item-map (std): 0.0016909325842456129
 test/next-item-mean-time-step (mean): 0.8782046675682068
 test/next-item-mean-time-step (std): 0.0006483752060208917
 test/next-item-rmse (mean): 1.037233257293701
@@ -42,6 +44,8 @@ val/next-item-accuracy (mean): 0.4654870808124542
 val/next-item-accuracy (std): 0.0003140250176670071
 val/next-item-mae (mean): 0.7231531262397766
 val/next-item-mae (std): 0.0039914683174113
+val/next-item-map (mean): 0.11052758544683457
+val/next-item-map (std): 0.002638581595926558
 val/next-item-mean-time-step (mean): 0.9068398594856262
 val/next-item-mean-time-step (std): 0.0006330618613873533
 val/next-item-rmse (mean): 1.054737138748169

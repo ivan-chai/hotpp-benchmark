@@ -1,4 +1,4 @@
-date: '2024-09-07 00:31:52'
+date: '2024-09-10 01:38:22'
 test/T-mAP: 0.0710030272603035
 test/horizon-mean-time-step: 0.9669477939605713
 test/loss: 0.02333485148847103
@@ -9,6 +9,7 @@ test/mean-target-energy: -6.6094841957092285
 test/mean-target-length: 9.136935234069824
 test/next-item-accuracy: 0.3425847887992859
 test/next-item-mae: 0.7585118412971497
+test/next-item-map: 0.03464740142226219
 test/next-item-mean-time-step: 0.8854950666427612
 test/next-item-rmse: 1.0871883630752563
 test/next-k-label-distribution-delta: 5.631932258605957
@@ -23,6 +24,7 @@ val/mean-target-energy: -6.5847392082214355
 val/mean-target-length: 9.149765014648438
 val/next-item-accuracy: 0.3433374762535095
 val/next-item-mae: 0.7574756145477295
+val/next-item-map: 0.03384912386536598
 val/next-item-mean-time-step: 0.8858120441436768
 val/next-item-rmse: 1.088485598564148
 val/next-k-label-distribution-delta: 5.618167877197266

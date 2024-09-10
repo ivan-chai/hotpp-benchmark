@@ -2,29 +2,47 @@ import torch
 from torch_linear_assignment import batch_linear_assignment
 
 
-def compute_map(targets, scores, cuda_buffer_size=10**7):
+def compute_map(targets, scores, device=None, cuda_buffer_size=10**7):
+    """Compute APs.
+
+    Args:
+        targets: Ground truth one-hot encoded labels with shape (B, C).
+        scores: Predicted label scores with shape (B, C).
+        device: Internal computation device.
+        cuda_buffer_size: Maximum CUDA memory usage.
+
+    Returns:
+        AP values for each of C classes.
+    """
     # Targets: (B, C).
     # Scores: (B, C).
     b, c = targets.shape
-    if b == 0:
-        return torch.zeros_like(scores)
-    if torch.cuda.is_available():
-        batch_size = max(cuda_buffer_size // int(b), 1) if cuda_buffer_size is not None else c
+    device = targets.device if device is None else device
+    if (b == 0) or (c == 0):
+        return torch.zeros([c], device=device)
+    if targets.dtype != torch.bool:
+        if targets.dtype.is_floating_point() or (targets > 1).any() or (targets < 0).any():
+            raise ValueError("Expected boolean target on 0-1 values.")
+        targets = targets.bool()
+    if device.type == "cuda":
         # Compute large tasks step-by-step.
+        batch_size = max(cuda_buffer_size // int(b), 1) if cuda_buffer_size is not None else c
         if batch_size < c:
-            return torch.cat([compute_map(targets[:, start:start + batch_size],
-                                          scores[:, start:start + batch_size])
+            return torch.cat([compute_map(targets[:, start:start + batch_size].to(device),
+                                          scores[:, start:start + batch_size].to(device),
+                                          cuda_buffer_size=cuda_buffer_size)
                               for start in range(0, c, batch_size)])
-        targets = targets.cuda()
-        scores = scores.cuda()
-    order = scores.argsort(dim=0, descending=True)  # (B, C), (B, C).
+        else:
+            targets = targets.to(device)
+            scores = scores.to(device)
+    order = scores.argsort(dim=0, descending=True)  # (B, C).
     targets = targets.take_along_dim(order, dim=0)  # (B, C).
     cumsum = targets.cumsum(0)
-    recalls = cumsum / targets.sum(0)
-    precisions = cumsum / torch.arange(1, 1 + len(targets), device=targets.device)[:, None]
+    recalls = cumsum / targets.sum(0).clip(min=1)
+    precisions = cumsum / torch.arange(1, 1 + len(targets), device=device)[:, None]
     aps = ((recalls[1:] - recalls[:-1]) * precisions[1:]).sum(0)
     aps += precisions[0] * recalls[0]
-    return aps.cpu()
+    return aps
 
 
 class TMAPMetric:
@@ -99,8 +117,10 @@ class TMAPMetric:
             self._matched_by_delta[i].append(predicted_targets.cpu())  # (V, C).
         self._total_targets.append(target_labels_counts.cpu())  # (C).
         self._matched_scores.append(predicted_scores.cpu())  # (V, C).
+        self._device = device
 
     def reset(self):
+        self._device = "cpu"
         # The total number of targets of the specified class. A list of tensors, each with shape (C).
         self._total_targets = []
         # For each delta: a list of tensor, each with shape (C), containing the number of unmatched targets for each label.
@@ -126,7 +146,8 @@ class TMAPMetric:
             assert (max_recalls >= 0).all() and (max_recalls <= 1).all()
             label_mask = torch.logical_and(~matched_targets.all(0), matched_targets.any(0)).numpy()  # (C).
             aps = compute_map(matched_targets[:, label_mask],
-                              matched_scores[:, label_mask])  # (C').
+                              matched_scores[:, label_mask],
+                              device=self._device).cpu()  # (C').
             aps *= max_recalls.numpy()[label_mask]
             losses.append(aps.sum().item() / c)
         return {

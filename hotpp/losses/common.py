@@ -307,9 +307,11 @@ class CrossEntropyLoss(BaseLoss):
 class BinaryCrossEntropyLoss(BaseLoss):
     target_size = 1
 
-    def __init__(self, grad_scale=None):
+    def __init__(self, focal_alpha=-1, focal_gamma=0, grad_scale=None):
         super().__init__(input_size=1, target_size=1,
                          grad_scale=grad_scale)
+        self.focal_alpha = focal_alpha
+        self.focal_gamma = focal_gamma
 
     @property
     def num_classes(self):
@@ -339,9 +341,18 @@ class BinaryCrossEntropyLoss(BaseLoss):
         mask = torch.logical_and(mask[:, 1:], mask[:, :-1]) if mask is not None else None  # (B, L - 1).
 
         # Compute loss.
-        neg_logprobs = torch.nn.functional.logsigmoid(-predictions)
         pos_logprobs = torch.nn.functional.logsigmoid(predictions)
+        neg_logprobs = torch.nn.functional.logsigmoid(-predictions)
         losses = -torch.where(targets.bool(), pos_logprobs, neg_logprobs)  # (B, L - 1, *).
+
+        if self.focal_gamma != 0:
+            probs = pos_logprobs.exp()
+            nprobs = neg_logprobs.exp()
+            probs_t = probs * target + nprobs * (1 - target)
+            losses = losses * ((1 - probs_t) ** self.focal_gamma)
+        if self.focal_alpha >= 0:
+            alpha_t = self.focal_alpha * target + (1 - self.focal_alpha) * (1 - target)
+            losses = alpha_t * losses
         return losses, mask, {}
 
     def predict_logits(self, predictions):
