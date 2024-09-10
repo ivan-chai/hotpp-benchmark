@@ -348,10 +348,10 @@ class BinaryCrossEntropyLoss(BaseLoss):
         if self.focal_gamma != 0:
             probs = pos_logprobs.exp()
             nprobs = neg_logprobs.exp()
-            probs_t = probs * target + nprobs * (1 - target)
+            probs_t = probs * targets + nprobs * (1 - targets)
             losses = losses * ((1 - probs_t) ** self.focal_gamma)
         if self.focal_alpha >= 0:
-            alpha_t = self.focal_alpha * target + (1 - self.focal_alpha) * (1 - target)
+            alpha_t = self.focal_alpha * targets + (1 - self.focal_alpha) * (1 - targets)
             losses = alpha_t * losses
         return losses, mask, {}
 
