@@ -285,6 +285,7 @@ class DetectionLoss(NextKLoss):
                 log_cum_prod = roll_log_not_presence.cumsum(-1)  # (B, L, K).
             log_weights = torch.nn.functional.log_softmax(log_cum_prod + log_presence, -1)  # (B, L, K).
             weighted_logits = log_probs + log_weights.unsqueeze(-1)  # (B, L, K, C).
+
             # Find the first and the most probable event.
             indices = {}
             if "first" in adapters:
