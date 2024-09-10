@@ -3,6 +3,7 @@ import torch
 from torch_linear_assignment import batch_linear_assignment
 from hotpp.data import PaddedBatch
 from hotpp.utils.torch import deterministic, module_mode
+from .common import ScaleGradient
 from .next_item import NextItemLoss
 from .next_k import NextKLoss
 
