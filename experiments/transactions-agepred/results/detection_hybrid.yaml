@@ -1,4 +1,4 @@
-date: '2024-09-10 14:28:56'
+date: '2024-09-10 16:06:18'
 test/T-mAP: 0.09124846011400223
 test/horizon-mean-time-step: 0.16295947134494781
 test/loss: 5.677654266357422
@@ -14,7 +14,7 @@ test/mean-predicted-length: 9.009743690490723
 test/mean-target-length: 9.136935234069824
 test/next-item-accuracy: 0.38300979137420654
 test/next-item-mae: 0.6366415619850159
-test/next-item-map: 0.04646650329232216
+test/next-item-map: 0.04646650701761246
 test/next-item-mean-time-step: 0.8291551470756531
 test/next-item-rmse: 1.0327625274658203
 test/next-k-label-distribution-delta: 4.690891265869141
