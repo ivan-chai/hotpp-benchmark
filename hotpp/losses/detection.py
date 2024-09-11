@@ -339,7 +339,7 @@ class DetectionLoss(NextKLoss):
         b, l = outputs.shape
         lengths = outputs.seq_lens
         outputs = PaddedBatch(outputs.payload.reshape(b * l, self._k, self._next_item.input_size),
-                              outputs.seq_lens)  # (BL, K, P).
+                              torch.full([b * l], self._k, device=outputs.device))  # (BL, K, P).
         states = states.reshape(len(states), b * l, 1, -1)  # (N, BL, 1, D).
         next_values = self._next_item.predict_next(outputs, states,
                                                    fields=fields,
