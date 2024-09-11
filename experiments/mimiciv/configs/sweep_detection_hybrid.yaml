@@ -1,0 +1,44 @@
+project: hotpp-sweep-mimiciv
+run_cap: 100
+name: detection_hybrid
+command:
+  - ${env}
+  - python3
+  - -m
+  - hotpp.train
+  - --config-dir
+  - configs
+  - --config-name
+  - detection_hybrid
+  - ~seed_everything
+  - ~model_path
+  - ~report
+  - ${args_no_hyphens}
+method: bayes
+metric:
+  name: val/optimal-transport-distance
+  goal: minimize
+early_terminate:
+  type: hyperband
+  min_iter: 3
+parameters:
+  module.loss.k:
+    min: 32
+    max: 96
+  module.loss.prefetch_factor:
+    min: 0.1
+    max: 0.5
+  module.loss.drop_partial_windows:
+    values: [true, false, calibration]
+  module.loss.match_weights.timestamps:
+    min: 0.1
+    max: 10.0
+  module.loss.match_weights.labels:
+    min: 0.1
+    max: 10.0
+  module.loss.next_item_loss.losses.timestamps.grad_scale:
+    min: 0.1
+    max: 10.0
+  module.loss.next_item_loss.losses.labels.grad_scale:
+    min: 0.1
+    max: 10.0
