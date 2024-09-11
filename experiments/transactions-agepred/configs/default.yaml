@@ -24,6 +24,19 @@ report: results/${name}.yaml
 multiseed_report: results/multiseed_${name}.yaml
 downstream_report: results/downstream_${name}.txt
 
+head:
+  _target_: hotpp.nn.Head
+  _partial_: true
+  hidden_dims: [512, 256]
+  use_batch_norm: true
+
+transformer_head:
+  _target_: hotpp.nn.TransformerHead
+  _partial_: true
+  num_heads: 2
+  num_layers: 1
+  fc_dim: 256
+
 data_module:
   _target_: hotpp.data.HotppDataModule
   batch_size: 64
@@ -55,11 +68,6 @@ module:
     max_time_delta: ${max_time_delta}
     max_inference_context: 1200
     inference_context_step: 200
-  head_partial:
-    _target_: hotpp.nn.Head
-    _partial_: true
-    hidden_dims: [512, 256]
-    use_batch_norm: true
   optimizer_partial:
     _partial_: true
     _target_: torch.optim.Adam

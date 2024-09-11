@@ -11,6 +11,7 @@ module:
       _target_: hotpp.nn.GRU
       _partial_: true
       hidden_size: ${rnn_hidden_size}
+  head_partial: ${head}
   loss:
     _target_: hotpp.losses.DetectionLoss
     k: 48

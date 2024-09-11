@@ -23,6 +23,18 @@ model_path: checkpoints/${name}.ckpt
 report: results/${name}.yaml
 multiseed_report: results/multiseed_${name}.yaml
 
+head:
+  _target_: hotpp.nn.Head
+  _partial_: true
+  hidden_dims: [64]
+  use_batch_norm: true
+
+transformer_head:
+  _target_: hotpp.nn.TransformerHead
+  _partial_: true
+  num_heads: 2
+  fc_dim: 128
+
 data_module:
   _target_: hotpp.data.HotppDataModule
   batch_size: 64
@@ -54,11 +66,6 @@ module:
     max_time_delta: ${max_time_delta}
     max_inference_context: 101
     inference_context_step: 30
-  head_partial:
-    _target_: hotpp.nn.Head
-    _partial_: true
-    hidden_dims: [64]
-    use_batch_norm: true
   optimizer_partial:
     _partial_: true
     _target_: torch.optim.Adam
