@@ -13,6 +13,7 @@ thinning_params:
   max_steps: 100
   max_delta: ${max_time_delta}
   bound_samples: 100
+hypro_loss_step: 8
 
 logger:
   _target_: pytorch_lightning.loggers.WandbLogger
@@ -22,18 +23,6 @@ logger:
 model_path: checkpoints/${name}.ckpt
 report: results/${name}.yaml
 multiseed_report: results/multiseed_${name}.yaml
-
-head:
-  _target_: hotpp.nn.Head
-  _partial_: true
-  hidden_dims: [64]
-  use_batch_norm: true
-
-transformer_head:
-  _target_: hotpp.nn.TransformerHead
-  _partial_: true
-  num_heads: 2
-  fc_dim: 128
 
 data_module:
   _target_: hotpp.data.HotppDataModule
@@ -55,6 +44,18 @@ metric:
   otd_steps: 5
   otd_insert_cost: 1
   otd_delete_cost: 1
+
+head:
+  _target_: hotpp.nn.Head
+  _partial_: true
+  hidden_dims: [64]
+  use_batch_norm: true
+
+conditional_head:
+  _target_: hotpp.nn.ConditionalHead
+  _partial_: true
+  hidden_dims: [256, 64, 256]
+  use_batch_norm: true
 
 module:
   seq_encoder:

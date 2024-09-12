@@ -1,3 +1,2 @@
-from .head import Head
-from .transformer_head import TransformerHead
+from .head import *
 from .encoder import *
