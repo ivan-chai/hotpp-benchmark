@@ -54,7 +54,7 @@ head:
 conditional_head:
   _target_: hotpp.nn.ConditionalHead
   _partial_: true
-  hidden_dims: [256, 64, 256]
+  hidden_dims: [128, 256]
   use_batch_norm: true
 
 module:
