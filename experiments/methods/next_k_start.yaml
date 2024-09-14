@@ -14,7 +14,7 @@ module:
   head_partial: ${head}
   loss:
     _target_: hotpp.losses.NextKLoss
-    k: ${max_predictions}
+    k: ${next_k}
     next_item_loss:
       _target_: hotpp.losses.NextItemLoss
       losses:

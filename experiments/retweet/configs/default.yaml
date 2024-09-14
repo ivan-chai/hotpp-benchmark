@@ -1,7 +1,7 @@
 seed_everything: 42
 num_evaluation_seeds: 5
 
-max_predictions: 16
+max_predictions: 32
 num_classes: 3
 max_time_delta: 100
 max_duration: 100
@@ -13,6 +13,7 @@ thinning_params:
   max_steps: 100
   max_delta: ${max_time_delta}
   bound_samples: 100
+next_k: 16
 hypro_loss_step: 8
 
 logger:

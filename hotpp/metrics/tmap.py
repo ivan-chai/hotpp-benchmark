@@ -88,7 +88,7 @@ class TMAPMetric:
         target_labels_counts = target_labels_counts.sum(0)  # (C).
 
         costs = -predicted_labels_scores.take_along_dim(target_labels.clip(min=0)[:, None, :], 2)  # (B, P, T).
-        inf_cost = costs.max().item() + 2
+        inf_cost = costs[predicted_mask].max().item() + 2
         valid_cost_threshold = inf_cost - 1
         costs.masked_fill_(~predicted_mask.unsqueeze(2), inf_cost)
         costs.masked_fill_(~target_mask.unsqueeze(1), inf_cost)
@@ -137,19 +137,24 @@ class TMAPMetric:
         # Fix zero-length predictions.
         c = max(map(len, self._total_targets))
         total_targets = torch.stack([v.reshape(c) for v in self._total_targets]).sum(0)  # (C).
+        micro_weights = total_targets / total_targets.sum()  # (C).
         matched_scores = torch.cat([v.reshape(len(v), c) for v in self._matched_scores])  # (B, C).
         losses = []
+        micro_losses = []
         for i in range(len(self.time_delta_thresholds)):
             n_unmatched_targets = torch.stack([v.reshape(c) for v in self._n_unmatched_targets_by_delta[i]]).sum(0)  # (C).
             matched_targets = torch.cat([v.reshape(v.shape[0], c) for v in self._matched_by_delta[i]])  # (B, C).
             max_recalls = 1 - n_unmatched_targets / total_targets.clip(min=1)
             assert (max_recalls >= 0).all() and (max_recalls <= 1).all()
-            label_mask = torch.logical_and(~matched_targets.all(0), matched_targets.any(0)).numpy()  # (C).
+            label_mask = torch.logical_and(~matched_targets.all(0), matched_targets.any(0))  # (C).
             aps = compute_map(matched_targets[:, label_mask],
                               matched_scores[:, label_mask],
                               device=self._device).cpu()  # (C').
-            aps *= max_recalls.numpy()[label_mask]
+            aps = torch.zeros(c).masked_scatter_(label_mask, aps)
+            aps *= max_recalls
             losses.append(aps.sum().item() / c)
+            micro_losses.append((aps * micro_weights).sum().item())
         return {
-            "T-mAP": sum(losses) / len(losses)
+            "T-mAP": sum(losses) / len(losses),
+            "T-mAP-micro": sum(micro_losses) / len(micro_losses)
         }

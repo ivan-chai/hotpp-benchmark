@@ -1,7 +1,9 @@
-date: '2024-09-12 12:20:54'
+date: '2024-09-13 22:09:49'
 num_seeds: 5
 test/T-mAP (mean): 0.3719596862792969
 test/T-mAP (std): 0.000622738975586076
+test/T-mAP-micro (mean): 0.5837291955947876
+test/T-mAP-micro (std): 0.0017685109512344554
 test/horizon-mean-time-step (mean): 0.19800999462604524
 test/horizon-mean-time-step (std): 0.0024853751786499964
 test/loss (mean): 4.651942157745362
@@ -30,8 +32,10 @@ test/next-item-accuracy (mean): 0.3577069342136383
 test/next-item-accuracy (std): 0.0005380388127925099
 test/next-item-mae (mean): 0.23711203038692474
 test/next-item-mae (std): 0.0001999686400165686
-test/next-item-map (mean): 0.1727151542901993
-test/next-item-map (std): 0.00017359786826528215
+test/next-item-map (mean): 0.17271516025066375
+test/next-item-map (std): 0.0001735934111450939
+test/next-item-map-micro (mean): 0.2978838086128235
+test/next-item-map-micro (std): 0.00024061151663856416
 test/next-item-mean-time-step (mean): 0.5222864151000977
 test/next-item-mean-time-step (std): 0.0005119086486160146
 test/next-item-rmse (mean): 0.37934234738349915
@@ -46,6 +50,8 @@ test/target_match_rate (mean): 1.0
 test/target_match_rate (std): 0.0
 val/T-mAP (mean): 0.370788049697876
 val/T-mAP (std): 0.0017597212263557463
+val/T-mAP-micro (mean): 0.5730705022811889
+val/T-mAP-micro (std): 0.001892425989269367
 val/horizon-mean-time-step (mean): 0.19801245927810668
 val/horizon-mean-time-step (std): 0.002598930822812668
 val/loss (mean): 4.724843692779541
@@ -75,7 +81,9 @@ val/next-item-accuracy (std): 0.0005963339945279451
 val/next-item-mae (mean): 0.2391410380601883
 val/next-item-mae (std): 0.00023996949880290282
 val/next-item-map (mean): 0.17120063602924346
-val/next-item-map (std): 0.00043197401509151285
+val/next-item-map (std): 0.000431968353398822
+val/next-item-map-micro (mean): 0.28879554271698
+val/next-item-map-micro (std): 0.0002775478233087798
 val/next-item-mean-time-step (mean): 0.5169744372367859
 val/next-item-mean-time-step (std): 0.0005696970095763103
 val/next-item-rmse (mean): 0.3808907151222229

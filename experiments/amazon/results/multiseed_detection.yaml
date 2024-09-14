@@ -1,7 +1,9 @@
-date: '2024-09-12 12:27:22'
+date: '2024-09-13 22:10:09'
 num_seeds: 5
 test/T-mAP (mean): 0.3718417763710022
 test/T-mAP (std): 0.0006579893567381451
+test/T-mAP-micro (mean): 0.5839227914810181
+test/T-mAP-micro (std): 0.0009556344142886347
 test/horizon-mean-time-step (mean): 0.18614536821842192
 test/horizon-mean-time-step (std): 0.0018971469105343451
 test/loss (mean): 2.4195236206054687
@@ -26,8 +28,10 @@ test/next-item-accuracy (mean): 0.34318636655807494
 test/next-item-accuracy (std): 0.0028503309431323056
 test/next-item-mae (mean): 0.25971240401268003
 test/next-item-mae (std): 0.005576963192226975
-test/next-item-map (mean): 0.1583896666765213
-test/next-item-map (std): 0.0007135809818465019
+test/next-item-map (mean): 0.15838966965675355
+test/next-item-map (std): 0.0007135843937367339
+test/next-item-map-micro (mean): 0.27806004881858826
+test/next-item-map-micro (std): 0.0012530184018010226
 test/next-item-mean-time-step (mean): 0.5167023301124573
 test/next-item-mean-time-step (std): 0.0008590908060149844
 test/next-item-rmse (mean): 0.4183549165725708
@@ -42,6 +46,8 @@ test/target_match_rate (mean): 1.0
 test/target_match_rate (std): 0.0
 val/T-mAP (mean): 0.3687952637672424
 val/T-mAP (std): 0.0014949877354084892
+val/T-mAP-micro (mean): 0.570956015586853
+val/T-mAP-micro (std): 0.001706766955240063
 val/horizon-mean-time-step (mean): 0.18632886409759522
 val/horizon-mean-time-step (std): 0.0018102968500432913
 val/loss (mean): 2.4648711681365967
@@ -66,8 +72,10 @@ val/next-item-accuracy (mean): 0.33295515179634094
 val/next-item-accuracy (std): 0.0031066845208737814
 val/next-item-mae (mean): 0.2650085151195526
 val/next-item-mae (std): 0.005416510683561615
-val/next-item-map (mean): 0.15477165281772615
-val/next-item-map (std): 0.00056260379459141
+val/next-item-map (mean): 0.1547716498374939
+val/next-item-map (std): 0.0005625945367621689
+val/next-item-map-micro (mean): 0.2676297128200531
+val/next-item-map-micro (std): 0.0013353280532430842
 val/next-item-mean-time-step (mean): 0.5113198280334472
 val/next-item-mean-time-step (std): 0.0009077081676347593
 val/next-item-rmse (mean): 0.4231265842914581
