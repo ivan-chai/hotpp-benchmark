@@ -7,7 +7,7 @@ detection_k: 32
 module:
   loss:
     loss_subset: 1
-    prefetch_factor: 0.5
+    prefetch_factor: 1
     drop_partial_windows: false
     match_weights:
       _presence: 4
