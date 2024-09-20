@@ -69,11 +69,8 @@ class TransformerEncoder(BaseEncoder):
         Returns:
             Outputs with shape (B, L, S, D).
         """
-        if states.left != time_deltas.left:
-            raise ValueError("Padding side mismatch.")
         b, l, s = time_deltas.payload.shape
-        times = PaddedBatch(time_deltas.payload + states.index_times.payload.unsqueeze(-1), time_deltas.seq_lens,
-                            left=time_deltas.left)  # (B, L, S).
+        times = PaddedBatch(time_deltas.payload + states.index_times.payload.unsqueeze(-1), time_deltas.seq_lens)  # (B, L, S).
         if l > 1:
             last_history_index = torch.arange(l, device=time_deltas.device)  # (L).
         else:
@@ -94,7 +91,6 @@ class TransformerEncoder(BaseEncoder):
             Predicted sequences as a batch with the shape (B, I, N), where I is the number of indices and N is the number of steps.
         """
         outputs, states = self(x, return_full_states=True)  # (B, L, D), (N, B, L, D).
-        assert states.full, "Generation is not implemented for a subset of states."
 
         sequences = []
         masks = []

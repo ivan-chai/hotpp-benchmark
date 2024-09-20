@@ -4,20 +4,18 @@ from hotpp.data import PaddedBatch
 
 class TransformerState:
     """Store full transformer activations history and track indexing."""
-    def __init__(self, times, states, seq_lens, index=None, index_lens=None, left=False):
+    def __init__(self, times, states, seq_lens, index=None, index_lens=None):
         n, b, l, _ = states.shape
         if times.shape != (b, l):
             raise ValueError("Inconsistent times shape.")
         if seq_lens.shape != (b,):
             raise ValueError("Inconsistent lengths shape.")
-        full = False
         if index == "last":
             index = seq_lens - 1  # (B).
             index_lens = None
         elif index is None:
             index = torch.arange(l, device=states.device)[None].repeat(b, 1)  # (B, L).
             index_lens = seq_lens
-            full = True
         elif ((index.ndim not in {1, 2}) or (index.shape[0] != b) or
               (index.ndim == 2 and index_lens is None) or
               (index.ndim == 1 and index_lens is not None)):
@@ -27,8 +25,6 @@ class TransformerState:
         self.seq_lens = seq_lens
         self.index = index
         self.index_lens = index_lens
-        self.left = left
-        self.full = full
 
     def __len__(self):
         return self.shape[0]
@@ -57,8 +53,7 @@ class TransformerState:
             new_index_lens = (new_index <= last_index[:, None]).sum(1)  # (B).
             new_index_lens[zero_mask] = 0
         return TransformerState(new_times, new_payload, new_seq_lens,
-                                index=new_index, index_lens=new_index_lens,
-                                left=self.left)
+                                index=new_index, index_lens=new_index_lens)
 
     def take_along_dim(self, index, dim):
         if not self.has_time_dimension or dim != 2:
@@ -71,8 +66,7 @@ class TransformerState:
         new_index_lens = (new_index <= last_index[:, None]).sum(1)  # (B).
         new_index_lens[zero_mask] = 0
         return TransformerState(self.times, self.payload, self.seq_lens,
-                                index=new_index, index_lens=new_index_lens,
-                                left=self.left)
+                                index=new_index, index_lens=new_index_lens)
 
     def squeeze(self, dim):
         if not self.has_time_dimension or dim != 2:
@@ -82,8 +76,7 @@ class TransformerState:
         if self.shape[dim] != 1:
             return self
         return TransformerState(self.times, self.payload, self.seq_lens,
-                                index=self.index.squeeze(dim - 1), index_lens=None,
-                                left=self.left)
+                                index=self.index.squeeze(dim - 1), index_lens=None)
 
     @property
     def has_time_dimension(self):
@@ -111,27 +104,10 @@ class TransformerState:
 
     @property
     def seq_len_mask(self):
-        return PaddedBatch(self.payload[0], self.seq_lens, left=self.left).seq_len_mask
+        return PaddedBatch(self.payload[0], self.seq_lens).seq_len_mask
 
     @property
     def index_times(self):
         if not self.has_time_dimension:
             raise NotImplementedError("Indexing single state")
         return PaddedBatch(self.times.take_along_dim(self.index, 1), self.index_lens)
-
-    def flip_padding(self):
-        new_left = not self.left
-        n, b, l, d = self.payload.shape
-        if new_left:
-            indices = torch.arange(l, device=self.device)[None] + self.seq_lens[:, None] - l  # (B, L).
-            mask = indices >= 0
-            indices = indices.clip(min=0)
-        else:
-            indices = torch.arange(l, device=self.device)[None] + l - self.seq_lens[:, None]  # (B, L).
-            mask = indices < l
-            indices = indices.clip(max=l - 1)
-        new_times = self.times.take_along_dim(indices, 1)  # (B, L).
-        new_payload = self.payload.take_along_dim(indices[None, :, :, None], 2)
-        return TransformerState(new_times, new_payload, self.seq_lens,
-                                index=self.index, index_lens=self.index_lens,
-                                left=new_left)

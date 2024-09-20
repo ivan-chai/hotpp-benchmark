@@ -76,9 +76,9 @@ class AttNHPTransformer(torch.nn.Module):
         results = [x]
         for layer in self.layers:
             results.append(layer(results[-1], mask, attn_mask))  # (B, L, D).
-        outputs = PaddedBatch(results[-1], embeddings.seq_lens, left=embeddings.left)
+        outputs = PaddedBatch(results[-1], embeddings.seq_lens)
         states = torch.stack(results[:-1])  # (N, B, L, D).
-        states = TransformerState(times.payload, states, embeddings.seq_lens, left=embeddings.left)
+        states = TransformerState(times.payload, states, embeddings.seq_lens)
         return outputs, states
 
     def decode(self, embeddings: PaddedBatch, times: PaddedBatch, history_states: TransformerState):
@@ -105,9 +105,9 @@ class AttNHPTransformer(torch.nn.Module):
         for layer, states in zip(self.layers, history_states.payload):
             z = torch.cat([states, results[-1]], 1)  # (B, L + L', D).
             results.append(layer(z, mask, attn_mask)[:, lh:])  # (B, L', D).
-        outputs = PaddedBatch(results[-1], embeddings.seq_lens, left=embeddings.left)
+        outputs = PaddedBatch(results[-1], embeddings.seq_lens)
         states = torch.stack(results[:-1])  # (N, B, L', D).
-        states = TransformerState(times.payload, states, embeddings.seq_lens, left=embeddings.left)
+        states = TransformerState(times.payload, states, embeddings.seq_lens)
         return outputs, states
 
     def interpolate(self, times: PaddedBatch, history_states: TransformerState, last_history_index=None):
@@ -144,5 +144,5 @@ class AttNHPTransformer(torch.nn.Module):
         for layer, states in zip(self.layers, history_states.payload):
             z = torch.cat([states, x], 1)  # (B, L + L'S, D).
             x = layer(z, mask, attn_mask)[:, lh:]  # (B, L'S, D).
-        outputs = PaddedBatch(x.reshape(b, l, s, -1), times.seq_lens, left=times.left)  # (B, L', S, D).
+        outputs = PaddedBatch(x.reshape(b, l, s, -1), times.seq_lens)  # (B, L', S, D).
         return outputs

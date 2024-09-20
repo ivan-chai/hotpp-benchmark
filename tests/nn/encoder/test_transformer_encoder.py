@@ -43,9 +43,9 @@ class CumSumModel(torch.nn.Module):
         """
         outputs = (history_states.payload[0] * history_states.seq_len_mask.unsqueeze(2)).sum(1)  # (B, D).
         outputs = embeddings.payload + outputs.unsqueeze(1)  # (B, L', D).
-        outputs = PaddedBatch(outputs, embeddings.seq_lens, left=embeddings.left)
+        outputs = PaddedBatch(outputs, embeddings.seq_lens)
         states = embeddings.payload[None]  # (1, B, L, D).
-        states = TransformerState(times.payload, states, embeddings.seq_lens, left=history_states.left)
+        states = TransformerState(times.payload, states, embeddings.seq_lens)
         #import ipdb
         #ipdb.set_trace()
         return outputs, states
@@ -73,7 +73,7 @@ class CumSumModel(torch.nn.Module):
             masked_states = masked_states * attn_mask[None, :, :, None]
         outputs = masked_states.sum(2)  # (B, L', D).
         outputs = self.inter_token + outputs.unsqueeze(2).expand(b, l, s, outputs.shape[-1])  # (B, L', S, D).
-        outputs = PaddedBatch(outputs, times.seq_lens, left=times.left)
+        outputs = PaddedBatch(outputs, times.seq_lens)
         return outputs
 
 
