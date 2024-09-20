@@ -53,6 +53,11 @@ class AttNHPTransformer(torch.nn.Module):
         for i in range(n_layers):
             layers.append(AttNHPTransformerLayer(hidden_size, n_heads))
         self.layers = torch.nn.ModuleList(layers)
+        self.hidden_size = hidden_size
+
+    @property
+    def output_size(self):
+        return self.hidden_size
 
     @property
     def num_layers(self):

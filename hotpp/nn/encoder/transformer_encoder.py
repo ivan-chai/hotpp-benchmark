@@ -33,13 +33,12 @@ class TransformerEncoder(BaseEncoder):
             embedder_batch_norm=embedder_batch_norm
         )
         self._labels_field = labels_field
-        self.num_labels = embeddings[labels_field]["in"]
         self.transformer = transformer_partial(self.embedder.output_size)
         self.max_context = max_context
 
     @property
     def hidden_size(self):
-        return self.num_labels
+        return self.transformer.output_size
 
     def forward(self, x, return_full_states=False):
         """Apply encoder network.
@@ -108,13 +107,16 @@ class TransformerEncoder(BaseEncoder):
             subset_outputs = PaddedBatch(subset_outputs, lengths1[:len(subset_outputs)])  # (V, 1, D).
             subset_states = states[:, valid_mask].take_along_dim(subset_indices[None, :, None, None], 2)  # (N, V, 1, D).
             subset_states.seq_lens = subset_indices + 1
-            sequences.append(self._generate_autoreg(subset_outputs, subset_states, predict_fn, n_steps))  # (V, N).
+            sequences.append(self._generate_autoreg(subset_outputs, subset_states, predict_fn, n_steps))  # (V, N) or (V, N, C).
         masks = torch.stack(masks)  # (I, B).
-        sequences = {k: torch.cat([s.payload[k] for s in sequences]) for k in sequences[0].payload}  # (IV, N).
-        sequences = {k: torch.zeros(indices.shape[0], indices.shape[1], n_steps,
+        joined_sequences = {k: torch.cat([s.payload[k] for s in sequences]) for k in sequences[0].payload}  # (IV, N) or (IV, N, C).
+        sequences = {k: torch.zeros(indices.shape[1], indices.shape[0], n_steps,
                                     dtype=v.dtype, device=v.device).masked_scatter_(masks.unsqueeze(-1), v)
-                     for k, v in sequences.items()}  # (I, B, N).
-        sequences = {k: v.permute(1, 0, 2) for k, v in sequences.items()}  # (B, I, N).
+                     for k, v in joined_sequences.items() if v.ndim == 2}  # (I, B, N).
+        sequences |= {k: torch.zeros(indices.shape[1], indices.shape[0], n_steps, v.shape[2],
+                                     dtype=v.dtype, device=v.device).masked_scatter_(masks.unsqueeze(-1).unsqueeze(-1), v)
+                      for k, v in joined_sequences.items() if v.ndim == 3}  # (I, B, N).
+        sequences = {k: (v.permute(1, 0, 2) if v.ndim == 3 else v.permute(1, 0, 2, 3)) for k, v in sequences.items()}  # (B, I, N) or (B, I, N, C).
         return PaddedBatch(sequences, indices.seq_lens)
 
     def _generate_autoreg(self, last_outputs, last_states, predict_fn, n_steps):
