@@ -31,6 +31,7 @@ class BaseEncoder(torch.nn.Module):
 
     @abstractproperty
     def hidden_size(self):
+        """The output dimension of the encoder."""
         pass
 
     def compute_time_deltas(self, x):

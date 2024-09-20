@@ -9,7 +9,7 @@ from .window import apply_windows
 
 
 class RnnEncoder(BaseEncoder):
-    """RNN sequecne encoder.
+    """RNN sequence encoder.
 
     Args:
         embeddings: Dict with categorical feature names. Values must be like this `{'in': dictionary_size, 'out': embedding_size}`.
@@ -47,7 +47,7 @@ class RnnEncoder(BaseEncoder):
         return self.rnn.num_layers
 
     def forward(self, x, return_full_states=False):
-        """Apply RNN model.
+        """Apply RNN.
 
         Args:
             x: PaddedBatch with input features.
