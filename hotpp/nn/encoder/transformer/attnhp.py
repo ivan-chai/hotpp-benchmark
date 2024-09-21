@@ -1,3 +1,4 @@
+import math
 import torch
 from hotpp.data import PaddedBatch
 from .state import TransformerState
@@ -21,29 +22,44 @@ class PositionalEncoder(torch.nn.Module):
         return embeddings
 
 
-class AttNHPTransformerLayer(torch.nn.TransformerEncoderLayer):
-    def __init__(self, hidden_size, n_heads, ff_size=None, dropout=0):
-        super().__init__(hidden_size, n_heads,
-                         batch_first=True,
-                         dim_feedforward=ff_size or hidden_size,
-                         dropout=dropout)
+class AttNHPTransformerLayer(torch.nn.Module):
+    def __init__(self, hidden_size, n_heads):
+        # TODO: use n_heads.
+        super().__init__()
+        self.input_projection = torch.nn.Linear(hidden_size, hidden_size * 3)
 
     def forward(self, embeddings, mask, attn_mask):
-        """Apply causal inference.
+        """Apply self-attention layer.
 
         Args:
             embeddings: Input embeddings with shape (B, L, D).
             mask: Input mask with ones at padding positions with shape (B, L).
             attn_mask: Attention mask with ones at disabled positions with shape (L, L).
         """
-        result = super().forward(embeddings,
-                                 src_mask=attn_mask,
-                                 src_key_padding_mask=mask)
+        proj = self.input_projection(embeddings)  # (B, L, 3D).
+        q, k, v = proj.chunk(3, -1)  # (B, L, D) x 3
+        b, l, d = q.shape
+        weights = torch.bmm(
+            q / math.sqrt(d),  # (B, L, D).
+            k.transpose(1, 2)  # (B, D, L).
+        )  # (B, L, L).
+        ninf = -1e6
+        weights.masked_fill_(mask.unsqueeze(1), ninf)
+        weights.masked_fill_(attn_mask[None], ninf)
+        weights = torch.nn.functional.softmax(weights, -1)  # (B, L, L).
+        sa = torch.bmm(weights, v)
+        result = embeddings + torch.tanh(sa)
         return result
 
 
 class AttNHPTransformer(torch.nn.Module):
-    def __init__(self, input_size, hidden_size, n_heads, n_layers, pos_m=1, pos_M=2000):
+    """Att-NHP transformer model.
+
+    Args:
+        sample_to_batch: Whether to duplicate batch for each sample or append them as independent tokens.
+    """
+    def __init__(self, input_size, hidden_size, n_heads, n_layers, pos_m=1, pos_M=2000,
+                 sample_to_batch=True):
         # TODO: adjust m / M.
         super().__init__()
         self.pos_encoder = PositionalEncoder(hidden_size, m=pos_m, M=pos_M)
@@ -54,6 +70,7 @@ class AttNHPTransformer(torch.nn.Module):
             layers.append(AttNHPTransformerLayer(hidden_size, n_heads))
         self.layers = torch.nn.ModuleList(layers)
         self.hidden_size = hidden_size
+        self.sample_to_batch = sample_to_batch
 
     @property
     def output_size(self):
@@ -128,6 +145,17 @@ class AttNHPTransformer(torch.nn.Module):
             Outputs with shape (B, L', S, D).
         """
         b, l, s = times.payload.shape
+        if self.sample_to_batch and (s > 1):
+            sb_times = PaddedBatch(times.payload.transpose(1, 2).reshape(b * s, l, 1), times.seq_lens[:, None].repeat(1, s).flatten())  # (BS, L', 1).
+            sb_history_states = TransformerState(
+                times=history_states.times[:, None, :].repeat(1, s, 1).flatten(0, 1),  # (BS, L).
+                states=history_states.payload[:, :, None, :, :].repeat(1, 1, s, 1, 1).flatten(1, 2),  # (N, BS, L, D).
+                seq_lens=history_states.seq_lens[:, None].repeat(1, s).flatten(),
+                index=history_states.index[:, None].repeat(1, s, *([1] * (history_states.index.ndim - 1))).flatten(0, 1),  # (BS, *).
+                index_lens=history_states.index_lens[:, None].repeat(1, s).flatten())
+            result = self.interpolate(sb_times, sb_history_states, last_history_index)  # (BS, L', 1, D).
+            return PaddedBatch(result.payload.reshape(b, s, l, -1).transpose(1, 2), times.seq_lens)  # (B, L', S, D).
+
         lh = history_states.payload.shape[2]
         if last_history_index is not None:
             if not (history_states.index[1:] == history_states.index[:1]).all():
