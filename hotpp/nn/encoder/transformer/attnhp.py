@@ -1,3 +1,10 @@
+"""An implementation of the fast continuous transformer for TPP.
+
+1. Self attention depends only on history (excluding current token), to make thinning more efficient.
+2. The transformer works in two modes: simple forward and attention to history.
+2.a. Simple forward mode employs causal self-attention (excluding reference to the current token).
+2.b. Attention to history computes keys and values only for historical events.
+"""
 import math
 import torch
 from hotpp.data import PaddedBatch
@@ -28,27 +35,45 @@ class AttNHPTransformerLayer(torch.nn.Module):
         super().__init__()
         self.input_projection = torch.nn.Linear(hidden_size, hidden_size * 3)
 
-    def forward(self, embeddings, mask, attn_mask):
+    def forward(self, embeddings, mask=None, attn_mask=None, history=None):
         """Apply self-attention layer.
 
         Args:
             embeddings: Input embeddings with shape (B, L, D).
-            mask: Input mask with ones at padding positions with shape (B, L).
-            attn_mask: Attention mask with ones at disabled positions with shape (L, L).
+            mask: Input mask with ones at padding positions with shape (B, L)
+                or history mask with shape (B, H) if history is provided.
+            attn_mask: Attention mask with ones at disabled positions with shape (L, L)
+                or history cross-attention mask with shape (L, H) if history is provided.
+            history: Historical embeddings with shape (B, H, D).
         """
-        proj = self.input_projection(embeddings)  # (B, L, 3D).
-        q, k, v = proj.chunk(3, -1)  # (B, L, D) x 3
+        if history is None:
+            proj = self.input_projection(embeddings)  # (B, L, 3D).
+            q, k, v = proj.chunk(3, -1)  # (B, L, D) x 3
+        else:
+            d = self.input_projection.weight.shape[1]
+            q = torch.nn.functional.linear(embeddings, self.input_projection.weight[:d], self.input_projection.bias[:d])  # (B, L, D).
+            kv = torch.nn.functional.linear(history, self.input_projection.weight[d:], self.input_projection.bias[d:])
+            k, v = kv.chunk(2, -1)  # (B, H, D) x 2.
         b, l, d = q.shape
         weights = torch.bmm(
             q / math.sqrt(d),  # (B, L, D).
-            k.transpose(1, 2)  # (B, D, L).
-        )  # (B, L, L).
+            k.transpose(1, 2)  # (B, D, H).
+        )  # (B, L, H).
         ninf = -1e6
-        weights.masked_fill_(mask.unsqueeze(1), ninf)
-        weights.masked_fill_(attn_mask[None], ninf)
-        weights = torch.nn.functional.softmax(weights, -1)  # (B, L, L).
-        sa = torch.bmm(weights, v)
-        result = embeddings + torch.tanh(sa)
+        if mask is not None:
+            weights.masked_fill_(mask.unsqueeze(1), ninf)
+        if attn_mask is not None:
+            weights.masked_fill_(attn_mask[None], ninf)
+        weights = torch.nn.functional.softmax(weights, -1)  # (B, L, H).
+        sa = torch.bmm(weights, v)  # (B, L, D).
+        result = embeddings + torch.tanh(sa)  # (B, L, D).
+
+        invalid = mask[:, None, :] if mask is not None else None  # (B, L, H).
+        if attn_mask is not None:
+            invalid = attn_mask[None] if invalid is None else torch.logical_or(invalid, attn_mask[None])
+        if invalid is not None:
+            invalid = invalid.all(2, keepdim=True)  # (B, L, 1).
+            result = torch.where(invalid, embeddings, result)
         return result
 
 
@@ -94,7 +119,7 @@ class AttNHPTransformer(torch.nn.Module):
         x = self.proj(x)  # (B, L, D).
         x = x + self.pos_encoder(times.payload)
         rng = torch.arange(x.shape[1], device=x.device)  # (L).
-        attn_mask = rng[:, None] < rng[None, :]  # (L, L), exclude self-reference.
+        attn_mask = rng[:, None] <= rng[None, :]  # (L, L), exclude self-reference.
         results = [x]
         for layer in self.layers:
             results.append(layer(results[-1], mask, attn_mask))  # (B, L, D).
@@ -107,28 +132,25 @@ class AttNHPTransformer(torch.nn.Module):
         """Compute activations for queries with full mask.
 
         Args:
-            embeddings: Input embeddings with shape (B, L', D), right-aligned.
-            times: Times to predict with shape (B, L').
-            history_states: Historical activations with shape (N, B, L, D).
+            embeddings: Input embeddings with shape (B, L, D), right-aligned.
+            times: Times to predict with shape (B, L).
+            history_states: Historical activations with shape (N, B, H, D).
                 Decoder will ignore the index.
 
         Returns:
-            Outputs with shape (B, L', D), states with shape (N, B, L', D).
+            Outputs with shape (B, L, D), states with shape (N, B, L, D).
         """
         b, l = embeddings.shape
         lh = history_states.payload.shape[2]
-        x = self.proj(embeddings.payload) + self.pos_encoder(times.payload)  # (B, L', D).
+        x = self.proj(embeddings.payload) + self.pos_encoder(times.payload)  # (B, L, D).
 
-        mask = torch.cat([~history_states.seq_len_mask.bool(), ~embeddings.seq_len_mask.bool()], 1)  # (B, L + L').
-        attn_mask = ~torch.eye(lh + l, dtype=torch.bool, device=x.device)  # (L + L', L + L').
-        attn_mask[lh:, :lh] = False
-        results = [x]  # (B, L', D).
+        mask = ~history_states.seq_len_mask.bool()  # (B, H).
+        results = [x]  # (B, L, D).
         assert len(history_states) == len(self.layers)
         for layer, states in zip(self.layers, history_states.payload):
-            z = torch.cat([states, results[-1]], 1)  # (B, L + L', D).
-            results.append(layer(z, mask, attn_mask)[:, lh:])  # (B, L', D).
+            results.append(layer(results[-1], mask, history=states))  # (B, L, D).
         outputs = PaddedBatch(results[-1], embeddings.seq_lens)
-        states = torch.stack(results[:-1])  # (N, B, L', D).
+        states = torch.stack(results[:-1])  # (N, B, L, D).
         states = TransformerState(times.payload, states, embeddings.seq_lens)
         return outputs, states
 
@@ -136,13 +158,13 @@ class AttNHPTransformer(torch.nn.Module):
         """Compute activations for queries with full mask.
 
         Args:
-            times: Times to predict with shape (B, L', S).
-            history_states: Historical activations with shape (N, B, L, D).
+            times: Times to predict with shape (B, L, S).
+            history_states: Historical activations with shape (N, B, H, D).
                 Index is used to align states with attn_mask.
-            last_history_index: The last history state index used for prediction with shape (L').
+            last_history_index: The last history state index used for prediction with shape (L).
 
         Returns:
-            Outputs with shape (B, L', S, D).
+            Outputs with shape (B, L, S, D).
         """
         b, l, s = times.payload.shape
         if self.sample_to_batch and (s > 1):
@@ -160,22 +182,18 @@ class AttNHPTransformer(torch.nn.Module):
         if last_history_index is not None:
             if not (history_states.index[1:] == history_states.index[:1]).all():
                 raise NotImplementedError("Need uniform index for attention mask during interpolation.")
-            last_history_index = history_states.index[0].take_along_dim(last_history_index, 0)  # (L').
+            last_history_index = history_states.index[0].take_along_dim(last_history_index, 0)  # (L).
 
-        x = self.inter_token[None, None] + self.pos_encoder(times.payload.reshape(b, l * s))  # (B, L'S, D).
+        x = self.inter_token[None, None] + self.pos_encoder(times.payload.reshape(b, l * s))  # (B, LS, D).
 
-        mask = torch.cat([~history_states.seq_len_mask.bool(),
-                          torch.zeros(b, l * s, dtype=torch.bool, device=history_states.device)],
-                         1)  # (B, L + L'S).
-        attn_mask = ~torch.eye(lh + l * s, dtype=torch.bool, device=x.device)  # (L + L'S, L + L'S).
+        mask = ~history_states.seq_len_mask.bool()  # (B, H).
         if last_history_index is not None:
-            history_attn_inv_mask = last_history_index[:, None] < torch.arange(lh, device=history_states.device)  # (L', L).
-            attn_mask[lh:, :lh].copy_(history_attn_inv_mask.unsqueeze(1).repeat(1, s, 1).reshape(l * s, lh))  # (L'S, L).
+            history_attn_inv_mask = last_history_index[:, None] < torch.arange(lh, device=history_states.device)  # (L, H).
+            attn_mask = history_attn_inv_mask.unsqueeze(1).repeat(1, s, 1).reshape(l * s, lh)  # (LS, H).
         else:
-            attn_mask[lh:, :lh] = False
+            attn_mask = None
         assert len(history_states) == len(self.layers)
         for layer, states in zip(self.layers, history_states.payload):
-            z = torch.cat([states, x], 1)  # (B, L + L'S, D).
-            x = layer(z, mask, attn_mask)[:, lh:]  # (B, L'S, D).
-        outputs = PaddedBatch(x.reshape(b, l, s, -1), times.seq_lens)  # (B, L', S, D).
+            x = layer(x, mask, attn_mask, history=states)  # (B, LS, D).
+        outputs = PaddedBatch(x.reshape(b, l, s, -1), times.seq_lens)  # (B, L, S, D).
         return outputs
