@@ -31,7 +31,7 @@ class TestAttNHPTransformer(TestCase):
         history_states = TransformerState(fw_states.times[:, :-1], fw_states.payload[:, :, :-1],
                                           (fw_states.seq_lens - 1).clip(min=0))
         last_indices = (lengths - 1).clip(min=0)
-        last_mask = lengths > 1  # Need at least one history event.
+        last_mask = lengths > 0  # Need at least one history event.
         length1 = torch.ones_like(embeddings.seq_lens)
         last_embeddings = embeddings.payload.take_along_dim(last_indices[:, None, None], 1)  # (B, 1, D).
         last_embeddings = PaddedBatch(last_embeddings, length1)
@@ -70,7 +70,7 @@ class TestAttNHPTransformer(TestCase):
         history_states = TransformerState(fw_states.times[:, :-1], fw_states.payload[:, :, :-1],
                                           (fw_states.seq_lens - 1).clip(min=0))
         last_indices = (lengths - 1).clip(min=0)
-        last_mask = lengths > 1  # Need at least one history event.
+        last_mask = lengths > 0  # Need at least one history event.
         length1 = torch.ones_like(embeddings.seq_lens)
         last_times = times.payload.take_along_dim(last_indices[:, None], 1)[:, :, None].repeat(1, 1, s)  # (B, 1, S).
         last_times = PaddedBatch(last_times, length1)

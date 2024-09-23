@@ -14,8 +14,8 @@ rnn_inference_context_step: 30
 transformer_hidden_size: 64
 transformer_heads: 2
 transformer_layers: 4
-transformer_pos_m: 1
-transformer_pos_M: 2000
+transformer_pos_m: 0.1  # ~ minimum delta.
+transformer_pos_M: 50  # ~ maximum delta.
 
 max_intensity: null
 ode_lipschitz: 2

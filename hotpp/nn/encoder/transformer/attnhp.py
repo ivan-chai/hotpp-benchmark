@@ -31,9 +31,10 @@ class PositionalEncoder(torch.nn.Module):
 
 class AttNHPTransformerLayer(torch.nn.Module):
     def __init__(self, hidden_size, n_heads):
-        # TODO: use n_heads.
         super().__init__()
-        self.input_projection = torch.nn.Linear(hidden_size, hidden_size * 3)
+        self.in_proj = torch.nn.Linear(hidden_size, 3 * n_heads * hidden_size)
+        self.out_proj = torch.nn.Linear(n_heads * hidden_size, hidden_size)
+        self.n_heads = n_heads
 
     def forward(self, embeddings, mask=None, attn_mask=None, history=None):
         """Apply self-attention layer.
@@ -46,26 +47,36 @@ class AttNHPTransformerLayer(torch.nn.Module):
                 or history cross-attention mask with shape (L, H) if history is provided.
             history: Historical embeddings with shape (B, H, D).
         """
+        b, l, d = embeddings.shape
         if history is None:
-            proj = self.input_projection(embeddings)  # (B, L, 3D).
-            q, k, v = proj.chunk(3, -1)  # (B, L, D) x 3
+            proj = self.in_proj(embeddings).reshape(b, l, 3, self.n_heads, -1)   # (B, L, 3, N, D).
+            q, k, v = proj.unbind(2)  # (B, L, N, D) x 3
         else:
-            d = self.input_projection.weight.shape[1]
-            q = torch.nn.functional.linear(embeddings, self.input_projection.weight[:d], self.input_projection.bias[:d])  # (B, L, D).
-            kv = torch.nn.functional.linear(history, self.input_projection.weight[d:], self.input_projection.bias[d:])
-            k, v = kv.chunk(2, -1)  # (B, H, D) x 2.
-        b, l, d = q.shape
-        weights = torch.bmm(
-            q / math.sqrt(d),  # (B, L, D).
-            k.transpose(1, 2)  # (B, D, H).
-        )  # (B, L, H).
+            bh, lh, dh = history.shape
+            if (bh != b) or (dh != d):
+                raise ValueError("Embeddings and history shape mismatch.")
+            q = torch.nn.functional.linear(embeddings,
+                                           self.in_proj.weight[:d * self.n_heads],
+                                           self.in_proj.bias[:d * self.n_heads]).reshape(b, l, self.n_heads, -1)  # (B, L, N, D).
+            kv = torch.nn.functional.linear(history,
+                                            self.in_proj.weight[d * self.n_heads:],
+                                            self.in_proj.bias[d * self.n_heads:]).reshape(b, lh, 2, self.n_heads, -1)  # (B, H, 2, N, D).
+            k, v = kv.unbind(2)  # (B, H, N, D) x 2.
         ninf = -1e6
-        if mask is not None:
-            weights.masked_fill_(mask.unsqueeze(1), ninf)
-        if attn_mask is not None:
-            weights.masked_fill_(attn_mask[None], ninf)
-        weights = torch.nn.functional.softmax(weights, -1)  # (B, L, H).
-        sa = torch.bmm(weights, v)  # (B, L, D).
+        outputs = []
+        for i in range(self.n_heads):
+            weights = torch.bmm(
+                q[:, :, i] / math.sqrt(d),  # (B, L, D).
+                k[:, :, i].transpose(1, 2)  # (B, D, H).
+            )  # (B, L, H).
+            if mask is not None:
+                weights.masked_fill_(mask.unsqueeze(1), ninf)
+            if attn_mask is not None:
+                weights.masked_fill_(attn_mask[None], ninf)
+            weights = torch.nn.functional.softmax(weights, -1)  # (B, L, H).
+            sa = torch.bmm(weights, v[:, :, i])  # (B, L, D).
+            outputs.append(sa)
+        sa = self.out_proj(torch.cat(outputs, -1))  # (B, L, D).
         result = embeddings + torch.tanh(sa)  # (B, L, D).
 
         invalid = mask[:, None, :] if mask is not None else None  # (B, L, H).

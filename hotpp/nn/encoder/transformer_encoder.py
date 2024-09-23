@@ -22,7 +22,6 @@ class TransformerEncoder(BaseEncoder):
                  embeddings,
                  transformer_partial,
                  timestamps_field="timestamps",
-                 labels_field="labels",
                  max_time_delta=None,
                  max_context=None,
                  embedder_batch_norm=True,
@@ -33,7 +32,6 @@ class TransformerEncoder(BaseEncoder):
             max_time_delta=max_time_delta,
             embedder_batch_norm=embedder_batch_norm
         )
-        self._labels_field = labels_field
         self.transformer = transformer_partial(self.embedder.output_size)
         self.max_context = max_context
 
