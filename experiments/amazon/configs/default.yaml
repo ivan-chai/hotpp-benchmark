@@ -6,11 +6,19 @@ num_classes: 16
 max_time_delta: 12
 max_duration: 12
 time_smoothing: null  # Time is continuous.
-max_intensity: null
-ode_lipschitz: 2
+
 rnn_hidden_size: 64
 rnn_inference_context: 94
 rnn_inference_context_step: 30
+
+transformer_hidden_size: 64
+transformer_heads: 4
+transformer_layers: 2
+transformer_pos_m: 0.1  # ~ minimum delta.
+transformer_pos_M: 50  # ~ maximum delta.
+
+max_intensity: null
+ode_lipschitz: 2
 thinning_params:
   max_steps: 100
   max_delta: ${max_time_delta}

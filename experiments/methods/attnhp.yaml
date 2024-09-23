@@ -4,9 +4,6 @@ defaults:
 
 name: attnhp
 
-thinning_params:
-  max_steps: 20
-
 head:
   use_batch_norm: false  # Cont-time models are worse with BN.
 
