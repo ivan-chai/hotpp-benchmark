@@ -6,8 +6,6 @@ name: attnhp
 
 thinning_params:
   max_steps: 20
-#  max_delta: ${max_time_delta}
-  bound_samples: 10
 
 head:
   use_batch_norm: false  # Cont-time models are worse with BN.
@@ -36,4 +34,3 @@ module:
 trainer:
   precision: 32  # Prevent explosion.
   check_val_every_n_epoch: 10000
-  num_sanity_val_steps: 0
