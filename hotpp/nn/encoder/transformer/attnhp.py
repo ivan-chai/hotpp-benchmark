@@ -84,7 +84,7 @@ class AttNHPTransformer(torch.nn.Module):
         sample_to_batch: Whether to duplicate batch for each sample or append them as independent tokens.
     """
     def __init__(self, input_size, hidden_size, n_heads, n_layers, pos_m=1, pos_M=2000,
-                 sample_to_batch=True):
+                 sample_to_batch=False):
         # TODO: adjust m / M.
         super().__init__()
         self.pos_encoder = PositionalEncoder(hidden_size, m=pos_m, M=pos_M)
