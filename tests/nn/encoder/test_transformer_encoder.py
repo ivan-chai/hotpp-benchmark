@@ -46,8 +46,6 @@ class CumSumModel(torch.nn.Module):
         outputs = PaddedBatch(outputs, embeddings.seq_lens)
         states = embeddings.payload[None]  # (1, B, L, D).
         states = TransformerState(times.payload, states, embeddings.seq_lens)
-        #import ipdb
-        #ipdb.set_trace()
         return outputs, states
 
     def interpolate(self, times: PaddedBatch, history_states: TransformerState, last_history_index=None):

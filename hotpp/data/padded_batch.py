@@ -55,6 +55,10 @@ class PaddedBatch:
         self._seq_names = seq_names
         self._left = left
 
+        # Check.
+        if self._lengths.shape != (self.shape[0],):
+            raise ValueError("Inconsistent lengths shape.")
+
     def __getitem__(self, key):
         if isinstance(self._payload, torch.Tensor):
             raise TypeError("Items are supported for dictionary batches only.")

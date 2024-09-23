@@ -89,34 +89,50 @@ class TransformerEncoder(BaseEncoder):
         Returns:
             Predicted sequences as a batch with the shape (B, I, N), where I is the number of indices and N is the number of steps.
         """
-        outputs, states = self(x, return_full_states=True)  # (B, L, D), (N, B, L, D).
+        index_mask = indices.seq_len_mask  # (B, I).
 
+        # Create buckets by sequence length.
+        prefix_indices = torch.nonzero(index_mask)  # (V, 2).
+        order = torch.argsort(indices.payload[prefix_indices[:, 0], prefix_indices[:, 1]])  # (V).
+        prefix_indices = prefix_indices[order]  # (V, 2).
+        prefix_lengths = indices.payload[prefix_indices[:, 0], prefix_indices[:, 1]] + 1  # (V).
+
+        # Generate.
+        outputs, states = self(x, return_full_states=True)  # (B, L, D), (N, B, L, D).
+        predictions = defaultdict(list)
         sequences = []
-        masks = []
-        max_index = indices.seq_lens.max().item() - 1
-        lengths1 = torch.ones_like(outputs.seq_lens)
-        for i in range(indices.shape[1]):
-            valid_mask = i < indices.seq_lens  # (B).
-            masks.append(valid_mask)  # (B).
-            if i > max_index:
-                continue
-            subset_indices = indices.payload[valid_mask, i]
-            subset_lens = subset_indices + 1
-            max_length = subset_lens.max().item()
-            subset_outputs = outputs.payload[valid_mask].take_along_dim(subset_indices[:, None, None], 1)  # (V, 1, D).
-            subset_outputs = PaddedBatch(subset_outputs, lengths1[:len(subset_outputs)])  # (V, 1, D).
-            subset_states = states[:, valid_mask].take_along_dim(subset_indices[None, :, None, None], 2)  # (N, V, 1, D).
-            subset_states.seq_lens = subset_indices + 1
-            sequences.append(self._generate_autoreg(subset_outputs, subset_states, predict_fn, n_steps))  # (V, N) or (V, N, C).
-        masks = torch.stack(masks)  # (I, B).
-        joined_sequences = {k: torch.cat([s.payload[k] for s in sequences]) for k in sequences[0].payload}  # (IV, N) or (IV, N, C).
-        sequences = {k: torch.zeros(indices.shape[1], indices.shape[0], n_steps,
-                                    dtype=v.dtype, device=v.device).masked_scatter_(masks.unsqueeze(-1), v)
-                     for k, v in joined_sequences.items() if v.ndim == 2}  # (I, B, N).
-        sequences |= {k: torch.zeros(indices.shape[1], indices.shape[0], n_steps, v.shape[2],
-                                     dtype=v.dtype, device=v.device).masked_scatter_(masks.unsqueeze(-1).unsqueeze(-1), v)
-                      for k, v in joined_sequences.items() if v.ndim == 3}  # (I, B, N).
-        sequences = {k: (v.permute(1, 0, 2) if v.ndim == 3 else v.permute(1, 0, 2, 3)) for k, v in sequences.items()}  # (B, I, N) or (B, I, N, C).
+        lengths = []
+        batch_size = len(prefix_indices)  # Or len(x).
+        for start in range(0, len(prefix_indices), batch_size):
+            stop = start + batch_size
+            bucket_indices = prefix_indices[start:stop, 0]
+            bucket_lengths = prefix_lengths[start:stop]
+            max_length = bucket_lengths.max().item()
+            # Note, that prefix_lengths are strictly positive.
+            bucket_outputs = PaddedBatch(outputs.payload[bucket_indices].take_along_dim(bucket_lengths[:, None, None] - 1, 1),
+                                         torch.ones_like(bucket_indices))  # (V, 1, D).
+            bucket_states = TransformerState(
+                states.times[bucket_indices][:, :max_length],
+                states.payload[:, bucket_indices, :max_length],
+                bucket_lengths,
+                index=bucket_lengths[:, None] - 1,
+                index_lens=torch.ones_like(bucket_lengths)
+            )
+            bucket_predictions = self._generate_autoreg(bucket_outputs, bucket_states, predict_fn, n_steps)  # (V, N) or (V, N, C).
+            assert (bucket_predictions.seq_lens == n_steps).all()
+            for k, v in bucket_predictions.payload.items():
+                predictions[k].append(v)
+        predictions = {k: torch.cat(v) for k, v in predictions.items()}  # (V, N) or (V, N, C).
+
+        # Gather results.
+        iorder = torch.argsort(order)
+        predictions = {k: v[iorder] for k, v in predictions.items()}  # (V, N) or (V, N, C).
+        sequences = {k: torch.zeros(indices.shape[0], indices.shape[1], n_steps,
+                                    dtype=v.dtype, device=v.device).masked_scatter_(index_mask.unsqueeze(-1), v)
+                     for k, v in predictions.items() if v.ndim == 2}  # (I, B, N).
+        sequences |= {k: torch.zeros(indices.shape[0], indices.shape[1], n_steps, v.shape[2],
+                                     dtype=v.dtype, device=v.device).masked_scatter_(index_mask.unsqueeze(-1).unsqueeze(-1), v)
+                      for k, v in predictions.items() if v.ndim == 3}  # (I, B, N).
         return PaddedBatch(sequences, indices.seq_lens)
 
     def _generate_autoreg(self, last_outputs, last_states, predict_fn, n_steps):
