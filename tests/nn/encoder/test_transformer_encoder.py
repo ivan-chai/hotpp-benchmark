@@ -82,14 +82,11 @@ class SimpleEmbedder(torch.nn.Module):
 
 
 class SimpleSequenceEncoder(TransformerEncoder):
-    num_layers = 1
-    _max_context = None
-    _context_step = None
-
-    def __init__(self):
+    def __init__(self, max_context=None):
         super(TransformerEncoder, self).__init__({})
         self.embedder = SimpleEmbedder()
         self.transformer = CumSumModel()
+        self.max_context = max_context
 
 
 class TestTransformerEncoder(TestCase):
@@ -141,7 +138,7 @@ class TestTransformerEncoder(TestCase):
                 "labels": outputs.payload[:, :, 1].long()
             }, outputs.seq_lens)
         sequences = encoder.generate(batch, indices, predict_fn, n_steps=3)
-        sequences_mask = indices.seq_len_mask  # (B, I).
+        mask = indices.seq_len_mask  # (B, I).
         # Deltas GT:
         #    [0, 0, 0]
         #    [1, 3, 8]
@@ -158,7 +155,29 @@ class TestTransformerEncoder(TestCase):
             [3, 6, 12],
             [0, 0, 0]
         ]).reshape(2, 2, 3)  # (2, 2, 3).
+        self.assertTrue(sequences.payload["timestamps"][mask].allclose(times_gt[mask]))
+        self.assertTrue(sequences.payload["labels"][mask].allclose(labels_gt[mask]))
+
+        # Test max_context. The first token uses full history, while the remaining uses only recent history.
+        encoder = SimpleSequenceEncoder(max_context=2)
+        sequences = encoder.generate(batch, indices, predict_fn, n_steps=3)
         mask = indices.seq_len_mask  # (B, I).
+        # Deltas GT:
+        #    [0, 0, 0]
+        #    [1, 3, 8]
+        #    [10, 23, 61]
+        times_gt = torch.tensor([
+            [0, 0, 0],
+            [2, 5, 13],
+            [15, 38, 99],
+            [0, 0, 0]
+        ]).reshape(2, 2, 3).float()  # (2, 2, 3).
+        labels_gt = torch.tensor([
+            [0, 0, 0],
+            [1, 2, 4],
+            [3, 5, 10],
+            [0, 0, 0]
+        ]).reshape(2, 2, 3)  # (2, 2, 3).
         self.assertTrue(sequences.payload["timestamps"][mask].allclose(times_gt[mask]))
         self.assertTrue(sequences.payload["labels"][mask].allclose(labels_gt[mask]))
 

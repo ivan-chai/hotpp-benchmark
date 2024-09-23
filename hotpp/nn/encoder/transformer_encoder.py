@@ -7,6 +7,29 @@ from .base_encoder import BaseEncoder
 from .transformer import TransformerState
 
 
+def limit_history(x, seq_lens, max_length=None):
+    """Limit maximum history size.
+
+    Args:
+        x: Embeddings with shape (B, L, D) or (N, B, L, D).
+        seq_lens: Input sequence lengths with shape (B).
+        max_length: Maximum output sequence length.
+
+    Returns:
+        New embeddings with shape (B, L', D) and new lengths with shape (B).
+    """
+    if max_length is None:
+        return x, seq_lens
+    max_length = min(max_length, seq_lens.max().item())
+    b, l = x.shape[-3:-1]
+    exclude = (seq_lens - max_length).clip(min=0)  # (B).
+    indices = (torch.arange(max_length, device=x.device)[None] + exclude[:, None]).clip(max=l - 1)  # (B, L').
+    shape = [1] * (x.ndim - 3) + [b, max_length, 1]
+    indices = indices.reshape(*shape)  # (*, B, L', 1).
+    result = x.take_along_dim(indices, -2)  # (*, B, L, D).
+    return result, seq_lens.clip(max=max_length)
+
+
 class TransformerEncoder(BaseEncoder):
     """Transformer sequence encoder.
 
@@ -111,12 +134,12 @@ class TransformerEncoder(BaseEncoder):
             # Note, that prefix_lengths are strictly positive.
             bucket_outputs = PaddedBatch(outputs.payload[bucket_indices].take_along_dim(bucket_lengths[:, None, None] - 1, 1),
                                          torch.ones_like(bucket_indices))  # (V, 1, D).
+            bucket_times = limit_history(states.times[bucket_indices][:, :max_length].unsqueeze(-1), bucket_lengths, self.max_context)[0].squeeze(-1)
+            bucket_states, states_lengths = limit_history(states.payload[:, bucket_indices, :max_length], bucket_lengths, self.max_context)
             bucket_states = TransformerState(
-                states.times[bucket_indices][:, :max_length],
-                states.payload[:, bucket_indices, :max_length],
-                bucket_lengths,
-                index=bucket_lengths[:, None] - 1,
-                index_lens=torch.ones_like(bucket_lengths)
+                bucket_times, bucket_states, states_lengths,
+                index=states_lengths[:, None] - 1,
+                index_lens=torch.ones_like(states_lengths)
             )
             bucket_predictions = self._generate_autoreg(bucket_outputs, bucket_states, predict_fn, n_steps)  # (V, N) or (V, N, C).
             assert (bucket_predictions.seq_lens == n_steps).all()
