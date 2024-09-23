@@ -142,10 +142,14 @@ class TestTransformerEncoder(TestCase):
             }, outputs.seq_lens)
         sequences = encoder.generate(batch, indices, predict_fn, n_steps=3)
         sequences_mask = indices.seq_len_mask  # (B, I).
+        # Deltas GT:
+        #    [0, 0, 0]
+        #    [1, 3, 8]
+        #    [10, 25, 65]
         times_gt = torch.tensor([
             [0, 0, 0],
-            [1, 3, 8],
-            [10, 25, 65],
+            [2, 5, 13],
+            [15, 40, 105],
             [0, 0, 0]
         ]).reshape(2, 2, 3).float()  # (2, 2, 3).
         labels_gt = torch.tensor([
@@ -154,8 +158,9 @@ class TestTransformerEncoder(TestCase):
             [3, 6, 12],
             [0, 0, 0]
         ]).reshape(2, 2, 3)  # (2, 2, 3).
-        self.assertTrue(sequences.payload["timestamps"].allclose(times_gt))
-        self.assertTrue(sequences.payload["labels"].allclose(labels_gt))
+        mask = indices.seq_len_mask  # (B, I).
+        self.assertTrue(sequences.payload["timestamps"][mask].allclose(times_gt[mask]))
+        self.assertTrue(sequences.payload["labels"][mask].allclose(labels_gt[mask]))
 
 
 if __name__ == "__main__":

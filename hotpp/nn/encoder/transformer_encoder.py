@@ -2,6 +2,7 @@ from collections import defaultdict
 
 import torch
 from hotpp.data import PaddedBatch
+from hotpp.utils.torch import deterministic
 from .base_encoder import BaseEncoder
 from .transformer import TransformerState
 
@@ -89,6 +90,7 @@ class TransformerEncoder(BaseEncoder):
         Returns:
             Predicted sequences as a batch with the shape (B, I, N), where I is the number of indices and N is the number of steps.
         """
+        initial_timestamps = x.payload[self._timestamps_field].take_along_dim(indices.payload, dim=1)  # (B, I).
         index_mask = indices.seq_len_mask  # (B, I).
 
         # Create buckets by sequence length.
@@ -129,10 +131,15 @@ class TransformerEncoder(BaseEncoder):
         predictions = {k: v[iorder] for k, v in predictions.items()}  # (V, N) or (V, N, C).
         sequences = {k: torch.zeros(indices.shape[0], indices.shape[1], n_steps,
                                     dtype=v.dtype, device=v.device).masked_scatter_(index_mask.unsqueeze(-1), v)
-                     for k, v in predictions.items() if v.ndim == 2}  # (I, B, N).
+                     for k, v in predictions.items() if v.ndim == 2}  # (B, I, N).
         sequences |= {k: torch.zeros(indices.shape[0], indices.shape[1], n_steps, v.shape[2],
                                      dtype=v.dtype, device=v.device).masked_scatter_(index_mask.unsqueeze(-1).unsqueeze(-1), v)
-                      for k, v in predictions.items() if v.ndim == 3}  # (I, B, N).
+                      for k, v in predictions.items() if v.ndim == 3}  # (B, I, N, C).
+
+        # Revert deltas.
+        with deterministic(False):
+            sequences[self._timestamps_field].cumsum_(2)
+        sequences[self._timestamps_field] += initial_timestamps.unsqueeze(-1)
         return PaddedBatch(sequences, indices.seq_lens)
 
     def _generate_autoreg(self, last_outputs, last_states, predict_fn, n_steps):
