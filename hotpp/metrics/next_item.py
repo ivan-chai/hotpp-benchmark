@@ -62,11 +62,14 @@ class NextItemMetric(torch.nn.Module):
         scores = torch.cat(self._scores)
         nc = scores.shape[-1]
         labels = torch.cat(self._labels)
-        one_hot_labels = torch.nn.functional.one_hot(labels.long(), nc).bool()
+        one_hot_labels = torch.nn.functional.one_hot(labels.long(), nc).bool()  # (B, C).
+        micro_weights = one_hot_labels.sum(0) / one_hot_labels.sum()  # (C).
+        aps = compute_map(one_hot_labels, scores, device=self._device).cpu()  # (C).
         return {
             "next-item-mean-time-step": torch.stack(self._delta_sums).sum() / self._n_deltas,
             "next-item-mae": torch.stack(self._ae_sums).sum() / self._n_labels,
             "next-item-rmse": (torch.stack(self._se_sums).sum() / self._n_labels).sqrt(),
             "next-item-accuracy": self._n_correct_labels / self._n_labels,
-            "next-item-map": compute_map(one_hot_labels, scores, device=self._device).mean().cpu()
+            "next-item-map": aps.mean(),
+            "next-item-map-micro": (aps * micro_weights).sum()
         }

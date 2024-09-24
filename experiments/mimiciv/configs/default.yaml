@@ -1,7 +1,7 @@
 seed_everything: 42
 num_evaluation_seeds: 5
 
-max_predictions: 16
+max_predictions: 32
 num_classes: 35  # Zero is excluded by PTLS.
 max_time_delta: 32
 max_duration: 32
@@ -13,6 +13,8 @@ thinning_params:
   max_steps: 100
   max_delta: ${max_time_delta}
   bound_samples: 64
+next_k: 16
+hypro_loss_step: 4
 
 logger:
   _target_: pytorch_lightning.loggers.WandbLogger
@@ -26,7 +28,6 @@ multiseed_report: results/multiseed_${name}.yaml
 data_module:
   _target_: hotpp.data.HotppDataModule
   batch_size: 64
-  min_length: 10
   max_length: 64
   num_workers: 4
   train_path: data/train.parquet
@@ -44,6 +45,18 @@ metric:
   otd_insert_cost: 2
   otd_delete_cost: 2
 
+head:
+  _target_: hotpp.nn.Head
+  _partial_: true
+  hidden_dims: [64]
+  use_batch_norm: true
+
+conditional_head:
+  _target_: hotpp.nn.ConditionalHead
+  _partial_: true
+  hidden_dims: [128, 256]
+  use_batch_norm: true
+
 module:
   seq_encoder:
     _target_: hotpp.nn.RnnEncoder
@@ -54,11 +67,6 @@ module:
     max_time_delta: ${max_time_delta}
     max_inference_context: 64
     inference_context_step: 32
-  head_partial:
-    _target_: hotpp.nn.Head
-    _partial_: true
-    hidden_dims: [64]
-    use_batch_norm: true
   optimizer_partial:
     _partial_: true
     _target_: torch.optim.Adam

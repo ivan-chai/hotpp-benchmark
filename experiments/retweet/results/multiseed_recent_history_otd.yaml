@@ -1,7 +1,9 @@
-date: '2024-09-09 11:14:17'
+date: '2024-09-14 03:34:14'
 num_seeds: 5
 test/T-mAP (mean): 0.29236817359924316
 test/T-mAP (std): 0.0
+test/T-mAP-micro (mean): 0.38243383169174194
+test/T-mAP-micro (std): 0.0
 test/horizon-mean-time-step (mean): 6.661366939544678
 test/horizon-mean-time-step (std): 0.0
 test/loss (mean): 0.0
@@ -14,8 +16,10 @@ test/next-item-accuracy (mean): 0.5028987526893616
 test/next-item-accuracy (std): 0.0
 test/next-item-mae (mean): 21.870126724243164
 test/next-item-mae (std): 0.0
-test/next-item-map (mean): 0.3572811484336853
+test/next-item-map (mean): 0.3572811186313629
 test/next-item-map (std): 0.0
+test/next-item-map-micro (mean): 0.49262794852256775
+test/next-item-map-micro (std): 0.0
 test/next-item-mean-time-step (mean): 33.97670364379883
 test/next-item-mean-time-step (std): 0.0
 test/next-item-rmse (mean): 36.961021423339844
@@ -26,6 +30,8 @@ test/optimal-transport-distance (mean): 150.276611328125
 test/optimal-transport-distance (std): 0.0
 val/T-mAP (mean): 0.2911559045314789
 val/T-mAP (std): 0.0
+val/T-mAP-micro (mean): 0.3819030225276947
+val/T-mAP-micro (std): 0.0
 val/horizon-mean-time-step (mean): 7.1261773109436035
 val/horizon-mean-time-step (std): 0.0
 val/loss (mean): 0.0
@@ -40,6 +46,8 @@ val/next-item-mae (mean): 22.078414916992188
 val/next-item-mae (std): 0.0
 val/next-item-map (mean): 0.35505032539367676
 val/next-item-map (std): 0.0
+val/next-item-map-micro (mean): 0.49009376764297485
+val/next-item-map-micro (std): 0.0
 val/next-item-mean-time-step (mean): 34.70751953125
 val/next-item-mean-time-step (std): 0.0
 val/next-item-rmse (mean): 37.15840148925781

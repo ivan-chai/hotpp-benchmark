@@ -1,38 +1,13 @@
 defaults:
-  - default
+  - detection_base
   - _self_
 
-name: detection
+detection_k: 64
 
 module:
-  _target_: hotpp.modules.NextKModule
-  seq_encoder:
-    rnn_partial:
-      _target_: hotpp.nn.GRU
-      _partial_: true
-      hidden_size: ${rnn_hidden_size}
   loss:
-    _target_: hotpp.losses.DetectionLoss
-    k: 64
     loss_subset: 0.5
     prefetch_factor: 0.5
-    horizon: ${metric.horizon}
-    next_item_adapter:
-      timestamps: mode
-      labels: mean
-    next_item_loss:
-      _target_: hotpp.losses.NextItemLoss
-      losses:
-        _presence:
-          _target_: hotpp.losses.BinaryCrossEntropyLoss
-        timestamps:
-          _target_: hotpp.losses.TimeMAELoss
-          delta: start
-          max_delta: ${max_duration}
-          smoothing: ${time_smoothing}
-        labels:
-          _target_: hotpp.losses.CrossEntropyLoss
-          num_classes: ${num_classes}
     match_weights:
       _presence: 4
       timestamps: 2

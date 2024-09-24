@@ -4,6 +4,9 @@ defaults:
 
 name: ode
 
+head:
+  use_batch_norm: false  # Cont-time models are worse with BN.
+
 module:
   _target_: hotpp.modules.NextItemModule
   seq_encoder:
@@ -12,8 +15,7 @@ module:
       _partial_: true
       hidden_size: ${rnn_hidden_size}
       lipschitz: ${ode_lipschitz}
-  head_partial:
-    use_batch_norm: false  # Cont-time models are worse with BN.
+  head_partial: ${head}
   loss:
     _target_: hotpp.losses.NHPLoss
     num_classes: ${num_classes}

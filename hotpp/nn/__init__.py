@@ -1,2 +1,2 @@
-from .head import Head
+from .head import *
 from .encoder import *

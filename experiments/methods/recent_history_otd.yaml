@@ -13,6 +13,7 @@ module:
       _target_: hotpp.nn.GRU
       _partial_: true
       hidden_size: ${rnn_hidden_size}
+  head_partial: ${head}
 
 trainer:
   max_epochs: 0

@@ -36,7 +36,9 @@ class DetectionLoss(NextKLoss):
                  loss_subset=1, drop_partial_windows="calibration", prefetch_factor=1,
                  match_weights=None, momentum=0.1,
                  next_item_adapter="mean",
-                 next_item_loss_weight=0):
+                 next_item_loss_weight=0,
+                 next_item_trainable_scales=False
+                 ):
         super().__init__(
             next_item_loss=next_item_loss,
             k=k,
@@ -72,8 +74,10 @@ class DetectionLoss(NextKLoss):
         self.register_buffer("_matching_priors", torch.ones(k))
         self.register_buffer("_matching_thresholds", torch.zeros(k))
 
-        if self._next_item_adapter[timestamps_field] != "head":
-            self.next_time_scale = torch.nn.Parameter(torch.ones([])) if self._next_item_loss_weight[timestamps_field] > 0 else 1
+        self.next_time_offset = torch.nn.Parameter(torch.zeros([])) if next_item_trainable_scales and (self._next_item_loss_weight[timestamps_field] > 0) else 0
+        self.next_time_scale = torch.nn.Parameter(torch.ones([])) if next_item_trainable_scales and (self._next_item_loss_weight[timestamps_field] > 0) else 1
+        self.next_labels_offset = torch.nn.Parameter(torch.zeros([])) if next_item_trainable_scales and (self._next_item_loss_weight[labels_field] > 0) else 0
+        self.next_labels_scale = torch.nn.Parameter(torch.ones([])) if next_item_trainable_scales and (self._next_item_loss_weight[labels_field] > 0) else 1
 
     def update_calibration_statistics(self, matching, presence_logits):
         """Update calibration statistics.
@@ -220,6 +224,14 @@ class DetectionLoss(NextKLoss):
         Returns:
             PaddedBatch with predictions with shape (B, L) or (B, L, C) for logits.
         """
+        # Add logits to the prediction fields.
+        logits_fields_mapping = dict(logits_fields_mapping or {})
+        for field in ["_presence", self._labels_field]:
+            if field not in logits_fields_mapping:
+                logits_fields_mapping[field] = field + "_logits"
+        presence_logits_field = logits_fields_mapping["_presence"]
+        labels_logits_field = logits_fields_mapping[self._labels_field]
+
         adapters = set(self._next_item_adapter.values())
         unknown_adapters = adapters - {"head", "first", "mean", "mode", "label_mode"}
         if unknown_adapters:
@@ -241,14 +253,6 @@ class DetectionLoss(NextKLoss):
                         next_values[logits_field] = head_predictions.payload[logits_field]
 
         if adapters - {"head"}:
-            # Add logits to the prediction fields.
-            logits_fields_mapping = dict(logits_fields_mapping or {})
-            for field in ["_presence", self._labels_field]:
-                if field not in logits_fields_mapping:
-                    logits_fields_mapping[field] = field + "_logits"
-            presence_logits_field = logits_fields_mapping["_presence"]
-            labels_logits_field = logits_fields_mapping[self._labels_field]
-
             # Reshape and apply the base predictor.
             b, l = outputs.shape
             lengths = outputs.seq_lens
@@ -315,10 +319,10 @@ class DetectionLoss(NextKLoss):
                     next_values[field] = seq_values.take_along_dim(shaped_indices, 2).squeeze(2)
                 else:
                     raise ValueError(f"Unknown adapter {adapter}.")
-            if self._next_item_adapter.get(self._labels_field, "head") != "head":
-                next_values[self._labels_field] = next_values[labels_logits_field].argmax(-1)
-            if self._next_item_adapter.get(self._timestamps_field, "head") != "head":
-                next_values[self._timestamps_field] = self.next_time_scale * next_values[self._timestamps_field]
+
+        next_values[self._timestamps_field] = self.next_time_scale * next_values[self._timestamps_field] + self.next_time_offset
+        next_values[labels_logits_field] = self.next_labels_scale * next_values[labels_logits_field] + self.next_labels_offset
+        next_values[self._labels_field] = next_values[labels_logits_field].argmax(-1)
 
         return PaddedBatch(next_values, outputs.seq_lens)
 
@@ -335,7 +339,11 @@ class DetectionLoss(NextKLoss):
             PaddedBatch with predictions with shape (B, L, K) or (B, L, K, C) for logits.
         """
         logits_fields_mapping = dict(logits_fields_mapping or {})
-        logits_fields_mapping["_presence"] = "_presence_logit"
+        for field in ["_presence"]:
+            if field not in logits_fields_mapping:
+                logits_fields_mapping[field] = field + "_logits"
+        presence_logits_field = logits_fields_mapping["_presence"]
+
         b, l = outputs.shape
         lengths = outputs.seq_lens
         outputs = PaddedBatch(outputs.payload.reshape(b * l, self._k, self._next_item.input_size),
@@ -346,7 +354,7 @@ class DetectionLoss(NextKLoss):
                                                    logits_fields_mapping=logits_fields_mapping)  # (BL, K) or (BL, K, C).
 
         # Extract presence.
-        presence_logit = next_values.payload["_presence_logit"]  # (BL, K, 1).
+        presence_logit = next_values.payload[presence_logits_field]  # (BL, K, 1).
         next_values.payload["_weights"] = presence_logit.squeeze(2) - self._matching_thresholds
         next_values.payload["_presence"] = next_values.payload["_weights"] > 0
 

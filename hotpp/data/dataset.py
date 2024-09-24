@@ -95,8 +95,8 @@ class HotppDataset(torch.utils.data.IterableDataset):
         if (self.min_length > 0) or (self.max_length is not None):
             # Select subsequences.
             length = len(features[self.timestamps_field])
-            min_length = min(length, self.min_length)
             max_length = min(length, self.max_length or length)
+            min_length = min(length, self.min_length if self.min_length > 0 else max_length)
             out_length = random.randint(min_length, max_length)
             offset = random.randint(0, length - out_length)
             features = {k: (v[offset:offset + out_length] if self.is_seq_feature(k, v) else v)

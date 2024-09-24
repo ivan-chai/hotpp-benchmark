@@ -1,7 +1,7 @@
 seed_everything: 42
 num_evaluation_seeds: 5
 
-max_predictions: 16
+max_predictions: 32
 num_classes: 3
 max_time_delta: 100
 max_duration: 100
@@ -13,6 +13,8 @@ thinning_params:
   max_steps: 100
   max_delta: ${max_time_delta}
   bound_samples: 100
+next_k: 16
+hypro_loss_step: 8
 
 logger:
   _target_: pytorch_lightning.loggers.WandbLogger
@@ -44,6 +46,18 @@ metric:
   otd_insert_cost: 15
   otd_delete_cost: 15
 
+head:
+  _target_: hotpp.nn.Head
+  _partial_: true
+  hidden_dims: [64]
+  use_batch_norm: true
+
+conditional_head:
+  _target_: hotpp.nn.ConditionalHead
+  _partial_: true
+  hidden_dims: [128, 256]
+  use_batch_norm: true
+
 module:
   seq_encoder:
     _target_: hotpp.nn.RnnEncoder
@@ -54,11 +68,6 @@ module:
     max_time_delta: ${max_time_delta}
     max_inference_context: 264
     inference_context_step: 50
-  head_partial:
-    _target_: hotpp.nn.Head
-    _partial_: true
-    hidden_dims: [64]
-    use_batch_norm: true
   optimizer_partial:
     _partial_: true
     _target_: torch.optim.Adam

@@ -91,6 +91,10 @@ def main(conf):
     dm = hydra.utils.instantiate(conf.data_module)
     print("======== MODEL ========")
     print(model)
+    print("======== PARAMETERS ========")
+    for name, layer in model.named_children():
+        print(f"  {name}:", sum([p.numel() for p in layer.parameters()]))
+    print("Total parameters:", sum([p.numel() for p in model.parameters()]))
     print("======== DATASET ========")
     total_size = 0
     total_events = 0
