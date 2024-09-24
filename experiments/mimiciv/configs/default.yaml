@@ -6,11 +6,19 @@ num_classes: 35  # Zero is excluded by PTLS.
 max_time_delta: 32
 max_duration: 32
 time_smoothing: null  # Time is continuous.
-max_intensity: null
-ode_lipschitz: 1
+
 rnn_hidden_size: 64
 rnn_inference_context: 64
 rnn_inference_context_step: 32
+
+transformer_hidden_size: 64
+transformer_heads: 4
+transformer_layers: 2
+transformer_pos_m: 1  # ~ minimum delta.
+transformer_pos_M: 5000  # ~ maximum delta.
+
+max_intensity: null
+ode_lipschitz: 1
 thinning_params:
   max_steps: 100
   max_delta: ${max_time_delta}

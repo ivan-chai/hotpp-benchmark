@@ -1,0 +1,10 @@
+defaults:
+  - attnhp_base
+  - _self_
+
+module:
+  seq_encoder:
+    transformer_partial:
+      dim_feedforward: 0
+      dim_value: 128
+    max_context: 512

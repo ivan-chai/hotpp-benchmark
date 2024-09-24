@@ -15,7 +15,7 @@ transformer_hidden_size: 64
 transformer_heads: 4
 transformer_layers: 2
 transformer_pos_m: 1  # ~ minimum delta.
-transformer_pos_M: 100  # ~ maximum delta.
+transformer_pos_M: 2500  # ~ maximum delta.
 
 max_intensity: null
 ode_lipschitz: 0.1
