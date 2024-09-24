@@ -82,11 +82,12 @@ class SimpleEmbedder(torch.nn.Module):
 
 
 class SimpleSequenceEncoder(TransformerEncoder):
-    def __init__(self, max_context=None):
+    def __init__(self, max_context=None, autoreg_batch_size=None):
         super(TransformerEncoder, self).__init__({})
         self.embedder = SimpleEmbedder()
         self.transformer = CumSumModel()
         self.max_context = max_context
+        self.autoreg_batch_size = autoreg_batch_size
 
 
 class TestTransformerEncoder(TestCase):
@@ -132,13 +133,6 @@ class TestTransformerEncoder(TestCase):
         self.assertTrue((int_outputs.payload * mask.unsqueeze(2)).allclose(gt_outputs * mask.unsqueeze(2)))
 
         # Test generation.
-        def predict_fn(outputs, states):
-            return PaddedBatch({
-                "timestamps": outputs.payload[:, :, 0],
-                "labels": outputs.payload[:, :, 1].long()
-            }, outputs.seq_lens)
-        sequences = encoder.generate(batch, indices, predict_fn, n_steps=3)
-        mask = indices.seq_len_mask  # (B, I).
         # Deltas GT:
         #    [0, 0, 0]
         #    [1, 3, 8]
@@ -155,8 +149,17 @@ class TestTransformerEncoder(TestCase):
             [3, 6, 12],
             [0, 0, 0]
         ]).reshape(2, 2, 3)  # (2, 2, 3).
-        self.assertTrue(sequences.payload["timestamps"][mask].allclose(times_gt[mask]))
-        self.assertTrue(sequences.payload["labels"][mask].allclose(labels_gt[mask]))
+        def predict_fn(outputs, states):
+            return PaddedBatch({
+                "timestamps": outputs.payload[:, :, 0],
+                "labels": outputs.payload[:, :, 1].long()
+            }, outputs.seq_lens)
+        for kwargs in [{}, {"autoreg_batch_size": 1}, {"autoreg_batch_size": indices.seq_lens.sum().item() // 2}]:
+            encoder = SimpleSequenceEncoder(**kwargs)
+            sequences = encoder.generate(batch, indices, predict_fn, n_steps=3)
+            mask = indices.seq_len_mask  # (B, I).
+            self.assertTrue(sequences.payload["timestamps"][mask].allclose(times_gt[mask]))
+            self.assertTrue(sequences.payload["labels"][mask].allclose(labels_gt[mask]))
 
         # Test max_context. The first token uses full history, while the remaining uses only recent history.
         encoder = SimpleSequenceEncoder(max_context=2)

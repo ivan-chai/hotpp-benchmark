@@ -40,6 +40,7 @@ class TransformerEncoder(BaseEncoder):
         max_time_delta: Limit maximum time delta at the model input.
         max_context: Maximum prefix length.
         embedder_batch_norm: Use batch normalization in embedder.
+        autoreg_batch_size: Apply auto-reg in the batched mode.
     """
     def __init__(self,
                  embeddings,
@@ -48,6 +49,7 @@ class TransformerEncoder(BaseEncoder):
                  max_time_delta=None,
                  max_context=None,
                  embedder_batch_norm=True,
+                 autoreg_batch_size=None
                  ):
         super().__init__(
             embeddings=embeddings,
@@ -57,6 +59,7 @@ class TransformerEncoder(BaseEncoder):
         )
         self.transformer = transformer_partial(self.embedder.output_size)
         self.max_context = max_context
+        self.autoreg_batch_size = autoreg_batch_size
 
     @property
     def hidden_size(self):
@@ -125,7 +128,7 @@ class TransformerEncoder(BaseEncoder):
         predictions = defaultdict(list)
         sequences = []
         lengths = []
-        batch_size = len(prefix_indices)  # Or len(x).
+        batch_size = self.autoreg_batch_size if self.autoreg_batch_size is not None else len(prefix_indices)
         for start in range(0, len(prefix_indices), batch_size):
             stop = start + batch_size
             bucket_indices = prefix_indices[start:stop, 0]
