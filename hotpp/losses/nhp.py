@@ -23,7 +23,8 @@ class NHPLoss(torch.nn.Module):
         max_intensity: Intensity threshold for preventing explosion.
         likelihood_sample_size: The sample size per event to compute integral.
         thinning_params: A dictionary with thinning parameters.
-        prediction: The type of prediction (either `mean`, `sample`, or dictionary for each field).
+        prediction: The type of prediction (either `mean`, `sample`, `sample-labels` or dictionary for each field).
+        temperature: Labels sampling temperature (only when prediction is `sample`).
     """
     def __init__(self, num_classes,
                  timestamps_field="timestamps",
@@ -32,7 +33,8 @@ class NHPLoss(torch.nn.Module):
                  max_intensity=None,
                  likelihood_sample_size=1,
                  thinning_params=None,
-                 prediction="mean"):
+                 prediction="mean",
+                 temperature=1):
         super().__init__()
         self._num_classes = num_classes
         self._timestamps_field = timestamps_field
@@ -41,7 +43,10 @@ class NHPLoss(torch.nn.Module):
         self._max_intensity = max_intensity
         self._likelihood_sample_size = likelihood_sample_size
         self._thinning_params = thinning_params or {}
+        if prediction == "sample-labels":
+            prediction = {timestamps_field: "mean", labels_field: "sample"}
         self._prediction = prediction
+        self._temperature = temperature
         self._interpolator = None
         self.beta = torch.nn.Parameter(torch.ones(num_classes))
 
@@ -172,6 +177,9 @@ class NHPLoss(torch.nn.Module):
         elif prediction == "sample":
             probs = intensities + torch.rand_like(intensities) * 1e-6  # (B, L, D).
             probs = probs / probs.sum(-1, keepdim=True).clip(min=1e-6)  # (B, L, D).
+            if self._temperature != 1:
+                log_probs = probs.clip(min=1e-6).log()
+                probs = torch.nn.functional.softmax(log_probs / self._temperature, -1)  # (B, L, D).
             labels = torch.distributions.Categorical(probs).sample()  # (B, L).
         else:
             raise ValueError(f"Unknown prediction type: {prediction}.")
@@ -182,8 +190,11 @@ class NHPLoss(torch.nn.Module):
         if (fields is None) or (self._labels_field in fields):
             result[self._labels_field] = labels
         if self._labels_field in (logits_fields_mapping or {}):
-            label_probs = intensities / intensities.sum(2, keepdim=True)  # (B, L, D).
-            result[logits_fields_mapping[self._labels_field]] = label_probs.clip(min=1e-6).log()
+            probs = intensities / intensities.sum(2, keepdim=True)  # (B, L, D).
+            log_probs = probs.clip(min=1e-6).log()
+            if self._temperature != 1:
+                log_probs = torch.nn.functional.log_softmax(log_probs / self._temperature, -1)  # (B, L, D).
+            result[logits_fields_mapping[self._labels_field]] = log_probs
 
         return PaddedBatch(result, seq_lens)
 

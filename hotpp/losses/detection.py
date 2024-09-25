@@ -74,10 +74,17 @@ class DetectionLoss(NextKLoss):
         self.register_buffer("_matching_priors", torch.ones(k))
         self.register_buffer("_matching_thresholds", torch.zeros(k))
 
-        self.next_time_offset = torch.nn.Parameter(torch.zeros([])) if next_item_trainable_scales and (self._next_item_loss_weight[timestamps_field] > 0) else 0
-        self.next_time_scale = torch.nn.Parameter(torch.ones([])) if next_item_trainable_scales and (self._next_item_loss_weight[timestamps_field] > 0) else 1
-        self.next_labels_offset = torch.nn.Parameter(torch.zeros([])) if next_item_trainable_scales and (self._next_item_loss_weight[labels_field] > 0) else 0
-        self.next_labels_scale = torch.nn.Parameter(torch.ones([])) if next_item_trainable_scales and (self._next_item_loss_weight[labels_field] > 0) else 1
+        self.next_time_offset = 0
+        self.next_time_scale = 1
+        self.next_labels_offset = 0
+        self.next_labels_scale = 1
+        if next_item_trainable_scales:
+            if (self._next_item_adapter[timestamps_field] != "head") and (self._next_item_loss_weight[timestamps_field] > 0):
+                self.next_time_offset = torch.nn.Parameter(torch.zeros([]))
+                self.next_time_scale = torch.nn.Parameter(torch.ones([]))
+            if (self._next_item_adapter[labels_field] != "head") and (self._next_item_loss_weight[labels_field] > 0):
+                self.next_labels_offset = torch.nn.Parameter(torch.zeros([]))
+                self.next_labels_scale = torch.nn.Parameter(torch.ones([]))
 
     def update_calibration_statistics(self, matching, presence_logits):
         """Update calibration statistics.
@@ -304,6 +311,8 @@ class DetectionLoss(NextKLoss):
                 indices["label_mode"] = weighted_logits.max(-1)[0].argmax(-1)  # (B, L).
 
             for field, adapter in self._next_item_adapter.items():
+                if adapter == "head":
+                    continue
                 if field == self._labels_field:
                     field = labels_logits_field
                 if adapter == "mean":
@@ -319,11 +328,11 @@ class DetectionLoss(NextKLoss):
                     next_values[field] = seq_values.take_along_dim(shaped_indices, 2).squeeze(2)
                 else:
                     raise ValueError(f"Unknown adapter {adapter}.")
-
-        next_values[self._timestamps_field] = self.next_time_scale * next_values[self._timestamps_field] + self.next_time_offset
-        next_values[labels_logits_field] = self.next_labels_scale * next_values[labels_logits_field] + self.next_labels_offset
-        next_values[self._labels_field] = next_values[labels_logits_field].argmax(-1)
-
+                if field == self._timestamps_field:
+                    next_values[field] = self.next_time_scale * next_values[field] + self.next_time_offset
+                elif field == labels_logits_field:
+                    next_values[field] = self.next_labels_scale * next_values[field] + self.next_labels_offset
+                    next_values[self._labels_field] = next_values[field].argmax(-1)
         return PaddedBatch(next_values, outputs.seq_lens)
 
     def predict_next_k(self, outputs, states, fields=None, logits_fields_mapping=None):

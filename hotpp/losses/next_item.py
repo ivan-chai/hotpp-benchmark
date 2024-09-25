@@ -99,7 +99,9 @@ class NextItemLoss(torch.nn.Module):
             else:
                 raise ValueError(f"Unknown prediction type: {prediction}.")
         for name, target_name in (logits_fields_mapping or {}).items():
-            result[target_name] = self._losses[name].predict_logits(outputs[name])  # (B, L, C).
+            prediction = self._prediction if isinstance(self._prediction, str) else self._prediction[name]
+            temperature = self._temperature if prediction == "sample" else 1
+            result[target_name] = self._losses[name].predict_logits(outputs[name], temperature=temperature)  # (B, L, C).
         return PaddedBatch(result, seq_lens)
 
     def _split_outputs(self, outputs):
