@@ -136,7 +136,7 @@ class AttNHPTransformer(torch.nn.Module):
         sample_to_batch: Whether to duplicate batch for each sample or append them as independent tokens.
     """
     def __init__(self, input_size, hidden_size, n_heads, n_layers,
-                 dim_feedforward=None, dim_value=None,
+                 dim_feedforward=None, dim_value=None, dropout=0.1,
                  pos_m=1, pos_M=2000, sample_to_batch=False):
         super().__init__()
         self.pos_encoder = PositionalEncoder(hidden_size, m=pos_m, M=pos_M)
@@ -146,7 +146,8 @@ class AttNHPTransformer(torch.nn.Module):
         for i in range(n_layers):
             layers.append(AttNHPTransformerLayer(hidden_size, n_heads,
                                                  dim_feedforward=dim_feedforward,
-                                                 dim_value=dim_value))
+                                                 dim_value=dim_value,
+                                                 dropout=dropout))
         self.layers = torch.nn.ModuleList(layers)
         self.hidden_size = hidden_size
         self.sample_to_batch = sample_to_batch
