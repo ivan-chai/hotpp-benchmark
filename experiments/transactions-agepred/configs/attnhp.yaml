@@ -1,0 +1,13 @@
+defaults:
+  - attnhp_base
+  - _self_
+
+data_module:
+  batch_size: 16
+
+module:
+  seq_encoder:
+    transformer_partial:
+      dim_feedforward: 0
+      dim_value: 128
+    max_context: 256

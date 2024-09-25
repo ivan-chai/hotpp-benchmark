@@ -6,9 +6,19 @@ num_classes: 22
 max_time_delta: 15
 max_duration: 15
 time_smoothing: null  # Time is continuous.
+
+rnn_hidden_size: 64
+rnn_inference_context: 101
+rnn_inference_context_step: 30
+
+transformer_hidden_size: 64
+transformer_heads: 4
+transformer_layers: 2
+transformer_pos_m: 0.1  # ~ minimum delta.
+transformer_pos_M: 100  # ~ maximum delta.
+
 max_intensity: null
 ode_lipschitz: 2
-rnn_hidden_size: 64
 thinning_params:
   max_steps: 100
   max_delta: ${max_time_delta}
@@ -66,8 +76,6 @@ module:
         in: ${num_classes}
         out: 32
     max_time_delta: ${max_time_delta}
-    max_inference_context: 101
-    inference_context_step: 30
   optimizer_partial:
     _partial_: true
     _target_: torch.optim.Adam

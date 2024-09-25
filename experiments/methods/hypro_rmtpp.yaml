@@ -14,6 +14,8 @@ module:
       _target_: hotpp.nn.GRU
       _partial_: true
       hidden_size: ${rnn_hidden_size}
+    max_inference_context: ${rnn_inference_context}
+    inference_context_step: ${rnn_inference_context_step}
   head_partial: ${head}
   loss:
     _target_: hotpp.losses.NextItemLoss
@@ -30,7 +32,7 @@ module:
         _target_: hotpp.losses.CrossEntropyLoss
         num_classes: ${num_classes}
   autoreg_max_steps: ${max_predictions}
-  base_checkpoint: checkpoints/rmtpp.ckpt
+  base_checkpoint: checkpoints/rmtpp-seed-${seed_everything}.ckpt
   hypro_encoder:
     _target_: hotpp.nn.RnnEncoder
     embeddings:

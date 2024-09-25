@@ -6,9 +6,19 @@ num_classes: 35  # Zero is excluded by PTLS.
 max_time_delta: 32
 max_duration: 32
 time_smoothing: null  # Time is continuous.
+
+rnn_hidden_size: 64
+rnn_inference_context: 64
+rnn_inference_context_step: 32
+
+transformer_hidden_size: 64
+transformer_heads: 4
+transformer_layers: 2
+transformer_pos_m: 1  # ~ minimum delta.
+transformer_pos_M: 5000  # ~ maximum delta.
+
 max_intensity: null
 ode_lipschitz: 1
-rnn_hidden_size: 64
 thinning_params:
   max_steps: 100
   max_delta: ${max_time_delta}
@@ -65,8 +75,6 @@ module:
         in: ${num_classes}
         out: 16
     max_time_delta: ${max_time_delta}
-    max_inference_context: 64
-    inference_context_step: 32
   optimizer_partial:
     _partial_: true
     _target_: torch.optim.Adam

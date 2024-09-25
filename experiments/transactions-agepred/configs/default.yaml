@@ -6,9 +6,19 @@ num_classes: 205
 max_time_delta: 8
 max_duration: 8
 time_smoothing: 1  # Convert discrete time to a continuos variable during loss computation.
+
+rnn_hidden_size: 512
+rnn_inference_context: 1200
+rnn_inference_context_step: 200
+
+transformer_hidden_size: 512
+transformer_heads: 4
+transformer_layers: 2
+transformer_pos_m: 1  # ~ minimum delta.
+transformer_pos_M: 800  # ~ maximum delta.
+
 max_intensity: null
 ode_lipschitz: 0.1
-rnn_hidden_size: 512
 thinning_params:
   max_steps: 100
   max_delta: ${max_time_delta}
@@ -67,8 +77,6 @@ module:
         in: ${num_classes}
         out: 256
     max_time_delta: ${max_time_delta}
-    max_inference_context: 1200
-    inference_context_step: 200
   optimizer_partial:
     _partial_: true
     _target_: torch.optim.Adam

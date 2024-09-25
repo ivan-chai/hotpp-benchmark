@@ -109,6 +109,8 @@ def main(conf):
 
         lengths = []
         labels = set()
+        min_time = 1e9
+        max_time = -1e9
         length_metric = Metric(q_values=[0.5])
         time_delta_metric = Metric(q_values=DELTA_Q_VALUES)
         duration_metric = Metric(q_values=[0.5])
@@ -119,11 +121,15 @@ def main(conf):
             time_delta_metric.update(v[ts_field][1:] - v[ts_field][:-1])
             duration_metric.update(v[ts_field][-1] - v[ts_field][0])
             labels.update(v[labels_field].tolist())
+            min_time = min(min_time, v[ts_field].min().item())
+            max_time = max(max_time, v[ts_field].max().item())
 
         total_size += len(dataset)
         total_events += sum(lengths)
         print(f"  Num Events: {sum(lengths)}")
         print(f"  Num Labels: {len(labels)}")
+        print(f"  Min timestamp: {min_time}")
+        print(f"  Max timestamp: {max_time}")
         print(f"  Max label: {max(labels)}")
 
         metrics = length_metric.compute()
