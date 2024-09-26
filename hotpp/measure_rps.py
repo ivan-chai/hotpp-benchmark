@@ -32,6 +32,7 @@ def main(conf):
     it = iter(loader)
     synchronize(device)
     start = time.time()
+    size = 0
     for k in tqdm(range(n_steps)):
         try:
             batch = next(it)
@@ -39,15 +40,17 @@ def main(conf):
             it = iter(loader)
             batch = next(it)
         batch = [batch[0].to(device)] + list(batch[1:])
+        size += len(batch[0])
         model.training_step(batch, k)
     synchronize(device)
-    print("Training RPS:", n_steps / (time.time() - start))
+    print("Training RPS:", size / (time.time() - start))
 
     model.eval()
     loader = dm.val_dataloader()
     it = iter(loader)
     synchronize(device)
     start = time.time()
+    size = 0
     for k in tqdm(range(n_steps)):
         try:
             batch = next(it)
@@ -55,10 +58,31 @@ def main(conf):
             it = iter(loader)
             batch = next(it)
         batch = [batch[0].to(device)] + list(batch[1:])
+        size += len(batch[0])
         with torch.no_grad():
             model.validation_step(batch, k)
     synchronize(device)
-    print("Validation RPS:", n_steps / (time.time() - start))
+    print("Validation RPS:", size / (time.time() - start))
+
+    model.eval()
+    loader = dm.val_dataloader()
+    it = iter(loader)
+    synchronize(device)
+    start = time.time()
+    size = 0
+    for k in tqdm(range(n_steps)):
+        try:
+            batch = next(it)
+        except StopIteration:
+            it = iter(loader)
+            batch = next(it)
+        batch = [batch[0].to(device)] + list(batch[1:])
+        size += len(batch[0])
+        with torch.no_grad():
+            indices = model._val_metric.select_horizon_indices(batch[0].seq_lens)
+            sequences = model.generate_sequences(batch[0], indices)
+    synchronize(device)
+    print("Sequence Generation RPS:", size / (time.time() - start))
 
 
 if __name__ == "__main__":
