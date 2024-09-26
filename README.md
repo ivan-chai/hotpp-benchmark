@@ -56,7 +56,7 @@ python3 -m hotpp.train_multiseed --config-dir configs --config-name <model>
 | ODE                 | 35.60     | 3.34     | 0.695     | 6.96 / 6.97         | 5.53 / 5.52         |
 | HYPRO               | 34.26     | 3.46     | 0.758     | 7.04 / 7.05         | 7.79 / 7.05         |
 | DeTPP               | 35.04     | 3.85     | 0.688     | **6.65** / **6.66** | 9.18 / 9.17         |
-| DeTPP-Hybrid        | **38.29** | **4.67** | **0.638** | 6.68 / 6.70         | **9.59** / **9.26** |
+| DeTPP+              | **38.29** | **4.67** | **0.638** | 6.68 / 6.70         | **9.59** / **9.26** |
 
 ### MIMIC-IV
 | Method              | Acc.      | mAP       | MAE      | OTD  Val / Test       | T-mAP  Val / Test     |
@@ -72,7 +72,7 @@ python3 -m hotpp.train_multiseed --config-dir configs --config-name <model>
 | ODE                 | 43.21     | 25.34     | 2.93     | 14.71 / 14.74         | 15.41 / 15.18         |
 | HYPRO               | 58.35     | 45.45     | 3.95     | 14.82 / 14.87         | 16.94 / 16.77         |
 | DeTPP               | 28.62     | 25.44     | **2.74** | 12.86 / 12.85         | **30.92** / **30.63** |
-| DeTPP-Hybrid        | **58.66** | 46.56     | 3.01     | 12.94 / 12.95         | 30.73 / 30.35         |
+| DeTPP+              | **58.66** | 46.56     | 3.01     | 12.94 / 12.95         | 30.73 / 30.35         |
 
 ### Retweet
 | Method              | Acc.      | mAP       | MAE       | OTD  Val / Test       | T-mAP  Val / Test     |
@@ -88,7 +88,7 @@ python3 -m hotpp.train_multiseed --config-dir configs --config-name <model>
 | ODE                 | 59.95     | 46.65     | 18.38     | 166.5 / 165.3         | 48.70 / 44.81         |
 | HYPRO               | 59.87     | 46.69     | 18.75     | 171.4 / 170.7         | 49.90 / 46.99         |
 | DeTPP               | 59.46     | 45.82     | 18.34     | 137.9 / 134.4         | 60.96 / 57.37         |
-| DeTPP-Hybrid        | 60.04     | 46.76     | 18.35     | **136.4** / **132.9** | **61.47** / **57.93** |
+| DeTPP+              | 60.04     | 46.76     | 18.35     | **136.4** / **132.9** | **61.47** / **57.93** |
 
 ### Amazon
 | Method              | Acc.      | mAP       | MAE       | OTD  Val / Test     | T-mAP  Val / Test     |
@@ -104,7 +104,7 @@ python3 -m hotpp.train_multiseed --config-dir configs --config-name <model>
 | ODE                 | 7.54      | 10.14     | 0.492     | 9.48 / 9.46         | 23.54 / 22.96         |
 | HYPRO               | 35.69     | 17.21     | 0.295     | 6.63 / 6.61         | 20.58 / 20.53         |
 | DeTPP               | 34.32     | 15.84     | 0.260     | **6.03** / **5.98** | 36.88 / 37.18         |
-| DeTPP-Hybrid        | **35.77** | **17.27** | **0.237** | **6.03** / **5.98** | **37.08** / **37.20** |
+| DeTPP+              | **35.77** | **17.27** | **0.237** | **6.03** / **5.98** | **37.08** / **37.20** |
 
 ### StackOverflow
 | Method              | Acc.      | mAP       | MAE       | OTD  Val / Test       | T-mAP  Val / Test     |
@@ -120,7 +120,7 @@ python3 -m hotpp.train_multiseed --config-dir configs --config-name <model>
 | ODE                 | 44.38     | 10.12     | 0.711     | 13.04 / 13.27         | 11.37 / 10.52         |
 | HYPRO               | 45.18     | 12.88     | 0.715     | 13.04 / 13.26         | 15.57 / 14.69         |
 | DeTPP               | 44.81     | 12.36     | 0.665     | **11.96** / **12.05** | **24.06** / **22.54** |
-| DeTPP-Hybrid        | **45.64** | **14.08** | **0.638** | 12.06 / 12.19         | 23.47 / 22.22         |
+| DeTPP+              | **45.64** | **14.08** | **0.638** | 12.06 / 12.19         | 23.47 / 22.22         |
 
 # Library architecture
 <p align="center">
