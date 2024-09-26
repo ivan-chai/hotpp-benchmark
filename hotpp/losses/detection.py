@@ -263,10 +263,10 @@ class DetectionLoss(NextKLoss):
             # Reshape and apply the base predictor.
             b, l = outputs.shape
             lengths = outputs.seq_lens
-            outputs = PaddedBatch(outputs.payload.reshape(b * l, self._k, self._next_item.input_size),
-                                  torch.full([b * l], self._k, device=outputs.device))  # (BL, K, P).
+            reshaped_outputs = PaddedBatch(outputs.payload.reshape(b * l, self._k, self._next_item.input_size),
+                                           torch.full([b * l], self._k, device=outputs.device))  # (BL, K, P).
             states = states.reshape(len(states), b * l, 1, -1)  # (N, BL, 1, D).
-            predictions = self._next_item.predict_next(outputs, states,
+            predictions = self._next_item.predict_next(reshaped_outputs, states,
                                                        fields=fields,
                                                        logits_fields_mapping=logits_fields_mapping)  # (BL, K) or (BL, K, C).
 
@@ -333,7 +333,7 @@ class DetectionLoss(NextKLoss):
                 elif field == labels_logits_field:
                     next_values[field] = self.next_labels_scale * next_values[field] + self.next_labels_offset
                     next_values[self._labels_field] = next_values[field].argmax(-1)
-        return PaddedBatch(next_values, lengths)
+        return PaddedBatch(next_values, outputs.seq_lens)
 
     def predict_next_k(self, outputs, states, fields=None, logits_fields_mapping=None):
         """Predict K future events.
