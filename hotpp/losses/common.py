@@ -286,8 +286,10 @@ class CrossEntropyLoss(BaseLoss):
         losses = lognorms - logits  # (B, L - 1, *).
         return losses, mask, {}
 
-    def predict_logits(self, predictions):
+    def predict_logits(self, predictions, temperature=1):
         logits = predictions
+        if temperature != 1:
+            logits = logits / temperature
         if self.normalize_logits:
             logits = logits - torch.logsumexp(logits, dim=-1, keepdim=True)
         return logits  # (B, L, C).
@@ -355,8 +357,11 @@ class BinaryCrossEntropyLoss(BaseLoss):
             losses = alpha_t * losses
         return losses, mask, {}
 
-    def predict_logits(self, predictions):
-        return torch.nn.functional.logsigmoid(predictions)  # (B, L, 1).
+    def predict_logits(self, predictions, temperature=1):
+        logits = predictions
+        if temperature != 1:
+            logits = logits / temperature
+        return torch.nn.functional.logsigmoid(logits)  # (B, L, 1).
 
     def predict_modes(self, predictions):
         return (predictions > 0).long()  # (B, L, 1).

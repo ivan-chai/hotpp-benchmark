@@ -1,0 +1,11 @@
+defaults:
+  - detection
+  - _self_
+
+module:
+  loss:
+    next_item_loss:
+      prediction:
+        _presence: mode
+        timestamps: mode
+        labels: sample

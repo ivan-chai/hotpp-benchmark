@@ -227,15 +227,17 @@ class BaseModule(pl.LightningModule):
     def _update_metric(self, metric, features, outputs, states):
         lengths = torch.minimum(outputs.seq_lens, features.seq_lens)
         next_items = self.predict_next(features, outputs, states,
-                                       fields=[self._timestamps_field],
+                                       fields=[self._timestamps_field, self._labels_field],
                                        logits_fields_mapping={self._labels_field: self._labels_logits_field})
         predicted_timestamps = next_items.payload[self._timestamps_field]  # (B, L).
+        predicted_labels = next_items.payload[self._labels_field]  # (B, L).
         predicted_logits = next_items.payload[self._labels_logits_field]  # (B, L, C).
 
         metric.update_next_item(lengths,
                                 features.payload[self._timestamps_field],
                                 features.payload[self._labels_field],
                                 predicted_timestamps,
+                                predicted_labels,
                                 predicted_logits)
 
         if metric.horizon_prediction:
@@ -247,6 +249,7 @@ class BaseModule(pl.LightningModule):
                                   indices.payload,
                                   indices.seq_lens,
                                   sequences.payload[self._timestamps_field],
+                                  sequences.payload[self._labels_field],
                                   sequences.payload[self._labels_logits_field],
                                   seq_predicted_weights=sequences.payload.get("_weights", None))
 
