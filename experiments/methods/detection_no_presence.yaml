@@ -1,0 +1,10 @@
+defaults:
+  - detection
+  - _self_
+
+name: detection_no_presence
+
+module:
+  loss:
+    match_weights:
+      _presence: 0
