@@ -1,0 +1,9 @@
+defaults:
+  - rmtpp
+  - _self_
+
+module:
+  loss:
+    prediction:
+      timestamps: mean
+      labels: sample
