@@ -1,0 +1,15 @@
+defaults:
+  - detection_base
+  - _self_
+
+detection_k: 10
+
+module:
+  loss:
+    loss_subset: 1
+    prefetch_factor: 1
+    drop_partial_windows: false
+    match_weights:
+      _presence: 8
+      timestamps: 1
+      labels: 1

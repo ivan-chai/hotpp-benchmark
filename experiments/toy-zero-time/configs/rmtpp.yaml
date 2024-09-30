@@ -1,0 +1,29 @@
+defaults:
+  - default
+  - _self_
+
+name: rmtpp
+
+module:
+  _target_: hotpp.modules.NextItemModule
+  seq_encoder:
+    rnn_partial:
+      _target_: hotpp.nn.GRU
+      _partial_: true
+      hidden_size: ${rnn_hidden_size}
+    max_inference_context: ${rnn_inference_context}
+    inference_context_step: ${rnn_inference_context_step}
+  head_partial: ${head}
+  loss:
+    _target_: hotpp.losses.NextItemLoss
+    losses:
+      timestamps:
+        _target_: hotpp.losses.TimeRMTPPLoss
+        init_influence: -0.1
+        time_smoothing: ${time_smoothing}
+        max_intensity: ${max_intensity}
+        thinning_params: ${thinning_params}
+      labels:
+        _target_: hotpp.losses.CrossEntropyLoss
+        num_classes: ${num_classes}
+  autoreg_max_steps: ${max_predictions}

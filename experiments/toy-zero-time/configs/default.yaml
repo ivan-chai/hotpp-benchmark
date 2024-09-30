@@ -1,0 +1,102 @@
+seed_everything: 42
+num_evaluation_seeds: 5
+
+max_predictions: 10
+num_classes: 16
+max_time_delta: 1
+max_duration: 1
+time_smoothing: null
+
+rnn_hidden_size: 64
+rnn_inference_context: null
+rnn_inference_context_step: null
+
+transformer_hidden_size: 64
+transformer_heads: 4
+transformer_layers: 2
+transformer_pos_m: 0.1  # ~ minimum delta.
+transformer_pos_M: 10  # ~ maximum delta.
+
+max_intensity: null
+ode_lipschitz: 2
+thinning_params:
+  max_steps: 100
+  max_delta: ${max_time_delta}
+  bound_samples: 100
+next_k: 10
+hypro_loss_step: 1
+
+logger:
+  _target_: pytorch_lightning.loggers.WandbLogger
+  project: hotpp-toy-causal
+  name: ${name}
+  save_dir: lightning_logs
+model_path: checkpoints/${name}.ckpt
+report: results/${name}.yaml
+multiseed_report: results/multiseed_${name}.yaml
+
+data_module:
+  _target_: hotpp.data.HotppDataModule
+  batch_size: 64
+  min_length: 10
+  max_length: 50
+  num_workers: 4
+  train_path: data/train.parquet
+  val_path: data/val.parquet
+  test_path: data/test.parquet
+
+metric:
+  _target_: hotpp.metrics.HorizonMetric
+  max_time_delta: ${max_time_delta}
+  horizon: 1
+  horizon_evaluation_step: 1
+  map_deltas: [1]
+  map_target_length: 10
+  otd_steps: 5
+  otd_insert_cost: 1
+  otd_delete_cost: 1
+
+head:
+  _target_: hotpp.nn.Head
+  _partial_: true
+  hidden_dims: [64]
+  use_batch_norm: true
+
+conditional_head:
+  _target_: hotpp.nn.ConditionalHead
+  _partial_: true
+  hidden_dims: [128, 256]
+  use_batch_norm: true
+
+module:
+  seq_encoder:
+    _target_: hotpp.nn.RnnEncoder
+    embeddings:
+      labels:
+        in: ${num_classes}
+        out: 32
+    max_time_delta: ${max_time_delta}
+    max_inference_context: 101
+    inference_context_step: 30
+  optimizer_partial:
+    _partial_: true
+    _target_: torch.optim.Adam
+    lr: 0.001
+    weight_decay: 0.0
+  lr_scheduler_partial:
+    _partial_: true
+    _target_: torch.optim.lr_scheduler.StepLR
+    step_size: 5
+    gamma: 0.8
+  val_metric: ${metric}
+  test_metric: ${metric}
+
+trainer:
+  accelerator: cuda
+  devices: 1
+  max_epochs: 60
+  enable_checkpointing: true
+  deterministic: true
+  precision: 16-mixed
+  gradient_clip_val: 1  # Increases training stability.
+  check_val_every_n_epoch: 6
