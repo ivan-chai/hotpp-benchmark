@@ -1,0 +1,62 @@
+defaults:
+  - default
+  - mcc_mapping@module.seq_encoder.encoder.base_encoders.labels.mapping
+  - _self_
+
+name: llm
+
+root: ${name}
+
+model_id: hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4
+
+data_module:
+  batch_size: 4
+
+module:
+  _target_: hotpp.modules.LLMModule
+  seq_encoder:
+    _target_: hotpp.modules.llm.LLMEncoder
+
+    temperature: 0
+
+    max_summary_tokens: 512
+    max_output_tokens: 1
+
+    max_length: 100
+    summary_input_prompt: "There is a series of purchases:"
+    summary_query_prompt: "What do you think about the age group of the client? Write the most probable age range."
+    input_prompt: "There is information about purchases:"
+    query_prompt: ". Please, write the most probable age group in one word:"
+
+    model:
+      _target_: transformers.AutoModelForCausalLM.from_pretrained
+      pretrained_model_name_or_path: ${model_id}
+      device_map: cuda
+      low_cpu_mem_usage: true
+      quantization_config:
+        _target_: transformers.AwqConfig
+        bits: 4
+        fuse_max_seq_len: 1024
+        do_fuse: true
+
+    tokenizer:
+      _target_: transformers.AutoTokenizer.from_pretrained
+      pretrained_model_name_or_path: ${model_id}
+
+    encoder:
+      _target_: transllm.encoder.Encoder
+      order:
+        - timestamps
+        - labels
+      base_encoders:
+        timestamps:
+          _target_: transllm.encoder.StringEncoder
+          fmt: "Day {x:.0f}"
+        labels:
+          _target_: transllm.encoder.MappingEncoder
+          fmt: "Type {x}"
+
+trainer:
+  max_epochs: 0
+  num_sanity_val_steps: 0
+  precision: 32

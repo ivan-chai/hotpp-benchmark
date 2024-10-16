@@ -39,7 +39,10 @@ def get_trainer(conf, **trainer_params_additional):
 
     if "logger" in conf:
         trainer_params_additional["logger"] = hydra.utils.instantiate(conf.logger)
-        trainer_params_additional["logger"].log_hyperparams(as_flat_config(OmegaConf.to_container(conf, resolve=True)))
+        try:
+            trainer_params_additional["logger"].log_hyperparams(as_flat_config(OmegaConf.to_container(conf, resolve=True)))
+        except Exception as e:
+            print(f"WARNING. Can't log hyperparameters: {e}")
 
     if not isinstance(trainer_params.get("strategy", ""), str): # if strategy not exist or str do nothing,
         trainer_params_additional["strategy"] = hydra.utils.instantiate(trainer_params.strategy)
