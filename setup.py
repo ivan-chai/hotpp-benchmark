@@ -1,5 +1,8 @@
 import setuptools
 
+with open("README.md") as fp:
+    long_description = fp.read()
+
 
 setuptools.setup(
     name="hotpp-benchmark",
@@ -7,6 +10,8 @@ setuptools.setup(
     author="Ivan Karpukhin",
     author_email="karpuhini@yandex.ru",
     description="Evaluate generative event sequence models on the long horizon prediction task.",
+    long_description=long_description,
+    long_description_content_type="text/markdown",
     packages=setuptools.find_packages(include=["hotpp", "hotpp.*"]),
     classifiers=[
         "Programming Language :: Python :: 3",
