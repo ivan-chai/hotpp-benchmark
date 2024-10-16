@@ -1,8 +1,12 @@
 <h1> <img align="left" src="./docs/logo.png" width="15%"> HoTPP: A Long-Horizon Event Sequence Prediction Benchmark </h1>
 
-[![PyPI version](https://badge.fury.io/py/hotpp-benchmark.svg)](https://badge.fury.io/py/hotpp-benchmark)
-[![Build Status](https://github.com/ivan-chai/hotpp-benchmark/actions/workflows/ci-tests.yml/badge.svg)](https://github.com/ivan-chai/hotpp-benchmark/actions)
-[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+<div align="center">
+
+  <a href="">![PyPI version](https://badge.fury.io/py/hotpp-benchmark.svg)</a>
+  <a href="">![Build Status](https://github.com/ivan-chai/hotpp-benchmark/actions/workflows/ci-tests.yml/badge.svg)</a>
+  <a href="">![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)</a>
+
+</div>
 
 <h4 align="center">
     <p>
