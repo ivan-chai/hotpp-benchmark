@@ -20,6 +20,8 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    env:
+      HOTPP_PUBLISH: true
     steps:
     - uses: actions/checkout@v4
     - name: Set up Python

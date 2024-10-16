@@ -1,7 +1,16 @@
+import os
 import setuptools
 
 with open("README.md") as fp:
     long_description = fp.read()
+
+extras_kwargs = {}
+
+if not os.environ.get("HOTPP_PUBLISH", False):
+    # PyPI doesn't support direct links.
+    extras_kwargs["extras_require"] = {
+        "downstream":  ["ptls-validation @ git+https://git@github.com/dllllb/ptls-validation.git#egg=ptls-validation"]
+    }
 
 
 setuptools.setup(
@@ -33,7 +42,5 @@ setuptools.setup(
         "torch-linear-assignment",
         "tqdm",
     ],
-    extras_require = {
-        "downstream":  ["ptls-validation @ git+https://git@github.com/dllllb/ptls-validation.git#egg=ptls-validation"]
-    }
+    **extras_kwargs
 )
