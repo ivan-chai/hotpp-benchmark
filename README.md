@@ -24,9 +24,14 @@
 The HoTPP benchmark focuses on the long-horizon prediction of event sequences. Each event is characterized by its timestamp, label, and possible additional structured data. Sequences of this type are also known as Marked Temporal Point Processes (MTPPs).
 
 # Installation
+Install via PyPI:
+```sh
+pip install hotpp-benchmark
+```
+
 Sometimes the following parameters are necessary for [successful dependency installation](https://github.com/ivan-chai/torch-linear-assignment?tab=readme-ov-file#install):
 ```sh
-CXX=<c++-compiler> CC=<gcc-compiler> pip install .
+CXX=<c++-compiler> CC=<gcc-compiler> pip install hotpp-benchmark
 ```
 
 # Training and evaluation
