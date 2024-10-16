@@ -19,14 +19,16 @@ setuptools.setup(
         "hydra-core>=1.1.2",
         "lightgbm",
         "numpy>=1.23",
-        "ptls-validation @ git+https://git@github.com/dllllb/ptls-validation.git#egg=ptls-validation",
         "pyarrow>=14.0.0",
         "pyspark>=3",
         "pytorch-lifestream>=0.6.0",
         "pytorch-lightning",
         "scikit-learn>=1.3.2",
         "scipy>=1.11",
-        "torch-linear-assignment @ git+https://github.com/ivan-chai/torch-linear-assignment.git#egg=torch-linear-assignment",
+        "torch-linear-assignment",
         "tqdm",
     ],
+    extras_require = {
+        "downstream":  ["ptls-validation @ git+https://git@github.com/dllllb/ptls-validation.git#egg=ptls-validation"]
+    }
 )
