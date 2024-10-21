@@ -1,5 +1,9 @@
 <h1> <img align="left" src="./docs/logo.png" width="15%"> HoTPP: A Long-Horizon Event Sequence Prediction Benchmark </h1>
 
+[![PyPI version](https://badge.fury.io/py/hotpp-benchmark.svg)](https://badge.fury.io/py/hotpp-benchmark)
+[![Build Status](https://github.com/ivan-chai/hotpp-benchmark/actions/workflows/ci-tests.yml/badge.svg)](https://github.com/ivan-chai/hotpp-benchmark/actions)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+
 <h4 align="center">
     <p>
         <a href="#Installation">Installation</a> |
@@ -16,7 +20,7 @@
 The HoTPP benchmark focuses on the long-horizon prediction of event sequences. Each event is characterized by its timestamp, label, and possible additional structured data. Sequences of this type are also known as Marked Temporal Point Processes (MTPPs).
 
 # Installation
-Sometimes the following parameters are necessary for successful dependency installation:
+Sometimes the following parameters are necessary for [successful dependency installation](https://github.com/ivan-chai/torch-linear-assignment?tab=readme-ov-file#install):
 ```sh
 CXX=<c++-compiler> CC=<gcc-compiler> pip install .
 ```
