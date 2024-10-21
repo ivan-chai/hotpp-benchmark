@@ -4,11 +4,11 @@ from hotpp.data import PaddedBatch
 from hotpp.utils.torch import deterministic
 from ..nn import Head
 from .base_module import BaseModule
-from transllm.summary_embed import get_embedding
+from transllm.summary_embed import get_embeddings
 
 
 class LLMEncoder(torch.nn.Module):
-    def __init__(self, tokenizer, encoder, model,
+    def __init__(self, encoder, model,
                  max_summary_tokens,
                  max_output_tokens,
                  summary_input_prompt,
@@ -25,7 +25,6 @@ class LLMEncoder(torch.nn.Module):
         super().__init__()
         self._timestamps_field = timestamps_field
         self._labels_field = labels_field
-        self.tokenizer = tokenizer
         self.encoder = encoder
         self.model = model
         self.max_length = max_length
@@ -39,12 +38,13 @@ class LLMEncoder(torch.nn.Module):
 
     @property
     def hidden_size(self):
-        return self.model.config.num_key_value_heads * self.model.config.head_dim
+        config = self.model.llm_engine.model_config.hf_config
+        return config.num_key_value_heads * config.head_dim
 
     def forward(self, x, return_full_states=False):
         timestamps = x.payload[self._timestamps_field]  # (B, L).
         labels = x.payload[self._labels_field]  # (B, L).
-        embeddings = []
+        prompts = []
         for i in range(len(x)):
             l = x.seq_lens[i]
             s_ts = timestamps[i:i + 1, :l]
@@ -54,10 +54,14 @@ class LLMEncoder(torch.nn.Module):
                 s_ts = s_ts[:, -l:]
                 s_l = s_l[:, -l:]
             text = self.encoder(PaddedBatch({self._timestamps_field: s_ts, self._labels_field: s_l}, torch.full_like(x.seq_lens[i:i + 1], l)))[0]
-            emb = get_embedding(self.tokenizer, self.model, text, conf=self)
-            embeddings.append(emb)
-        embeddings = PaddedBatch(torch.stack(embeddings).float()[:, None, :], torch.full_like(x.seq_lens, 1))
-        return embeddings, None  # (B, L, D).
+            prompts.append(text)
+        embeddings = get_embeddings(self.model, prompts, conf=self).payload  # (B, L, N, D).
+        assert embeddings.ndim == 4
+        # TODO: Check emb lengths.
+        assert embeddings.shape[1] == 1, "Only single-token embeddings are supported."
+        embeddings = embeddings.squeeze(1)  # (B, N, D).
+        embeddings = PaddedBatch(embeddings.float(), torch.full_like(x.seq_lens, embeddings.shape[1]))
+        return embeddings, None  # (B, N, D).
 
 
 class Identity(torch.nn.Identity):

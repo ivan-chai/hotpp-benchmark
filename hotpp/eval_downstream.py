@@ -39,12 +39,12 @@ class InferenceModule(pl.LightningModule):
     def forward(self, batch):
         data, _ = batch  # Ignore labels.
         hiddens, _ = self.model.encode(data)  # (B, L, D).
-        assert hiddens.payload.ndim == 3
+        assert hiddens.payload.ndim == 3, hiddens.payload.shape
         if self.reducer == "mean":
             embeddings = self.reduce_mean(hiddens)
         elif self.reducer == "last":
             embeddings = self.reduce_last(hiddens)
-        else:
+        elif self.reducer != "none":
             raise ValueError(f"Unknown reducer: {self.reducer}.")
         ids = data.payload[self.id_field]  # (B).
         return embeddings, ids
@@ -90,7 +90,7 @@ class InferenceDataModule(pl.LightningDataModule):
 def extract_embeddings(conf):
     model = hydra.utils.instantiate(conf.module)
     dm = hydra.utils.instantiate(conf.data_module)
-    model.load_state_dict(torch.load(conf.model_path))
+    #model.load_state_dict(torch.load(conf.model_path))
     model = InferenceModule(model,
                             id_field=dm.id_field,
                             reducer=conf.get("reducer", "mean"))
@@ -99,13 +99,20 @@ def extract_embeddings(conf):
     ids = []
     for split in ["test", "val", "train"]:
         split_dm = InferenceDataModule(dm, split=split)
-        split_embeddings, split_ids = zip(*trainer.predict(model, split_dm))  # (B, D), (B).
+        split_embeddings, split_ids = zip(*trainer.predict(model, split_dm))  # (B, D) or (B, N, D), (B).
         embeddings.extend(split_embeddings)
         ids.extend(split_ids)
-    embeddings = torch.cat(embeddings).cpu().numpy()
+    embeddings = torch.cat(embeddings).cpu().numpy()  # (B, D) or (B, N, D).
     ids = torch.cat(ids).cpu().numpy()
     if len(np.unique(ids)) != len(ids):
         raise RuntimeError("Duplicate ids")
+
+    with open("embeddings.cache", "wb") as fp:
+        pkl.dump((ids, embeddings), fp)
+
+    if embeddings.ndim == 3:
+        # Get mid-layer embeddings.
+        embeddings = embeddings[:, embeddings.shape[1] // 2, :]
 
     # Convert to embeddings_validation format.
     columns = {"id": ids}
