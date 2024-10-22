@@ -10,7 +10,7 @@ root: ${name}
 model_id: neuralmagic/gemma-2-2b-it-quantized.w8a8
 
 data_module:
-  batch_size: 8
+  batch_size: 16
 
 module:
   _target_: hotpp.modules.LLMModule
@@ -24,7 +24,7 @@ module:
 
     max_length: 100
     summary_input_prompt: "There is a series of purchases:"
-    summary_query_prompt: "Think about possible age group of the client? Write the most probable age range."
+    summary_query_prompt: "Think about a possible age group of the client in multiple sentences. Write the most probable age range."
     input_prompt: "There is information about purchases:"
     query_prompt: ". Please, write the most probable age group in one word:"
 
