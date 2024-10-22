@@ -44,7 +44,9 @@ class InferenceModule(pl.LightningModule):
             embeddings = self.reduce_mean(hiddens)
         elif self.reducer == "last":
             embeddings = self.reduce_last(hiddens)
-        elif self.reducer != "none":
+        elif self.reducer == "none":
+            embeddings = hiddens.payload
+        else:
             raise ValueError(f"Unknown reducer: {self.reducer}.")
         ids = data.payload[self.id_field]  # (B).
         return embeddings, ids

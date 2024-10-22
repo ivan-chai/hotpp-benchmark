@@ -8,6 +8,7 @@ name: llm
 root: ${name}
 
 model_id: neuralmagic/gemma-2-2b-it-quantized.w8a8
+reducer: none
 
 data_module:
   batch_size: 16
