@@ -11,7 +11,7 @@ model_id: neuralmagic/gemma-2-2b-it-quantized.w8a8
 reducer: none
 
 data_module:
-  batch_size: 16
+  batch_size: 32
 
 module:
   _target_: hotpp.modules.LLMModule
