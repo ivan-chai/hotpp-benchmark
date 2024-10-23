@@ -90,31 +90,39 @@ class InferenceDataModule(pl.LightningDataModule):
 
 
 def extract_embeddings(conf):
-    model = hydra.utils.instantiate(conf.module)
-    dm = hydra.utils.instantiate(conf.data_module)
-    #model.load_state_dict(torch.load(conf.model_path))
-    model = InferenceModule(model,
-                            id_field=dm.id_field,
-                            reducer=conf.get("reducer", "mean"))
-    trainer = get_trainer(conf)
-    embeddings = []
-    ids = []
-    for split in ["test", "val", "train"]:
-        split_dm = InferenceDataModule(dm, split=split)
-        split_embeddings, split_ids = zip(*trainer.predict(model, split_dm))  # (B, D) or (B, N, D), (B).
-        embeddings.extend(split_embeddings)
-        ids.extend(split_ids)
-    embeddings = torch.cat(embeddings).cpu().numpy()  # (B, D) or (B, N, D).
-    ids = torch.cat(ids).cpu().numpy()
-    if len(np.unique(ids)) != len(ids):
-        raise RuntimeError("Duplicate ids")
+    cache_path = conf.get("embeddings_cache", None)
+    if cache_path is None:
+        model = hydra.utils.instantiate(conf.module)
+        dm = hydra.utils.instantiate(conf.data_module)
+        #model.load_state_dict(torch.load(conf.model_path))
+        model = InferenceModule(model,
+                                id_field=dm.id_field,
+                                reducer=conf.get("reducer", "mean"))
+        trainer = get_trainer(conf)
+        embeddings = []
+        ids = []
+        for split in ["test", "val", "train"]:
+            split_dm = InferenceDataModule(dm, split=split)
+            split_embeddings, split_ids = zip(*trainer.predict(model, split_dm))  # (B, D) or (B, N, D), (B).
+            embeddings.extend(split_embeddings)
+            ids.extend(split_ids)
+        embeddings = torch.cat(embeddings).cpu().numpy()  # (B, D) or (B, N, D).
+        ids = torch.cat(ids).cpu().numpy()
+        if len(np.unique(ids)) != len(ids):
+            raise RuntimeError("Duplicate ids")
 
-    with open("embeddings.cache", "wb") as fp:
-        pkl.dump((ids, embeddings), fp)
+        with open("embeddings.cache", "wb") as fp:
+            pkl.dump((ids, embeddings), fp)
+    else:
+        print("Use cached embeddings.")
+        with open(cache_path, "rb") as fp:
+            ids, embeddings = pkl.load(fp)
 
     if embeddings.ndim == 3:
         # Get mid-layer embeddings.
-        embeddings = embeddings[:, embeddings.shape[1] // 2, :]
+        layer = conf.get("embeddings_layer", embeddings.shape[1] // 2)
+        print(f"Extract embeddings from layer {layer}")
+        embeddings = embeddings[:, layer, :]
 
     # Convert to embeddings_validation format.
     columns = {"id": ids}
@@ -140,7 +148,7 @@ def eval_embeddings(conf):
 @hydra.main(version_base=None)
 def main(conf):
     with maybe_temporary_directory(conf.get("root", None)) as root:
-        model_config = hydra.compose(config_name=conf.model_config)
+        model_config = hydra.compose(config_name=conf.model_config, overrides=conf.get("model_overrides", []))
         embeddings_path = os.path.join(root, "embeddings.pickle")
         embeddings = extract_embeddings(model_config)
         with open(embeddings_path, "wb") as fp:
