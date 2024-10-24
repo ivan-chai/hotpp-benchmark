@@ -1,0 +1,53 @@
+defaults:
+  - default
+  - mcc_mapping@module.seq_encoder.encoder.base_encoders.labels.mapping
+  - _self_
+
+name: llm-llama8b
+
+root: ${name}
+
+model_id: meta-llama/Llama-3.1-8B
+reducer: none
+
+data_module:
+  batch_size: 32
+
+module:
+  _target_: hotpp.modules.LLMModule
+  seq_encoder:
+    _target_: hotpp.modules.llm.LLMEncoder
+
+    temperature: 0
+
+    max_summary_tokens: 512
+    max_output_tokens: 1
+
+    max_length: 100
+    summary_input_prompt: "There is a series of purchases:"
+    summary_query_prompt: ". Think about a possible age group of the client in multiple sentences. Write the most probable age range."
+    input_prompt: "There is information about purchases:"
+    query_prompt: ". Please, write the most probable age group in a single plain-text word:"
+
+    model:
+      _target_: vllm.LLM
+      model: ${model_id}
+
+    encoder:
+      _target_: transllm.encoder.Encoder
+      order:
+        - timestamps
+        - labels
+      base_encoders:
+        timestamps:
+          _target_: transllm.encoder.DayOfWeekEncoder
+          offset: 6
+        labels:
+          _target_: transllm.encoder.MappingEncoder
+          fmt: "{x}"
+
+trainer:
+  max_epochs: 0
+  num_sanity_val_steps: 0
+  precision: 32
+  deterministic: false
