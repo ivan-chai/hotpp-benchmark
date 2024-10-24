@@ -3,7 +3,7 @@ defaults:
   - mcc_mapping@module.seq_encoder.encoder.base_encoders.labels.mapping
   - _self_
 
-name: llm
+name: llm-gemma2q
 
 root: ${name}
 
