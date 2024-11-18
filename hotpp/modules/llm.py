@@ -38,8 +38,9 @@ class LLMEncoder(torch.nn.Module):
 
     @property
     def hidden_size(self):
-        config = self.model.llm_engine.model_config.hf_config
-        return config.num_key_value_heads * config.head_dim
+        return 1  # Must not be used.
+        #config = self.model.llm_engine.model_config.hf_config
+        #return config.num_key_value_heads * config.head_dim
 
     def forward(self, x, return_full_states=False):
         timestamps = x.payload[self._timestamps_field]  # (B, L).

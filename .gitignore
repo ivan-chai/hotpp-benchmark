@@ -4,6 +4,7 @@ lightning_logs/
 experiments/**/outputs/
 experiments/**/checkpoints/
 experiments/**/wandb/
+experiments/**/*.cache
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
