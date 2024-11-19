@@ -9,7 +9,8 @@ extras_kwargs = {}
 if not os.environ.get("HOTPP_PUBLISH", False):
     # PyPI doesn't support direct links.
     extras_kwargs["extras_require"] = {
-        "downstream":  ["ptls-validation @ git+https://git@github.com/dllllb/ptls-validation.git#egg=ptls-validation"]
+        "downstream":  ["ptls-validation @ git+https://git@github.com/dllllb/ptls-validation.git#egg=ptls-validation"],
+        "contiformer": ["physiopro @ git+https://git@github.com/microsoft/PhysioPro.git#egg=physiopro", "torchcde"]
     }
 
 
