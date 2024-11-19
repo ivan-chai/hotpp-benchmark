@@ -49,6 +49,7 @@ def main(args):
 
     print("Make")
     b, l = args.size, args.max_length
+    np.random.seed(0)
     labels = np.random.choice(3, p=[0.1, 0.2, 0.7], size=(b, l))
     timestamps = np.arange(l)[None].repeat(b, 0).astype(float)
 
