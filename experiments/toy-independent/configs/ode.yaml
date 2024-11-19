@@ -1,0 +1,30 @@
+defaults:
+  - default
+  - _self_
+
+name: ode
+
+head:
+  use_batch_norm: false  # Cont-time models are worse with BN.
+
+module:
+  _target_: hotpp.modules.NextItemModule
+  seq_encoder:
+    rnn_partial:
+      _target_: hotpp.nn.ODEGRU
+      _partial_: true
+      hidden_size: ${rnn_hidden_size}
+      lipschitz: ${ode_lipschitz}
+    max_inference_context: ${rnn_inference_context}
+    inference_context_step: ${rnn_inference_context_step}
+  head_partial: ${head}
+  loss:
+    _target_: hotpp.losses.NHPLoss
+    num_classes: ${num_classes}
+    time_smoothing: ${time_smoothing}
+    max_intensity: ${max_intensity}
+    thinning_params: ${thinning_params}
+  autoreg_max_steps: ${max_predictions}
+
+trainer:
+  precision: 32  # Prevent explosion.
