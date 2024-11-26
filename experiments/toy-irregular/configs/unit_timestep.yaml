@@ -1,0 +1,20 @@
+defaults:
+  - default
+  - _self_
+
+name: unit_timestep
+
+module:
+  _target_: hotpp.modules.ZeroTimestampsModule
+  delta: 1
+  k: ${max_predictions}
+  num_classes: ${num_classes}
+  seq_encoder:  # Unused.
+    rnn_partial:
+      _target_: hotpp.nn.GRU
+      _partial_: true
+      hidden_size: ${rnn_hidden_size}
+  head_partial: ${head}
+
+trainer:
+  max_epochs: 0
