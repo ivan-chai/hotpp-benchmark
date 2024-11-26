@@ -19,7 +19,7 @@ def compute_map(targets, scores, device=None, cuda_buffer_size=10**7):
     b, c = targets.shape
     device = targets.device if device is None else device
     if (b == 0) or (c == 0):
-        return torch.zeros([c], device=device)
+        return torch.zeros([c], device=device), torch.zeros([c], device=device)
     if targets.dtype != torch.bool:
         if targets.dtype.is_floating_point() or (targets > 1).any() or (targets < 0).any():
             raise ValueError("Expected boolean target on 0-1 values.")
