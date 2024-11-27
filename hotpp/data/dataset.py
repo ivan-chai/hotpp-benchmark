@@ -43,7 +43,8 @@ class HotppDataset(torch.utils.data.IterableDataset):
                  labels_field="labels",
                  global_target_field="global_target",
                  local_targets_field="local_targets",
-                 local_targets_indices_field="local_targets_indices"):
+                 local_targets_indices_field="local_targets_indices",
+                 top_classes=None):
         super().__init__()
         if isinstance(data, str):
             self.filenames = list(sorted(parquet_file_scan(data)))
@@ -62,6 +63,7 @@ class HotppDataset(torch.utils.data.IterableDataset):
         self.global_target_field = global_target_field
         self.local_targets_field = local_targets_field
         self.local_targets_indices_field = local_targets_indices_field
+        self.top_classes = top_classes
 
     def shuffle_files(self, rnd=None):
         """Make a new dataset with shuffled partitions."""
@@ -92,6 +94,9 @@ class HotppDataset(torch.utils.data.IterableDataset):
             raise ValueError("Need ID feature")
         if self.timestamps_field not in features:
             raise ValueError("Need timestamps feature")
+        if self.top_classes is not None:
+            mask = features[self.labels_field] < self.top_classes
+            features = {k: (v[mask] if self.is_seq_feature(k, v) else v) for k, v in features.items()}
         if (self.min_length > 0) or (self.max_length is not None):
             # Select subsequences.
             length = len(features[self.timestamps_field])

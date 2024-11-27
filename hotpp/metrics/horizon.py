@@ -22,7 +22,8 @@ class HorizonMetric:
     """
     def __init__(self, horizon, horizon_evaluation_step=1, max_time_delta=None,
                  map_deltas=None, map_target_length=None,
-                 otd_steps=None, otd_insert_cost=None, otd_delete_cost=None):
+                 otd_steps=None, otd_insert_cost=None, otd_delete_cost=None,
+                 top_classes=None):
         self.horizon = horizon
         self.horizon_evaluation_step = horizon_evaluation_step
 
@@ -44,6 +45,7 @@ class HorizonMetric:
         else:
             self.otd_steps = None
             self.otd = None
+        self.top_classes = top_classes
 
         self.reset()
 
@@ -86,6 +88,9 @@ class HorizonMetric:
             predicted_labels: Predicted next-item labels with shape (B, T).
             predicted_labels_logits: Predicted next-item labels logits with shape (B, T, C).
         """
+        if self.top_classes is not None:
+            predicted_labels_logits = predicted_labels_logits[..., :self.top_classes]
+            predicted_labels = predicted_labels_logits.argmax(-1)
         # Targets are features shifted w.r.t. prediction.
         mask = PaddedBatch(timestamps, seq_lens).seq_len_mask
         self.next_item.update(mask=mask[:, 1:],  # Same as logical_and(mask[:, 1:], mask[:, :-1]).
@@ -114,6 +119,9 @@ class HorizonMetric:
             seq_predicted_labels_logits: Predicted labels logits with shape (B, I, N, C).
             seq_predicted_weights (optional): Choose > 0 during OTD computation and use top-K if > 0 doesn't produce the required number of events.
         """
+        if self.top_classes is not None:
+            seq_predicted_labels_logits = seq_predicted_labels_logits[..., :self.top_classes]
+            seq_predicted_labels = seq_predicted_labels_logits.argmax(-1)
         features = PaddedBatch({"timestamps": timestamps, "labels": labels}, seq_lens)
         indices = PaddedBatch(indices, indices_lens)
         predictions = {"timestamps": seq_predicted_timestamps,
