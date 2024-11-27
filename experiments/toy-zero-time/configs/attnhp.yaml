@@ -1,0 +1,33 @@
+defaults:
+  - default
+  - _self_
+
+name: attnhp
+
+head:
+  use_batch_norm: false  # Cont-time models are worse with BN.
+
+module:
+  _target_: hotpp.modules.NextItemModule
+  seq_encoder:
+    _target_: hotpp.nn.TransformerEncoder
+    transformer_partial:
+      _target_: hotpp.nn.AttNHPTransformer
+      _partial_: true
+      hidden_size: ${transformer_hidden_size}
+      n_heads: ${transformer_heads}
+      n_layers: ${transformer_layers}
+      pos_m: ${transformer_pos_m}
+      pos_M: ${transformer_pos_M}
+  head_partial: ${head}
+  loss:
+    _target_: hotpp.losses.NHPLoss
+    num_classes: ${num_classes}
+    time_smoothing: ${time_smoothing}
+    max_intensity: ${max_intensity}
+    thinning_params: ${thinning_params}
+  autoreg_max_steps: ${max_predictions}
+
+trainer:
+  precision: 32  # Prevent explosion.
+  check_val_every_n_epoch: 10000
