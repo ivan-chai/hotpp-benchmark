@@ -1,5 +1,14 @@
 <h1> <img align="left" src="./docs/logo.png" width="15%"> HoTPP: A Long-Horizon Event Sequence Prediction Benchmark </h1>
 
+<div align="center">
+
+  <a href="">![PyPI version](https://badge.fury.io/py/hotpp-benchmark.svg)</a>
+  <a href="">![Build Status](https://github.com/ivan-chai/hotpp-benchmark/actions/workflows/ci-tests.yml/badge.svg)</a>
+  <a href="">![Downloads](https://static.pepy.tech/badge/hotpp-benchmark)</a>
+  <a href="">![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)</a>
+
+</div>
+
 <h4 align="center">
     <p>
         <a href="#Installation">Installation</a> |
@@ -16,9 +25,14 @@
 The HoTPP benchmark focuses on the long-horizon prediction of event sequences. Each event is characterized by its timestamp, label, and possible additional structured data. Sequences of this type are also known as Marked Temporal Point Processes (MTPPs).
 
 # Installation
-Sometimes the following parameters are necessary for successful dependency installation:
+Install via PyPI:
 ```sh
-CXX=<c++-compiler> CC=<gcc-compiler> pip install .
+pip install hotpp-benchmark
+```
+
+Sometimes the following parameters are necessary for [successful dependency installation](https://github.com/ivan-chai/torch-linear-assignment?tab=readme-ov-file#install):
+```sh
+CXX=<c++-compiler> CC=<gcc-compiler> pip install hotpp-benchmark
 ```
 
 # Training and evaluation
@@ -119,8 +133,8 @@ python3 -m hotpp.train_multiseed --config-dir configs --config-name <model>
 | AttNHP              | 45.17     | 12.67     | 0.705     | 13.08 / 13.30         | 11.95 / 11.13         |
 | ODE                 | 44.38     | 10.12     | 0.711     | 13.04 / 13.27         | 11.37 / 10.52         |
 | HYPRO               | 45.18     | 12.88     | 0.715     | 13.04 / 13.26         | 15.57 / 14.69         |
-| DeTPP               | 44.81     | 12.36     | 0.665     | **11.96** / **12.05** | **24.06** / **22.54** |
-| DeTPP+              | **45.64** | **14.08** | **0.638** | 12.06 / 12.19         | 23.47 / 22.22         |
+| DeTPP               | 44.81     | 12.33     | 0.660     | **11.95** / **12.06** | **24.44** / **23.11** |
+| DeTPP+              | **45.53** | **14.00** | **0.639** | 12.04 / 12.14         | 23.80 / 22.72         |
 
 # Library architecture
 <p align="center">

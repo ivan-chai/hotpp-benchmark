@@ -80,6 +80,7 @@ class TestMetrics(TestCase):
             target_timestamps=self.times[:, 1:],
             target_labels=self.labels[:, 1:],
             predicted_timestamps=self.predicted_times[:, :-1],
+            predicted_labels=self.predicted_labels_logits[:, :-1].argmax(-1),
             predicted_labels_logits=self.predicted_labels_logits[:, :-1]
         )
         acc_gt = 6 / 8
@@ -203,6 +204,7 @@ class TestMetrics(TestCase):
                                 timestamps=self.times,
                                 labels=self.labels,
                                 predicted_timestamps=self.predicted_times,
+                                predicted_labels=self.predicted_labels_logits.argmax(-1),
                                 predicted_labels_logits=self.predicted_labels_logits)
         indices = metric.select_horizon_indices(seq_lens)
         self.assertEqual(indices.seq_lens.tolist(), [2])
@@ -213,6 +215,7 @@ class TestMetrics(TestCase):
                               indices=self.seq_indices,
                               indices_lens=self.seq_indices_lens,
                               seq_predicted_timestamps=self.seq_predicted_times[None],
+                              seq_predicted_labels=self.seq_predicted_labels_logits[None].argmax(-1),
                               seq_predicted_labels_logits=self.seq_predicted_labels_logits[None])
         metrics = metric.compute()
 

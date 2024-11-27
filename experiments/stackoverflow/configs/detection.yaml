@@ -2,7 +2,7 @@ defaults:
   - detection_base
   - _self_
 
-detection_k: 64
+detection_k: 48
 
 module:
   loss:

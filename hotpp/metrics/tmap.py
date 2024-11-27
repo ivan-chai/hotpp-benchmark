@@ -19,7 +19,7 @@ def compute_map(targets, scores, device=None, cuda_buffer_size=10**7):
     b, c = targets.shape
     device = targets.device if device is None else device
     if (b == 0) or (c == 0):
-        return torch.zeros([c], device=device)
+        return torch.zeros([c], device=device), torch.zeros([c], device=device)
     if targets.dtype != torch.bool:
         if targets.dtype.is_floating_point() or (targets > 1).any() or (targets < 0).any():
             raise ValueError("Expected boolean target on 0-1 values.")
@@ -28,10 +28,14 @@ def compute_map(targets, scores, device=None, cuda_buffer_size=10**7):
         # Compute large tasks step-by-step.
         batch_size = max(cuda_buffer_size // int(b), 1) if cuda_buffer_size is not None else c
         if batch_size < c:
-            return torch.cat([compute_map(targets[:, start:start + batch_size].to(device),
-                                          scores[:, start:start + batch_size].to(device),
-                                          cuda_buffer_size=cuda_buffer_size)
-                              for start in range(0, c, batch_size)])
+            aps, accs = [], []
+            for start in range(0, c, batch_size):
+                ap, acc = compute_map(targets[:, start:start + batch_size].to(device),
+                                      scores[:, start:start + batch_size].to(device),
+                                      cuda_buffer_size=cuda_buffer_size)
+                aps.append(ap)
+                accs.append(acc)
+            return torch.cat(aps), torch.cat(accs)
         else:
             targets = targets.to(device)
             scores = scores.to(device)
@@ -42,7 +46,11 @@ def compute_map(targets, scores, device=None, cuda_buffer_size=10**7):
     precisions = cumsum / torch.arange(1, 1 + len(targets), device=device)[:, None]
     aps = ((recalls[1:] - recalls[:-1]) * precisions[1:]).sum(0)
     aps += precisions[0] * recalls[0]
-    return aps
+
+    neg_rates = 1 - targets.float().mean(0)  # (C).
+    accs = (2 * recalls + neg_rates - recalls / precisions.clip(min=1e-6)) / (neg_rates + 1)  # (B, C).
+    max_accs = accs.max(0)[0]  # (C).
+    return aps, max_accs
 
 
 class TMAPMetric:
@@ -141,20 +149,24 @@ class TMAPMetric:
         matched_scores = torch.cat([v.reshape(len(v), c) for v in self._matched_scores])  # (B, C).
         losses = []
         micro_losses = []
+        micro_accs = []
         for i in range(len(self.time_delta_thresholds)):
             n_unmatched_targets = torch.stack([v.reshape(c) for v in self._n_unmatched_targets_by_delta[i]]).sum(0)  # (C).
             matched_targets = torch.cat([v.reshape(v.shape[0], c) for v in self._matched_by_delta[i]])  # (B, C).
             max_recalls = 1 - n_unmatched_targets / total_targets.clip(min=1)
             assert (max_recalls >= 0).all() and (max_recalls <= 1).all()
             label_mask = torch.logical_and(~matched_targets.all(0), matched_targets.any(0))  # (C).
-            aps = compute_map(matched_targets[:, label_mask],
-                              matched_scores[:, label_mask],
-                              device=self._device).cpu()  # (C').
-            aps = torch.zeros(c).masked_scatter_(label_mask, aps)
+            aps, max_accs = compute_map(matched_targets[:, label_mask],
+                                        matched_scores[:, label_mask],
+                                        device=self._device)  # (C').
+            aps = torch.zeros(c).masked_scatter_(label_mask, aps.cpu())
             aps *= max_recalls
+            max_accs = torch.zeros(c).masked_scatter_(label_mask, max_accs.cpu())
             losses.append(aps.sum().item() / c)
             micro_losses.append((aps * micro_weights).sum().item())
+            micro_accs.append((max_accs * micro_weights).sum().item())
         return {
             "T-mAP": sum(losses) / len(losses),
-            "T-mAP-micro": sum(micro_losses) / len(micro_losses)
+            "T-mAP-micro": sum(micro_losses) / len(micro_losses),
+            "horizon-max-accuracy-micro": sum(micro_accs) / len(micro_accs)
         }
