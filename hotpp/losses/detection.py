@@ -206,7 +206,7 @@ class DetectionLoss(NextKLoss):
                 if field in self._categorical_fields:
                     fixed_predictions[field] = predictions.payload[f"_{field}_logits"][:, :-1].flatten(0, 1).unsqueeze(1)  # (BL, 1, C).
                 else:
-                    fixed_predictions[field] = predictions.payload[field][:, :-1].flatten()[:, None, None],  # (BL, 1, 1).
+                    fixed_predictions[field] = predictions.payload[field][:, :-1].flatten()[:, None, None]  # (BL, 1, 1).
             b, l = inputs.shape
             fixed_times = inputs.payload[self._timestamps_field]  # (B, L).
             fixed_times = torch.stack([fixed_times[:, :-1], fixed_times[:, 1:]], 2).flatten(0, 1)  # (BL, 2).
