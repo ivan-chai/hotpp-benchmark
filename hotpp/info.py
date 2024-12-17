@@ -118,8 +118,9 @@ def main(conf):
             l = len(v[ts_field])
             lengths.append(l)
             length_metric.update(l)
-            time_delta_metric.update(v[ts_field][1:] - v[ts_field][:-1])
-            duration_metric.update(v[ts_field][-1] - v[ts_field][0])
+            if l > 1:
+                time_delta_metric.update(v[ts_field][1:] - v[ts_field][:-1])
+                duration_metric.update(v[ts_field][-1] - v[ts_field][0])
             labels.update(v[labels_field].tolist())
             min_time = min(min_time, v[ts_field].min().item())
             max_time = max(max_time, v[ts_field].max().item())
