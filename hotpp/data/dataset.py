@@ -26,6 +26,15 @@ def get_parquet_length(path):
         return fp.metadata.num_rows
 
 
+def to_torch_if_possible(v):
+    try:
+        if isinstance(v, np.ndarray):
+            return torch.from_numpy(v)
+        return torch.tensor(v)
+    except TypeError:
+        return v
+
+
 class HotppDataset(torch.utils.data.IterableDataset):
     """Generate subsequences from parquet file.
 
@@ -38,6 +47,7 @@ class HotppDataset(torch.utils.data.IterableDataset):
         max_length: Maximum sequence length. Disable limit if `None`.
     """
     def __init__(self, data, min_length=0, max_length=None,
+                 min_required_length=None,
                  id_field="id",
                  timestamps_field="timestamps",
                  labels_field="labels",
@@ -56,6 +66,7 @@ class HotppDataset(torch.utils.data.IterableDataset):
         self.total_length = sum(map(get_parquet_length, self.filenames))
         self.min_length = min_length
         self.max_length = max_length
+        self.min_required_length = min_required_length
         self.id_field = id_field
         self.timestamps_field = timestamps_field
         self.labels_field = labels_field
@@ -111,8 +122,9 @@ class HotppDataset(torch.utils.data.IterableDataset):
     def __iter__(self):
         for filename in self.filenames:
             for rec in read_pyarrow_file(filename, use_threads=True):
-                features = {k: (torch.from_numpy(v) if isinstance(v, np.ndarray) else torch.tensor(v))
-                            for k, v in rec.items()}
+                if (self.min_required_length is not None) and (len(rec[self.timestamps_field]) < self.min_required_length):
+                    continue
+                features = {k: to_torch_if_possible(v) for k, v in rec.items()}
                 yield self.process(features)
 
     def collate_fn(self, batch):
@@ -138,7 +150,10 @@ class HotppDataset(torch.utils.data.IterableDataset):
             if self.is_seq_feature(k, vs[0]):
                 features[k] = torch.nn.utils.rnn.pad_sequence(vs, batch_first=True)  # (B, L, *).
             else:
-                features[k] = torch.stack(vs)  # (B, *).
+                try:
+                    features[k] = torch.stack(vs)  # (B, *).
+                except TypeError:
+                    features[k] = vs
 
         # Extract targets and make PaddedBatch.
         targets = {}
@@ -168,8 +183,8 @@ class ShuffledDistributedDataset(torch.utils.data.IterableDataset):
 
     def _get_context(self):
         dataset = self.dataset
-        rank = os.environ.get("RANK", self.rank if self.rank is not None else 0)
-        world_size = os.environ.get("WORLD_SIZE", self.world_size if self.world_size is not None else 1)
+        rank = int(os.environ.get("RANK", self.rank if self.rank is not None else 0))
+        world_size = int(os.environ.get("WORLD_SIZE", self.world_size if self.world_size is not None else 1))
         total_workers = world_size * self.num_workers
         global_seed = self.seed + self.epoch
 
