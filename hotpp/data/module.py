@@ -70,6 +70,12 @@ class HotppDataModule(pl.LightningDataModule):
             raise ValueError("No datasets provided.")
         self.id_field = id_field
 
+    @property
+    def splits(self):
+        splits = [split for split in ["test", "val", "train"]
+                  if getattr(self, f"{split}_data") is not None]
+        return splits
+
     def train_dataloader(self, rank=None, world_size=None):
         loader_params = {"drop_last": True,
                          "pin_memory": torch.cuda.is_available()}
