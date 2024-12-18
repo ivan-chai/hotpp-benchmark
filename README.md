@@ -2,10 +2,10 @@
 
 <div align="center">
 
-  <a href="">![PyPI version](https://badge.fury.io/py/hotpp-benchmark.svg)</a>
-  <a href="">![Build Status](https://github.com/ivan-chai/hotpp-benchmark/actions/workflows/ci-tests.yml/badge.svg)</a>
-  <a href="">![Downloads](https://static.pepy.tech/badge/hotpp-benchmark)</a>
-  <a href="">![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)</a>
+  <a href="">[![PyPI version](https://badge.fury.io/py/hotpp-benchmark.svg)](https://badge.fury.io/py/hotpp-benchmark)</a>
+  <a href="">[![Build Status](https://github.com/ivan-chai/hotpp-benchmark/actions/workflows/ci-tests.yml/badge.svg)](https://github.com/ivan-chai/hotpp-benchmark/actions)</a>
+  <a href="">[![Downloads](https://static.pepy.tech/badge/hotpp-benchmark)](https://pepy.tech/project/hotpp-benchmark)</a>
+  <a href="">[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)</a>
 
 </div>
 
