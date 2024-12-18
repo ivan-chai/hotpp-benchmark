@@ -17,6 +17,8 @@ transformer_layers: 2
 transformer_pos_m: 1  # ~ minimum delta.
 transformer_pos_M: 800  # ~ maximum delta.
 
+reducer: last
+
 logger:
   _target_: pytorch_lightning.loggers.WandbLogger
   project: hotpp-mbd
