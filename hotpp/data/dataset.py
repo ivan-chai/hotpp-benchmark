@@ -45,8 +45,11 @@ class HotppDataset(torch.utils.data.IterableDataset):
         data: Path to a parquet dataset or a list of files.
         min_length: Minimum sequence length. Use 0 to disable subsampling.
         max_length: Maximum sequence length. Disable limit if `None`.
+        position: Sample position (`random` or `last`).
     """
-    def __init__(self, data, min_length=0, max_length=None,
+    def __init__(self, data,
+                 min_length=0, max_length=None,
+                 position="random",
                  min_required_length=None,
                  id_field="id",
                  timestamps_field="timestamps",
@@ -66,6 +69,7 @@ class HotppDataset(torch.utils.data.IterableDataset):
         self.total_length = sum(map(get_parquet_length, self.filenames))
         self.min_length = min_length
         self.max_length = max_length
+        self.position = position
         self.min_required_length = min_required_length
         self.id_field = id_field
         self.timestamps_field = timestamps_field
@@ -109,7 +113,12 @@ class HotppDataset(torch.utils.data.IterableDataset):
             max_length = min(length, self.max_length or length)
             min_length = min(length, self.min_length if self.min_length > 0 else max_length)
             out_length = random.randint(min_length, max_length)
-            offset = random.randint(0, length - out_length)
+            if self.position == "random":
+                offset = random.randint(0, length - out_length)
+            elif self.position == "last":
+                offset = length - out_length
+            else:
+                raise ValueError(f"Unknown position: {self.position}.")
             features = {k: (v[offset:offset + out_length] if self.is_seq_feature(k, v) else v)
                         for k, v in features.items()}
             assert len(features[self.timestamps_field]) == out_length
