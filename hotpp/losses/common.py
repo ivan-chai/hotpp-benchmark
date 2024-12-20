@@ -173,7 +173,11 @@ class MAELoss(BaseLoss):
             Losses tensor with shape (B, L', *), (optional) mask tensor with shape (B, L') and metrics dictionary.
         """
         assert predictions.shape[-1] == 1
-        losses = (predictions.squeeze(-1) - inputs[:, 1:]).abs()  # (B, L, *).
+        predictions = predictions.squeeze(-1)  # (B, L - 1, *).
+        broadcast = (predictions.shape[1] != inputs.shape[1]) and (predictions.shape[1] == 1)
+        predictions = predictions if broadcast else predictions[:, :-1]  # (B, L - 1, *).
+        losses = (predictions - inputs[:, 1:]).abs()  # (B, L, *).
+        mask = torch.logical_and(mask[:, 1:], mask[:, :-1]) if mask is not None else None  # (B, L - 1).
         return losses, mask, {}
 
     def predict_modes(self, predictions):
