@@ -4,8 +4,8 @@ num_evaluation_seeds: 5
 max_predictions: 48
 num_classes: 60
 num_src_type32: 100
-max_time_delta: 3456000  # 40 days.
-max_duration: 3456000  # 40 days.
+max_time_delta: 8  # x4 = 32 days.
+max_duration: 8  # x4 = 32 days.
 
 rnn_hidden_size: 512
 rnn_inference_context: 1200
@@ -32,7 +32,6 @@ downstream_report: results/downstream_${name}.txt
 data_module:
   _target_: hotpp.data.HotppDataModule
   id_field: client_id
-  timestamps_field: event_time
   labels_field: event_type
   batch_size: 96
   min_length: 400
@@ -45,13 +44,13 @@ data_module:
 metric:
   _target_: hotpp.metrics.HorizonMetric
   max_time_delta: ${max_time_delta}
-  horizon: 2764800  # 32 days.
+  horizon: 7  # x4 = 28 days.
   horizon_evaluation_step: 64
-  map_deltas: [345600]  # 4 days.
+  map_deltas: [1]  # 4 days.
   map_target_length: 24
   otd_steps: 5
-  otd_insert_cost: 172800  # 2 days.
-  otd_delete_cost: 172800  # 2 days.
+  otd_insert_cost: 0.5  # 2 days.
+  otd_delete_cost: 0.5  # 2 days.
 
 head:
   _target_: hotpp.nn.Head
@@ -68,7 +67,6 @@ conditional_head:
 module:
   seq_encoder:
     _target_: hotpp.nn.RnnEncoder
-    timestamps_field: event_time
     embeddings:
       event_type:
         in: ${num_classes}

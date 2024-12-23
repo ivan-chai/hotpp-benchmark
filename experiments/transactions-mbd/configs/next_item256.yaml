@@ -1,0 +1,34 @@
+defaults:
+  - default
+  - _self_
+
+name: next_item256
+rnn_hidden_size: 256
+
+module:
+  _target_: hotpp.modules.NextItemModule
+  labels_field: event_type
+  seq_encoder:
+    rnn_partial:
+      _target_: hotpp.nn.GRU
+      _partial_: true
+      hidden_size: ${rnn_hidden_size}
+    max_inference_context: ${rnn_inference_context}
+    inference_context_step: ${rnn_inference_context_step}
+  head_partial: ${head}
+  loss:
+    _target_: hotpp.losses.NextItemLoss
+    losses:
+      timestamps:
+        _target_: hotpp.losses.TimeMAELoss
+        max_delta: ${max_time_delta}
+      event_type:
+        _target_: hotpp.losses.CrossEntropyLoss
+        num_classes: ${num_classes}
+      src_type32:
+        _target_: hotpp.losses.CrossEntropyLoss
+        num_classes: ${num_src_type32}
+      log_amount:
+        _target_: hotpp.losses.MAELoss
+
+  autoreg_max_steps: ${max_predictions}

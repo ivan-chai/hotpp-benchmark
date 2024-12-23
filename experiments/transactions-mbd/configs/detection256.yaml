@@ -12,7 +12,7 @@ module:
     prefetch_factor: 1
     match_weights:
       _presence: 8
-      event_time: 1
+      timestamps: 1
       event_type: 1
       log_amount: 1
       src_type32: 1

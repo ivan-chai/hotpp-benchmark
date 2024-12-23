@@ -11,7 +11,6 @@ conditional_head:
 
 module:
   _target_: hotpp.modules.NextKModule
-  timestamps_field: event_time
   labels_field: event_type
   seq_encoder:
     rnn_partial:
@@ -23,14 +22,13 @@ module:
   head_partial: ${conditional_head}
   loss:
     _target_: hotpp.losses.DetectionLoss
-    timestamps_field: event_time
     categorical_fields:
       - event_type
       - src_type32
     k: ${detection_k}
     horizon: ${metric.horizon}
     next_item_adapter:
-      event_time: mode
+      timestamps: mode
       event_type: mode
       src_type32: mode
       log_amount: mode
@@ -39,11 +37,10 @@ module:
       losses:
         _presence:
           _target_: hotpp.losses.BinaryCrossEntropyLoss
-        event_time:
+        timestamps:
           _target_: hotpp.losses.TimeMAELoss
           delta: start
           max_delta: ${max_duration}
-          scale: 345600  # 4 days.
         event_type:
           _target_: hotpp.losses.CrossEntropyLoss
           num_classes: ${num_classes}
