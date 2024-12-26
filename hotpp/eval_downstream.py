@@ -97,18 +97,20 @@ def extract_embeddings(conf):
     trainer = get_trainer(conf)
     embeddings = []
     ids = []
-    for split in ["test", "val", "train"]:
+    for split in dm.splits:
         split_dm = InferenceDataModule(dm, split=split)
         split_embeddings, split_ids = zip(*trainer.predict(model, split_dm))  # (B, D), (B).
         embeddings.extend(split_embeddings)
+        if isinstance(split_ids, torch.Tensor):
+            split_ids = split_ids.cpu()
         ids.extend(split_ids)
     embeddings = torch.cat(embeddings).cpu().numpy()
-    ids = torch.cat(ids).cpu().numpy()
+    ids = np.concatenate(ids)
     if len(np.unique(ids)) != len(ids):
         raise RuntimeError("Duplicate ids")
 
     # Convert to embeddings_validation format.
-    columns = {"id": ids}
+    columns = {dm.id_field: ids}
     for i in range(embeddings.shape[1]):
         columns[f"emb_{i:04}"] = embeddings[:, i]
     return pd.DataFrame(columns)
