@@ -37,10 +37,10 @@ def join_and_convert_datasets(srcs, dst, n_partitions):
 
 def load_transactions(root, cache_dir):
     # Download and extract.
-    #hf_hub_download(repo_id="ai-lab/MBD", filename="ptls.tar.gz", repo_type="dataset", local_dir=cache_dir)
-    #archive = os.path.join(cache_dir, "ptls.tar.gz")
-    #with tarfile.open(archive, "r:gz") as fp:
-    #    fp.extractall(path=root)
+    hf_hub_download(repo_id="ai-lab/MBD", filename="ptls.tar.gz", repo_type="dataset", local_dir=cache_dir)
+    archive = os.path.join(cache_dir, "ptls.tar.gz")
+    with tarfile.open(archive, "r:gz") as fp:
+        fp.extractall(path=root)
     # Merge folds.
     join_and_convert_datasets([os.path.join(root, "ptls", "trx", f"fold={fold}") for fold in [0, 1, 2, 3]],
                               os.path.join(root, "train.parquet"),
