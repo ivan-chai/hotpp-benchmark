@@ -110,7 +110,7 @@ def extract_embeddings(conf):
         raise RuntimeError("Duplicate ids")
 
     # Convert to embeddings_validation format.
-    columns = {"id": ids}
+    columns = {dm.id_field: ids}
     for i in range(embeddings.shape[1]):
         columns[f"emb_{i:04}"] = embeddings[:, i]
     return pd.DataFrame(columns)
