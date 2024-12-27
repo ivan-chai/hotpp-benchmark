@@ -44,6 +44,9 @@ class InferenceModule(pl.LightningModule):
             embeddings = self.reduce_mean(hiddens)
         elif self.reducer == "last":
             embeddings = self.reduce_last(hiddens)
+        elif self.reducer.startswith("mean-last-"):
+            num = int(self.reducer.rsplit("-")[-1])
+            embeddings = self.reduce_mean_last(hiddens, num)
         else:
             raise ValueError(f"Unknown reducer: {self.reducer}.")
         ids = data.payload[self.id_field]  # (B).
@@ -62,6 +65,17 @@ class InferenceModule(pl.LightningModule):
         embeddings = x.payload.take_along_dim(indices[:, None, None], 1).squeeze(1)  # (B, D).
         assert embeddings.ndim == 2
         embeddings.masked_fill_(invalid.unsqueeze(1), 0)  # (B, D).
+        return embeddings
+
+    def reduce_mean_last(self, x, num):
+        x, lengths = x.payload, x.seq_lens  # (B, L, D), (B).
+        rng = torch.arange(x.shape[1], device=x.device)[None]  # (1, L).
+        masks = torch.logical_and(
+            rng < lengths[:, None],
+            rng > lengths[:, None] - num
+        ).unsqueeze(2)  # (B, L, 1).
+        x = x.masked_fill(~masks, 0)
+        embeddings = x.sum(1) / masks.sum(1)  # (B, D).
         return embeddings
 
 
