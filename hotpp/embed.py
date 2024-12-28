@@ -10,8 +10,8 @@ import pytorch_lightning as pl
 import torch
 from omegaconf import OmegaConf
 
+from .common import get_trainer
 from .data import ShuffledDistributedDataset
-from .train import get_trainer
 
 logger = logging.getLogger(__name__)
 
@@ -119,6 +119,7 @@ def extract_embeddings(conf):
     # Compute embeddings.
     embeddings = []
     ids = []
+    splits = []
     targets = defaultdict(list)
     for split in dm.splits:
         split_dm = InferenceDataModule(dm, split=split)
@@ -127,6 +128,7 @@ def extract_embeddings(conf):
         if isinstance(split_ids, torch.Tensor):
             split_ids = split_ids.cpu()
         ids.extend(split_ids)
+        splits.extend([split] * (sum(map(len, split_embeddings))))
         for target in split_targets:
             for name, value in target.items():
                 targets[name].append(value)
@@ -144,7 +146,8 @@ def extract_embeddings(conf):
     for i in range(embeddings.shape[1]):
         columns[f"emb_{i:04}"] = embeddings[:, i]
     targets[dm.id_field] = ids
-    return pd.DataFrame(columns), pd.DataFrame(targets)
+    targets["split"] = splits
+    return pd.DataFrame(columns).set_index(dm.id_field), pd.DataFrame(targets).set_index(dm.id_field)
 
 
 @hydra.main(version_base=None)
@@ -155,7 +158,7 @@ def main(conf):
     if not embeddings_path.endswith(".parquet"):
         raise RuntimeError("Embeddings path must have the '.parquet' extension.")
     embeddings, _ = extract_embeddings(conf)
-    embeddings.to_parquet(embeddings_path)
+    embeddings.reset_index().to_parquet(embeddings_path)
 
 
 if __name__ == "__main__":

@@ -10,7 +10,7 @@ python3 -m hotpp.train --config-dir configs --config-name <model>
 
 Evaluate downstream:
 ```
-python3 -m hotpp.eval_downstream --config-dir configs --config-name downstream +model_config=<model> [++num_workers=<workers>]
+python3 -m hotpp.eval_downstream --config-dir configs --config-name next_item [++downstream.num_workers=<workers>]
 ```
 
 ### Useful Spark options

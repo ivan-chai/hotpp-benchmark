@@ -9,7 +9,8 @@ from omegaconf import OmegaConf
 
 from hotpp.utils.config import as_flat_config
 
-from .train import train, dump_report
+from .train import train
+from .evaluate import dump_report
 
 logger = logging.getLogger(__name__)
 

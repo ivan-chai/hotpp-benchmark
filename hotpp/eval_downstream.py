@@ -12,6 +12,7 @@ from omegaconf import OmegaConf
 from embeddings_validation import ReportCollect
 from embeddings_validation.config import Config
 from .embed import extract_embeddings
+from .evaluate import dump_report
 
 
 @contextmanager
@@ -40,43 +41,67 @@ def eval_embeddings(conf):
 
 
 def parse_result(path):
-    scores = []
+    scores = {}
     with open(path, "r") as fp:
+        split = None
         for line in fp:
+            if "split_name" in line:
+                split = line.strip().split()[1].replace("scores_", "")
             if "embeddings" not in line:
                 continue
+            if split is None:
+                raise RuntimeError("Can't parse split name")
             tokens = line.strip().split()
-            scores.append(float(tokens[2]))
-    print(scores)
-    if len(scores) != 2:
-        raise RuntimeError(f"Can't parse validation output.")
-    return tuple(scores)  # (Train, Val).
+            mean = float(tokens[2])
+            std = float(tokens[6])
+            scores[split] = (mean, std)
+            split = None
+    return scores
+
+
+def eval_downstream(conf):
+    with maybe_temporary_directory(conf.downstream.get("root", None)) as root:
+        embeddings, targets = extract_embeddings(conf)
+
+        index = embeddings.index.name
+
+        embeddings_path = os.path.join(root, "embeddings.pickle")
+        with open(embeddings_path, "wb") as fp:
+            pkl.dump(embeddings.reset_index(), fp)
+
+        targets_path = os.path.join(root, "targets.csv")
+        targets.dropna().drop(columns=["split"]).to_csv(targets_path)
+
+        test_ids_path = os.path.join(root, "test_ids.csv")
+        targets[targets["split"] == "test"][[]].to_csv(test_ids_path)  # Index only.
+
+        conf.downstream.environment.work_dir = root
+        conf.downstream.features.embeddings.read_params.file_name = embeddings_path
+        conf.downstream.target.file_name = targets_path
+        conf.downstream.split.train_id.file_name = targets_path
+        conf.downstream.split.test_id.file_name = test_ids_path
+        conf.downstream.report_file = os.path.join(root, "downstream_report.txt")
+        if os.path.exists(conf.downstream.report_file):
+            os.remove(conf.downstream.report_file)
+        eval_embeddings(conf.downstream)
+
+        scores = parse_result(conf.downstream.report_file)
+        return scores
 
 
 @hydra.main(version_base=None)
 def main(conf):
-    with maybe_temporary_directory(conf.get("root", None)) as root:
-        model_config = hydra.compose(config_name=conf.model_config)
-        embeddings, targets = extract_embeddings(model_config)
+    downstream_report = conf.get("downstream_report", None)
+    if downstream_report is None:
+        raise RuntimeError("Need output dowstream report path.")
 
-        embeddings_path = os.path.join(root, "embeddings.pickle")
-        with open(embeddings_path, "wb") as fp:
-            pkl.dump(embeddings, fp)
-
-        targets_path = os.path.join(root, "targets.csv")
-        targets.dropna().to_csv(targets_path)
-
-        conf.environment.work_dir = root
-        conf.features.embeddings.read_params.file_name = embeddings_path
-        conf.target.file_name = targets_path
-        conf.split.train_id.file_name = targets_path
-        conf.report_file = model_config.get("downstream_report", os.path.join(root, "downstream_report.txt"))
-        if os.path.exists(conf.report_file):
-            os.remove(conf.report_file)
-        eval_embeddings(conf)
-
-        scores = parse_result(conf.report_file)
-        print(scores)
+    scores = eval_downstream(conf)
+    result = {}
+    for split, (mean, std) in scores.items():
+        result[f"{split}/{conf.downstream.target.col_target} (mean)"] = mean
+        result[f"{split}/{conf.downstream.target.col_target} (std)"] = std
+    with open(downstream_report, "w") as fp:
+        dump_report(result, fp)
 
 
 if __name__ == "__main__":
