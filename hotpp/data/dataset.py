@@ -1,4 +1,5 @@
 import os
+import itertools
 import random
 import torch
 import numpy as np
@@ -35,6 +36,14 @@ def to_torch_if_possible(v):
         return v
 
 
+def parse_fields(fields):
+    if fields is None:
+        return []
+    if isinstance(fields, str):
+        return [fields]
+    return list(fields)
+
+
 class HotppDataset(torch.utils.data.IterableDataset):
     """Generate subsequences from parquet file.
 
@@ -46,6 +55,9 @@ class HotppDataset(torch.utils.data.IterableDataset):
         min_length: Minimum sequence length. Use 0 to disable subsampling.
         max_length: Maximum sequence length. Disable limit if `None`.
         position: Sample position (`random` or `last`).
+        global_target_fields: The name of the target field or a list of fields. Global targets are assigned to sequences.
+        local_targets_fields: The name of the target field or a list of fields. Local targets are assigned to individual events.
+        local_targets_indices_field: The name of the target field or a list of fields. Local targets are assigned to individual events.
     """
     def __init__(self, data,
                  min_length=0, max_length=None,
@@ -53,10 +65,9 @@ class HotppDataset(torch.utils.data.IterableDataset):
                  min_required_length=None,
                  id_field="id",
                  timestamps_field="timestamps",
-                 labels_field="labels",
-                 global_target_field="global_target",
-                 local_targets_field="local_targets",
-                 local_targets_indices_field="local_targets_indices"):
+                 global_target_fields=None,
+                 local_targets_fields=None,
+                 local_targets_indices_field=None):
         super().__init__()
         if isinstance(data, str):
             self.filenames = list(sorted(parquet_file_scan(data)))
@@ -73,9 +84,11 @@ class HotppDataset(torch.utils.data.IterableDataset):
         self.min_required_length = min_required_length
         self.id_field = id_field
         self.timestamps_field = timestamps_field
-        self.labels_field = labels_field
-        self.global_target_field = global_target_field
-        self.local_targets_field = local_targets_field
+        self.global_target_fields = parse_fields(global_target_fields)
+
+        if local_targets_fields and not local_targets_indices_field:
+            raise ValueError("Need indices fol local targets.")
+        self.local_targets_fields = parse_fields(local_targets_fields)
         self.local_targets_indices_field = local_targets_indices_field
 
     def shuffle_files(self, rnd=None):
@@ -85,8 +98,8 @@ class HotppDataset(torch.utils.data.IterableDataset):
         rnd.shuffle(filenames)
         return HotppDataset(filenames,
                             min_length=self.min_length, max_length=self.max_length,
-                            id_field=self.id_field, timestamps_field=self.timestamps_field, global_target_field=self.global_target_field,
-                            local_targets_field=self.local_targets_field, local_targets_indices_field=self.local_targets_indices_field)
+                            id_field=self.id_field, timestamps_field=self.timestamps_field, global_target_fields=self.global_target_fields,
+                            local_targets_fields=self.local_targets_fields, local_targets_indices_field=self.local_targets_indices_field)
 
     def is_seq_feature(self, name, value, batch=False):
         """Check whether feature is sequential using its name and value.
@@ -94,7 +107,7 @@ class HotppDataset(torch.utils.data.IterableDataset):
         Args:
             batch: Whether the value is a batch of features.
         """
-        if name in {self.id_field, self.global_target_field}:
+        if (name == self.id_field) or (name in self.global_target_fields):
             return False
         if isinstance(value, list):
             ndim = 1
@@ -108,6 +121,8 @@ class HotppDataset(torch.utils.data.IterableDataset):
         if self.timestamps_field not in features:
             raise ValueError("Need timestamps feature")
         if (self.min_length > 0) or (self.max_length is not None):
+            if self.local_targets_fields:
+                raise NotImplementedError("Future work: subsequence local targets.")
             # Select subsequences.
             length = len(features[self.timestamps_field])
             max_length = min(length, self.max_length or length)
@@ -136,24 +151,14 @@ class HotppDataset(torch.utils.data.IterableDataset):
                 features = {k: to_torch_if_possible(v) for k, v in rec.items()}
                 yield self.process(features)
 
-    def collate_fn(self, batch):
-        by_name = defaultdict(list)
-        for features in batch:
-            for name, value in features.items():
-                by_name[name].append(value)
-        lengths = torch.tensor(list(map(len, by_name[self.timestamps_field])))
-        if self.local_targets_field in features:
-            local_lengths = torch.tensor(list(map(len, by_name[self.local_targets_field])))
-            if self.local_targets_indices_field not in features:
-                raise ValueError("Need indices for local targets.")
-            local_indices_lengths = torch.tensor(list(map(len, by_name[self.local_targets_indices_field])))
-            assert (local_lengths == local_indices_lengths).all()
+    def _make_batch(self, by_name, batch_size, seq_feature_name=None):
+        # Compute lengths.
+        if seq_feature_name is not None:
+            lengths = torch.tensor(list(map(len, by_name[seq_feature_name])))
+        else:
+            lengths = torch.zeros(batch_size, dtype=torch.long)
 
-        # Check consistency.
-        batch_sizes = list(map(len, by_name.values()))
-        assert all([bs == batch_sizes[0] for bs in batch_sizes])
-
-        # Pad sequences.
+        # Add padding.
         features = {}
         for k, vs in by_name.items():
             if self.is_seq_feature(k, vs[0]):
@@ -163,19 +168,31 @@ class HotppDataset(torch.utils.data.IterableDataset):
                     features[k] = torch.stack(vs)  # (B, *).
                 except TypeError:
                     features[k] = vs
+        if not features:
+            return None
+        return PaddedBatch(features, lengths,
+                           seq_names={k for k, v in features.items()
+                                      if self.is_seq_feature(k, v, batch=True)})
 
-        # Extract targets and make PaddedBatch.
-        targets = {}
-        if self.local_targets_field in features:
-            targets["local"] = PaddedBatch({"indices": features.pop(self.local_targets_indices_field),
-                                            "targets": features.pop(self.local_targets_field)},
-                                           local_lengths,
-                                           seq_names={"indices", "targets"})
-        if self.global_target_field in features:
-            targets["global"] = features.pop(self.global_target_field)
-        features = PaddedBatch(features, lengths,
-                               seq_names={k for k, v in features.items()
-                                          if self.is_seq_feature(k, v, batch=True)})
+    def collate_fn(self, batch):
+        batch_size = len(batch)
+        by_name = defaultdict(list)
+        for features in batch:
+            for name, value in features.items():
+                by_name[name].append(value)
+
+        # Check batch size consistency.
+        for name, values in by_name.items():
+            if len(values) != batch_size:
+                raise ValueError(f"Missing values for feature {name}")
+
+        # Pop targets.
+        targets_by_name = {name: by_name.pop(name) for name in
+                           itertools.chain(self.global_target_fields, self.local_targets_fields)}
+
+        # Make PaddedBatch objects.
+        features = self._make_batch(by_name, batch_size, self.timestamps_field)
+        targets = self._make_batch(targets_by_name, batch_size, self.local_targets_indices_field)
         return features, targets
 
 

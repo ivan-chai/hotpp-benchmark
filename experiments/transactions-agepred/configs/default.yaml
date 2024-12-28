@@ -42,6 +42,7 @@ data_module:
   min_length: 1000
   max_length: 1200
   num_workers: 4
+  global_target_fields: target
   train_path: data/train.parquet
   val_path: data/val.parquet
   test_path: data/test.parquet

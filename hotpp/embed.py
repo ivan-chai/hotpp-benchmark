@@ -1,14 +1,150 @@
 """Compute embeddings."""
+import copy
 import logging
-import pickle as pkl
+from collections import defaultdict
 
 import hydra
+import numpy as np
+import pandas as pd
+import pytorch_lightning as pl
 import torch
 from omegaconf import OmegaConf
 
-from .eval_downstream import extract_embeddings
+from .data import ShuffledDistributedDataset
+from .train import get_trainer
 
 logger = logging.getLogger(__name__)
+
+
+class InferenceModule(pl.LightningModule):
+    def __init__(self, model, id_field, reducer):
+        super().__init__()
+        self.model = model
+        self.id_field = id_field
+        self.reducer = reducer
+
+    def forward(self, batch):
+        data, targets = batch
+        hiddens, _ = self.model.encode(data)  # (B, L, D).
+        assert hiddens.payload.ndim == 3
+        if self.reducer == "mean":
+            embeddings = self.reduce_mean(hiddens)
+        elif self.reducer == "last":
+            embeddings = self.reduce_last(hiddens)
+        elif self.reducer.startswith("mean-last-"):
+            num = int(self.reducer.rsplit("-")[-1])
+            embeddings = self.reduce_mean_last(hiddens, num)
+        else:
+            raise ValueError(f"Unknown reducer: {self.reducer}.")
+        # Embeddings: (B, D).
+        ids = data.payload[self.id_field]  # (B).
+        targets = {name: value for name, value in targets.payload.items()
+                   if name not in targets.seq_names}  # Keep only global targets.
+        return embeddings, ids, targets
+
+    def reduce_mean(self, x):
+        x, masks, lengths = x.payload, x.seq_len_mask.bool(), x.seq_lens  # (B, L, D), (B, L), (B).
+        x = x.masked_fill(~masks.unsqueeze(2), 0)
+        sums = x.sum(1)  # (B, D).
+        embeddings = sums / lengths.unsqueeze(1)  # (B, D).
+        return embeddings
+
+    def reduce_last(self, x):
+        invalid = x.seq_lens == 0  # (B).
+        indices = (x.seq_lens - 1).clip(min=0)  # (B).
+        embeddings = x.payload.take_along_dim(indices[:, None, None], 1).squeeze(1)  # (B, D).
+        assert embeddings.ndim == 2
+        embeddings.masked_fill_(invalid.unsqueeze(1), 0)  # (B, D).
+        return embeddings
+
+    def reduce_mean_last(self, x, num):
+        x, lengths = x.payload, x.seq_lens  # (B, L, D), (B).
+        rng = torch.arange(x.shape[1], device=x.device)[None]  # (1, L).
+        masks = torch.logical_and(
+            rng < lengths[:, None],
+            rng > lengths[:, None] - num
+        ).unsqueeze(2)  # (B, L, 1).
+        x = x.masked_fill(~masks, 0)
+        embeddings = x.sum(1) / masks.sum(1)  # (B, D).
+        return embeddings
+
+
+class InferenceDataModule(pl.LightningDataModule):
+    def __init__(self, data, split):
+        super().__init__()
+        self.data = data
+        self.split = split
+
+    def predict_dataloader(self):
+        dataset = getattr(self.data, f"{self.split}_data")
+        loader_params = getattr(self.data, f"{self.split}_loader_params")
+
+        num_workers = loader_params.get("num_workers", 0)
+        dataset = ShuffledDistributedDataset(dataset,
+                                             num_workers=num_workers)
+        return torch.utils.data.DataLoader(
+            dataset=dataset,
+            collate_fn=dataset.dataset.collate_fn,
+            shuffle=False,
+            num_workers=num_workers,
+            batch_size=loader_params.get("batch_size", 1)
+        )
+
+
+def extract_embeddings(conf):
+    # Use validation dataset parameters for all splits.
+    conf = copy.deepcopy(conf)
+    OmegaConf.set_struct(conf, False)
+    dataset_params = None
+    if "test_params" in conf.data_module:
+        dataset_params = conf.data_module.test_params
+    elif "val_params" in conf.data_module:
+        dataset_params = conf.data_module.val_params
+    conf.data_module.train_params = dataset_params
+    conf.data_module.val_params = dataset_params
+    conf.data_module.test_params = dataset_params
+
+    # Disable logging.
+    conf.pop("logger", None)
+
+    # Instantiate.
+    model = hydra.utils.instantiate(conf.module)
+    dm = hydra.utils.instantiate(conf.data_module)
+    model.load_state_dict(torch.load(conf.model_path))
+    model = InferenceModule(model,
+                            id_field=dm.id_field,
+                            reducer=conf.get("reducer", "mean"))
+    trainer = get_trainer(conf)
+
+    # Compute embeddings.
+    embeddings = []
+    ids = []
+    targets = defaultdict(list)
+    for split in dm.splits:
+        split_dm = InferenceDataModule(dm, split=split)
+        split_embeddings, split_ids, split_targets = zip(*trainer.predict(model, split_dm))  # (B, D), (B).
+        embeddings.extend(split_embeddings)
+        if isinstance(split_ids, torch.Tensor):
+            split_ids = split_ids.cpu()
+        ids.extend(split_ids)
+        for target in split_targets:
+            for name, value in target.items():
+                targets[name].append(value)
+    embeddings = torch.cat(embeddings).cpu().numpy()
+    ids = np.concatenate(ids)
+    if len(np.unique(ids)) != len(ids):
+        raise RuntimeError("Duplicate ids")
+    targets = {name: torch.cat(values).cpu().numpy() for name, values in targets.items()}
+    for name, values in targets.items():
+        if len(values) != len(ids):
+            raise RuntimeError(f"Some targets are missing for some IDs ({name}).")
+
+    # Convert to Pandas DataFrame.
+    columns = {dm.id_field: ids}
+    for i in range(embeddings.shape[1]):
+        columns[f"emb_{i:04}"] = embeddings[:, i]
+    targets[dm.id_field] = ids
+    return pd.DataFrame(columns), pd.DataFrame(targets)
 
 
 @hydra.main(version_base=None)
@@ -18,7 +154,7 @@ def main(conf):
         raise RuntimeError("Please, provide 'embeddings_path'.")
     if not embeddings_path.endswith(".parquet"):
         raise RuntimeError("Embeddings path must have the '.parquet' extension.")
-    embeddings = extract_embeddings(conf)
+    embeddings, _ = extract_embeddings(conf)
     embeddings.to_parquet(embeddings_path)
 
 

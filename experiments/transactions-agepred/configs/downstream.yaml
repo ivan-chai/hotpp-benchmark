@@ -2,18 +2,16 @@ num_workers: 4
 environment:
   work_dir: _
 target:
-  file_name: data/global_target.csv
+  file_name: _
   cols_id:
     - id
   cols_id_type:
     - int
-  col_target: global_target
+  col_target: target
 split:
   fit_ids: true
   train_id:
     file_name: data/global_target.csv
-  test_id:
-    file_name: data/test_ids.csv
   cv_split_count: 5
   is_stratify: true
   random_state: 42
