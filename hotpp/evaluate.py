@@ -22,9 +22,12 @@ def test(conf, model, dm):
     test_metrics = trainer.test(model, dm)[0]
     metrics = dict(**val_metrics, **test_metrics)
     if conf.get("test_downstream", False):
+        downstream_metrics = {}
         for split, (mean, std) in eval_downstream(conf).items():
-            metrics[f"{split}/downstream"] = mean
-            metrics[f"{split}/downstream-std"] = std
+            downstream_metrics[f"{split}/downstream"] = mean
+            downstream_metrics[f"{split}/downstream-std"] = std
+        metrics.update(downstream_metrics)
+        trainer.logger.log_metrics(downstream_metrics)
 
     if "report" in conf:
         with open(conf["report"], "w") as fp:
