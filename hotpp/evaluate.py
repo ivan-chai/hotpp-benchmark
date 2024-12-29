@@ -2,22 +2,16 @@ import copy
 import datetime
 import logging
 import sys
-import yaml
 
 import hydra
 import pytorch_lightning as pl
 import torch
 from omegaconf import OmegaConf
 
-from .common import get_trainer
+from .common import get_trainer, dump_report
+from .eval_downstream import eval_downstream
 
 logger = logging.getLogger(__name__)
-
-
-def dump_report(metrics, fp):
-    result = dict(metrics)
-    result["date"] = f"{datetime.datetime.now():%Y-%m-%d %H:%M:%S}"
-    yaml.safe_dump(result, fp)
 
 
 def test(conf, model, dm):
@@ -27,6 +21,11 @@ def test(conf, model, dm):
     val_metrics = trainer.validate(model, dm)[0]
     test_metrics = trainer.test(model, dm)[0]
     metrics = dict(**val_metrics, **test_metrics)
+    if conf.get("test_downstream", False):
+        for split, (mean, std) in eval_downstream(conf).items():
+            metrics[f"{split}/downstream"] = mean
+            metrics[f"{split}/downstream-std"] = std
+
     if "report" in conf:
         with open(conf["report"], "w") as fp:
             dump_report(metrics, fp)

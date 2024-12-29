@@ -11,8 +11,8 @@ from omegaconf import OmegaConf
 
 from embeddings_validation import ReportCollect
 from embeddings_validation.config import Config
+from .common import dump_report
 from .embed import extract_embeddings
-from .evaluate import dump_report
 
 
 @contextmanager
@@ -47,6 +47,8 @@ def parse_result(path):
         for line in fp:
             if "split_name" in line:
                 split = line.strip().split()[1].replace("scores_", "")
+                if split == "valid":
+                    split = "val"
             if "embeddings" not in line:
                 continue
             if split is None:
@@ -86,7 +88,7 @@ def eval_downstream(conf):
         eval_embeddings(conf.downstream)
 
         scores = parse_result(conf.downstream.report_file)
-        return scores
+    return scores
 
 
 @hydra.main(version_base=None)

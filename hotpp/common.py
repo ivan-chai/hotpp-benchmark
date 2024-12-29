@@ -1,5 +1,6 @@
 import datetime
 import logging
+import yaml
 
 import hydra
 import pytorch_lightning as pl
@@ -11,6 +12,12 @@ from hotpp.utils.config import as_flat_config
 
 
 logger = logging.getLogger(__name__)
+
+
+def dump_report(metrics, fp):
+    result = dict(metrics)
+    result["date"] = f"{datetime.datetime.now():%Y-%m-%d %H:%M:%S}"
+    yaml.safe_dump(result, fp)
 
 
 def get_trainer(conf, **trainer_params_additional):
