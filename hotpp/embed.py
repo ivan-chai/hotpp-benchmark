@@ -91,7 +91,7 @@ class InferenceDataModule(pl.LightningDataModule):
         )
 
 
-def extract_embeddings(conf):
+def extract_embeddings(conf, model=None):
     # Use validation dataset parameters for all splits.
     conf = copy.deepcopy(conf)
     OmegaConf.set_struct(conf, False)
@@ -108,9 +108,10 @@ def extract_embeddings(conf):
     conf.pop("logger", None)
 
     # Instantiate.
-    model = hydra.utils.instantiate(conf.module)
+    if model is None:
+        model = hydra.utils.instantiate(conf.module)
+        model.load_state_dict(torch.load(conf.model_path))
     dm = hydra.utils.instantiate(conf.data_module)
-    model.load_state_dict(torch.load(conf.model_path))
     model = InferenceModule(model,
                             id_field=dm.id_field,
                             reducer=conf.get("reducer", "mean"))

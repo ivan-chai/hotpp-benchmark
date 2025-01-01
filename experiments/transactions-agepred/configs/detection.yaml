@@ -2,9 +2,6 @@ defaults:
   - detection_base
   - _self_
 
-data_module:
-  batch_size: 32
-
 detection_k: 32
 
 module:

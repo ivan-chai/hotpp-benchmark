@@ -113,6 +113,8 @@ class HotppDataset(torch.utils.data.IterableDataset):
             ndim = 1
         elif isinstance(value, (np.ndarray, torch.Tensor)):
             ndim = value.ndim
+        else:
+            ndim = 0
         return ndim > int(batch)
 
     def process(self, features):

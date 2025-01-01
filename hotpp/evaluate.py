@@ -18,12 +18,18 @@ def test(conf, model, dm):
     pl.seed_everything(42)
 
     trainer = get_trainer(conf, devices=1, precision=32)
-    val_metrics = trainer.validate(model, dm)[0]
-    test_metrics = trainer.test(model, dm)[0]
+    if "val" in dm.splits:
+        val_metrics = trainer.validate(model, dm)[0]
+    else:
+        val_metrics = {}
+    if "test" in dm.splits:
+        test_metrics = trainer.test(model, dm)[0]
+    else:
+        test_metrics = {}
     metrics = dict(**val_metrics, **test_metrics)
     if conf.get("test_downstream", False):
         downstream_metrics = {}
-        for split, (mean, std) in eval_downstream(conf).items():
+        for split, (mean, std) in eval_downstream(conf, model=model).items():
             downstream_metrics[f"{split}/downstream"] = mean
             downstream_metrics[f"{split}/downstream-std"] = std
         metrics.update(downstream_metrics)

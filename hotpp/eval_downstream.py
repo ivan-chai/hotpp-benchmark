@@ -61,9 +61,9 @@ def parse_result(path):
     return scores
 
 
-def eval_downstream(conf):
+def eval_downstream(conf, model=None):
     with maybe_temporary_directory(conf.downstream.get("root", None)) as root:
-        embeddings, targets = extract_embeddings(conf)
+        embeddings, targets = extract_embeddings(conf, model=model)
 
         index = embeddings.index.name
 
@@ -74,15 +74,18 @@ def eval_downstream(conf):
         targets_path = os.path.join(root, "targets.csv")
         targets.dropna().drop(columns=["split"]).to_csv(targets_path)
 
-        test_ids_path = os.path.join(root, "test_ids.csv")
-        targets[targets["split"] == "test"][[]].to_csv(test_ids_path)  # Index only.
-
         conf.downstream.environment.work_dir = root
         conf.downstream.features.embeddings.read_params.file_name = embeddings_path
         conf.downstream.target.file_name = targets_path
         conf.downstream.split.train_id.file_name = targets_path
-        conf.downstream.split.test_id.file_name = test_ids_path
         conf.downstream.report_file = os.path.join(root, "downstream_report.txt")
+
+        test_targets = targets[targets["split"] == "test"]
+        if len(test_targets) > 0:
+            test_ids_path = os.path.join(root, "test_ids.csv")
+            test_targets[[]].to_csv(test_ids_path)  # Index only.
+            conf.downstream.split.test_id.file_name = test_ids_path
+
         if os.path.exists(conf.downstream.report_file):
             os.remove(conf.downstream.report_file)
         eval_embeddings(conf.downstream)
