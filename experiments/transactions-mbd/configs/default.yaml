@@ -36,7 +36,6 @@ downstream_report: results/downstream_${name}.txt
 data_module:
   _target_: hotpp.data.HotppDataModule
   id_field: client_id
-  labels_field: event_type
   max_length: 1000  # Val/Test.
   position: last  # Val/Test.
   batch_size: 512  # Val/Test.
@@ -99,7 +98,6 @@ module:
     step_size: 5
     gamma: 0.8
   val_metric: ${metric}
-  test_metric: ${metric}
 
 trainer:
   accelerator: cuda

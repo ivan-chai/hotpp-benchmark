@@ -19,9 +19,6 @@ method: bayes
 metric:
   name: val/downstream
   goal: maximize
-early_terminate:
-  type: hyperband
-  min_iter: 3
 parameters:
   module.loss.k:
     values: [32, 64, 96]
