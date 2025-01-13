@@ -23,3 +23,8 @@ Set the number of threads:
 ```
 spark-submit --master 'local[8]'
 ```
+
+# Predict embeddings
+```bash
+python3 -m hotpp.embed --config-dir configs --config-name detection +embeddings_path=embeddings.parquet
+```
