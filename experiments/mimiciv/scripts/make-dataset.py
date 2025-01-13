@@ -7,7 +7,6 @@ import shutil
 import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
-import pandas as pd
 from random import Random
 
 import pyspark.sql.functions as F
@@ -57,17 +56,13 @@ def simplify_measurements(src, dst):
 
 def map_codes(df):
     """Convert ICD 9 to ICD 10 chapters where possible."""
-    gem = pd.read_csv("data/2013_I9gem.txt", header=None, delimiter=r"\s+")
-    gem = gem.sort_values(by=2, axis=0).groupby(0).first().replace({1: {"NoDx": None}})[1]
-    gem_map = dict(gem)
     mapper = Mapper()
     def map_icd(name):
         if name == "UNK":
             return name
         src, value = name.split()
-        if src == "ICD_9":  # convert to ICD-10 value before converting to chapter
-            value = gem_map[value]
-        return "CH-" + mapper.map(value, source="icd10", target="chapter")
+        src = src.replace("_", "").lower()
+        return "CH-" + mapper.map(value, source=src, target="chapter")
     icd_mapper = F.udf(map_icd, returnType=StringType())
     df = df.withColumn("labels", icd_mapper(F.col("label"))).drop("label")
     return df
