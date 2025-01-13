@@ -12,3 +12,6 @@ python3 -m hotpp.train --config-dir configs --config-name detection
 ```bash
 python3 -m hotpp.embed --config-dir configs --config-name detection +embeddings_path=embeddings.parquet trainer.devices=1
 ```
+
+# Downstream evaluation
+Under development.
