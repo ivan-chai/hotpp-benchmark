@@ -19,11 +19,13 @@ def parse_args():
     return parser.parse_args()
 
 
-def join_and_convert_datasets(srcs, dst, n_partitions):
+def make_from_folds(folds, data_root, targets_root, dst, n_partitions):
     spark = SparkSession.builder.getOrCreate()
     dataset = None
-    for path in srcs:
-        part = spark.read.parquet(path)
+    for fold in folds:
+        part = spark.read.parquet(os.path.join(data_root, f"fold={fold}"))
+        targets = spark.read.parquet(os.path.join(targets_root, f"fold={fold}"))
+        part = part.join(targets, on="client_id", how="inner")
         dataset = dataset.union(part) if dataset is not None else part
     # Compute log_amount.
     udf = F.udf(lambda x: [math.log(abs(v) + 1) for v in x], ArrayType(FloatType(), False))
@@ -41,13 +43,23 @@ def load_transactions(root, cache_dir):
     archive = os.path.join(cache_dir, "ptls.tar.gz")
     with tarfile.open(archive, "r:gz") as fp:
         fp.extractall(path=root)
+
+    hf_hub_download(repo_id="ai-lab/MBD", filename="targets.tar.gz", repo_type="dataset", local_dir=cache_dir)
+    archive = os.path.join(cache_dir, "targets.tar.gz")
+    with tarfile.open(archive, "r:gz") as fp:
+        fp.extractall(path=root)
+
     # Merge folds.
-    join_and_convert_datasets([os.path.join(root, "ptls", "trx", f"fold={fold}") for fold in [0, 1, 2, 3]],
-                              os.path.join(root, "train.parquet"),
-                              n_partitions=64)
-    join_and_convert_datasets([os.path.join(root, "ptls", "trx", f"fold={fold}") for fold in [4]],
-                              os.path.join(root, "valid.parquet"),
-                              n_partitions=16)
+    make_from_folds([0, 1, 2, 3],
+                    os.path.join(root, "ptls", "trx"),
+                    os.path.join(root, "targets"),
+                    os.path.join(root, "train.parquet"),
+                    n_partitions=64)
+    make_from_folds([4],
+                    os.path.join(root, "ptls", "trx"),
+                    os.path.join(root, "targets"),
+                    os.path.join(root, "valid.parquet"),
+                    n_partitions=16)
 
 
 def main(args):

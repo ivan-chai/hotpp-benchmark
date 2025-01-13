@@ -7,7 +7,7 @@ target:
     - id
   cols_id_type:
     - int
-  col_target: target
+  col_target: bcard_target
 split:
   fit_ids: true
   train_id:
@@ -25,7 +25,7 @@ models:
       n_estimators: 1000
       boosting_type: gbdt
       objective: multiclass
-      num_class: 4
+      num_class: 2
       metric: multi_error
       learning_rate: 0.02
       subsample: 0.75

@@ -1,3 +1,7 @@
+defaults:
+  - downstream@downstream
+  - _self_
+
 seed_everything: 42
 num_evaluation_seeds: 5
 
@@ -17,7 +21,7 @@ transformer_layers: 2
 transformer_pos_m: 1  # ~ minimum delta.
 transformer_pos_M: 800  # ~ maximum delta.
 
-reducer: last
+reducer: mean-last-10
 
 logger:
   _target_: pytorch_lightning.loggers.WandbLogger
@@ -32,12 +36,20 @@ downstream_report: results/downstream_${name}.txt
 data_module:
   _target_: hotpp.data.HotppDataModule
   id_field: client_id
-  labels_field: event_type
-  batch_size: 96
-  min_length: 400
-  min_required_length: 32
-  max_length: 800
+  max_length: 1000  # Val/Test.
+  position: last  # Val/Test.
+  batch_size: 512  # Val/Test.
+  train_params:
+    min_length: 400
+    min_required_length: 32
+    max_length: 800
+    batch_size: 96
   num_workers: 16
+  global_target_fields:
+    - bcard_target
+    - cred_target
+    - zp_target
+    - acquiring_target
   train_path: data/train.parquet
   val_path: data/valid.parquet
 
@@ -86,7 +98,6 @@ module:
     step_size: 5
     gamma: 0.8
   val_metric: ${metric}
-  test_metric: ${metric}
 
 trainer:
   accelerator: cuda
