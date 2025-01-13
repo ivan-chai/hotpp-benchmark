@@ -31,6 +31,8 @@ class InferenceModule(pl.LightningModule):
             embeddings = self.reduce_mean(hiddens)
         elif self.reducer == "last":
             embeddings = self.reduce_last(hiddens)
+        elif self.reducer == "middle":
+            embeddings = self.reduce_middle(hiddens)
         elif self.reducer.startswith("mean-last-"):
             num = int(self.reducer.rsplit("-")[-1])
             embeddings = self.reduce_mean_last(hiddens, num)
@@ -52,6 +54,14 @@ class InferenceModule(pl.LightningModule):
     def reduce_last(self, x):
         invalid = x.seq_lens == 0  # (B).
         indices = (x.seq_lens - 1).clip(min=0)  # (B).
+        embeddings = x.payload.take_along_dim(indices[:, None, None], 1).squeeze(1)  # (B, D).
+        assert embeddings.ndim == 2
+        embeddings.masked_fill_(invalid.unsqueeze(1), 0)  # (B, D).
+        return embeddings
+
+    def reduce_middle(self, x):
+        invalid = x.seq_lens == 0  # (B).
+        indices = x.seq_lens // 2  # (B).
         embeddings = x.payload.take_along_dim(indices[:, None, None], 1).squeeze(1)  # (B, D).
         assert embeddings.ndim == 2
         embeddings.masked_fill_(invalid.unsqueeze(1), 0)  # (B, D).
