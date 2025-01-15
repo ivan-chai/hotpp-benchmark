@@ -1,3 +1,7 @@
+The dataset contains multiple fields beyond MTPP's "timestamps" and "labels".
+
+TODO: Add more fields.
+
 # Prepare dataset
 ```bash
 spark-submit --driver-memory 16g -c spark.network.timeout=100000s --master local[16] ./scripts/make-dataset.py

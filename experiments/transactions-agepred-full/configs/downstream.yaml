@@ -1,0 +1,70 @@
+num_workers: 4
+environment:
+  work_dir: _
+target:
+  file_name: _
+  cols_id:
+    - id
+  cols_id_type:
+    - int
+  col_target: target
+split:
+  fit_ids: true
+  train_id:
+    file_name: _
+  test_id:
+    file_name: _
+  cv_split_count: 5
+  is_stratify: true
+  random_state: 42
+models:
+  lgbm:
+    enabled: true
+    model:
+      _target_: lightgbm.LGBMClassifier
+      n_estimators: 1000
+      boosting_type: gbdt
+      objective: multiclass
+      num_class: 4
+      metric: multi_error
+      learning_rate: 0.02
+      subsample: 0.75
+      subsample_freq: 1
+      feature_fraction: 0.75
+      colsample_bytree: null
+      max_depth: 12
+      lambda_l1: 1
+      reg_alpha: null
+      lambda_l2: 1
+      reg_lambda: null
+      min_data_in_leaf: 50
+      min_child_samples: null
+      num_leaves: 50
+      random_state: 42
+      n_jobs: ${downstream.num_workers}
+    cpu_count: ${downstream.num_workers}
+    preprocessing:
+      - _target_: sklearn.preprocessing.MaxAbsScaler
+
+metrics:
+  accuracy:
+    enabled: true
+    score_func: sklearn.metrics.accuracy_score
+    scorer_params:
+      needs_proba: false
+report_file: _
+features:
+  embeddings:
+    enabled: true
+    read_params:
+      file_name: _
+    target_options: {}
+external_scores: {}
+report:
+  is_check_train: false
+  error_handling: fail
+  print_all_metrics: false
+  metrics:
+    accuracy:
+      float_format: "{:.3f}"
+      split_columns: true

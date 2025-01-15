@@ -29,6 +29,22 @@ class IdentityEncoder(torch.nn.Module):
         return 1
 
 
+class LogEncoder(torch.nn.Module):
+    def __init__(self, clip=1e-6):
+        super().__init__()
+        self.clip = clip
+
+    def forward(self, x):
+        if x.payload.ndim != 2:
+            raise ValueError(f"Expected tensor with shape (B, L), got {x.payload.shape}.")
+        payload = torch.log(x.payload.clip(min=self.clip)).unsqueeze(-1)
+        return PaddedBatch(payload, x.seq_lens)  # (B, L, 1).
+
+    @property
+    def output_size(self):
+        return 1
+
+
 class DeltaEncoder(torch.nn.Module):
     def forward(self, x):
         if x.payload.ndim != 2:
@@ -44,6 +60,13 @@ class DeltaEncoder(torch.nn.Module):
 
 
 class Embedder(torch.nn.Module):
+    """Event embedder, that converts structured event into vector.
+
+    Args:
+        embeddings: Mapping from the field name to a dictionary of the form `{"in": <num-classes>, "out": <embedding-dim>}`.
+        numeric_values: Mapping from the field name to an embedder module or one of "identity", "log", and "delta" or a list of multiple encoders.
+        use_batch_norm: Whether to apply batch norm to numeric features embedding or not.
+    """
     def __init__(self, embeddings=None, numeric_values=None,
                  use_batch_norm=True):
         super().__init__()
@@ -51,12 +74,10 @@ class Embedder(torch.nn.Module):
         for name, spec in (embeddings or {}).items():
             encoders[name] = EmbeddingEncoder(spec["in"], spec["out"])
         for name, spec in (numeric_values or {}).items():
-            if spec == "identity":
-                encoders[name] = IdentityEncoder()
-            elif spec == "delta":
-                encoders[name] = DeltaEncoder()
+            if isinstance(spec, (list, tuple)):
+                encoders[name] = torch.nn.ModuleList(list(map(self._make_encoder, spec)))
             else:
-                raise ValueError(f"Unknown encoder: {spec}.")
+                encoders[name] = self._make_encoder(spec)
         if not encoders:
             raise ValueError("Empty embedder")
         self.embeddings = torch.nn.ModuleDict(encoders)
@@ -80,7 +101,11 @@ class Embedder(torch.nn.Module):
 
         custom_embeddings = []
         for name in self.numeric_order:
-            custom_embeddings.append(self.embeddings[name](batch[name]).payload)
+            encoder = self.embeddings[name]
+            if isinstance(encoder, torch.nn.ModuleList):
+                custom_embeddings.extend([e(batch[name]).payload for e in encoder])
+            else:
+                custom_embeddings.append(encoder(batch[name]).payload)
         if custom_embeddings:
             custom_embedding = PaddedBatch(torch.cat(custom_embeddings, -1), batch.seq_lens)
             if self.use_batch_norm:
@@ -88,3 +113,16 @@ class Embedder(torch.nn.Module):
             embeddings.append(custom_embedding)
         payload = torch.cat(embeddings, -1)  # (B, L, D).
         return PaddedBatch(payload, batch.seq_lens)
+
+    def _make_encoder(self, spec):
+        if isinstance(spec, torch.nn.Module):
+            encoder = spec
+        elif spec == "identity":
+            encoder = IdentityEncoder()
+        elif spec == "log":
+            encoder = LogEncoder()
+        elif spec == "delta":
+            encoder = DeltaEncoder()
+        else:
+            raise ValueError(f"Unknown encoder: {spec}.")
+        return encoder
