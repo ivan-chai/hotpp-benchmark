@@ -64,7 +64,7 @@ python3 -m hotpp.train_multiseed --config-dir configs --config-name <model>
 ```
 
 # Evaluation results
-All evaluation results can be found in experiments folder.
+All evaluation results can be found in the experiments folder.
 
 [See tables.](docs/RESULTS.md)
 
