@@ -43,9 +43,7 @@ class BaseEncoder(torch.nn.Module):
     def embed(self, x, compute_time_deltas=True):
         if compute_time_deltas:
             x = self.compute_time_deltas(x)
-        embeddings = self.embedder(x)
-        # Convert PTLS batch to HoTPP batch.
-        return PaddedBatch(embeddings.payload, embeddings.seq_lens)
+        return self.embedder(x)
 
     @abstractmethod
     def forward(self, x, return_full_states=False):

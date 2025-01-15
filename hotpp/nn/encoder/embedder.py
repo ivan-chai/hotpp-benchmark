@@ -46,12 +46,17 @@ class LogEncoder(torch.nn.Module):
 
 
 class DeltaEncoder(torch.nn.Module):
+    def __init__(self, max_delta=None):
+        super().__init__()
+        self.max_delta = max_delta
+
     def forward(self, x):
         if x.payload.ndim != 2:
             raise ValueError(f"Expected tensor with shape (B, L), got {x.payload.shape}.")
         payload = x.payload.clone()
         payload[:, 1:] -= x.payload[:, :-1]
         payload[:, 0] = 0
+        payload.clip_(max=self.max_delta)
         return PaddedBatch(payload.unsqueeze(-1), x.seq_lens)  # (B, L, 1).
 
     @property
@@ -73,7 +78,10 @@ class Embedder(torch.nn.Module):
 
     Args:
         embeddings: Mapping from the field name to a dictionary of the form `{"in": <num-classes>, "out": <embedding-dim>}`.
-        numeric_values: Mapping from the field name to an embedder module or one of "identity", "log", and "delta" or a list of multiple encoders.
+        numeric_values: Mapping from the field name to an embedder module
+          or one of "identity", "log", and "delta"
+          or dictionary with "type" string and extra parameters
+          or a list of multiple encoders.
         use_batch_norm: Whether to apply batch norm to numeric features embedding or not.
     """
     def __init__(self, embeddings=None, numeric_values=None,
@@ -124,15 +132,21 @@ class Embedder(torch.nn.Module):
         payload = torch.cat(embeddings, -1)  # (B, L, D).
         return PaddedBatch(payload, batch.seq_lens)
 
-    def _make_encoder(self, spec):
+    def _make_encoder(self, spec, **kwargs):
         if isinstance(spec, torch.nn.Module):
             encoder = spec
-        elif spec == "identity":
-            encoder = IdentityEncoder()
-        elif spec == "log":
-            encoder = LogEncoder()
-        elif spec == "delta":
-            encoder = DeltaEncoder()
+        elif isinstance(spec, str):
+            if spec == "identity":
+                encoder = IdentityEncoder(**kwargs)
+            elif spec == "log":
+                encoder = LogEncoder(**kwargs)
+            elif spec == "delta":
+                encoder = DeltaEncoder(**kwargs)
+            else:
+                raise ValueError(f"Unknown encoder: {spec}.")
         else:
-            raise ValueError(f"Unknown encoder: {spec}.")
+            # spec is dictionary.
+            kwargs = dict(spec)
+            kwargs.pop("type")
+            encoder = self._make_encoder(spec["type"], **kwargs)
         return encoder
