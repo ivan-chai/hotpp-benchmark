@@ -59,6 +59,15 @@ class DeltaEncoder(torch.nn.Module):
         return 1
 
 
+class EncoderList(torch.nn.ModuleList):
+    def __init__(self, modules):
+        super().__init__(modules)
+
+    @property
+    def output_size(self):
+        return sum([m.output_size for m in self])
+
+
 class Embedder(torch.nn.Module):
     """Event embedder, that converts structured event into vector.
 
@@ -74,10 +83,11 @@ class Embedder(torch.nn.Module):
         for name, spec in (embeddings or {}).items():
             encoders[name] = EmbeddingEncoder(spec["in"], spec["out"])
         for name, spec in (numeric_values or {}).items():
-            if isinstance(spec, (list, tuple)):
-                encoders[name] = torch.nn.ModuleList(list(map(self._make_encoder, spec)))
-            else:
+            if isinstance(spec, (str, torch.nn.Module)):
                 encoders[name] = self._make_encoder(spec)
+            else:
+                # spec is a list of multiple encoders.
+                encoders[name] = EncoderList(list(map(self._make_encoder, spec)))
         if not encoders:
             raise ValueError("Empty embedder")
         self.embeddings = torch.nn.ModuleDict(encoders)

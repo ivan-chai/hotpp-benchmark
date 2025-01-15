@@ -5,7 +5,7 @@ import pyspark.sql.functions as F
 from datasets import load_dataset
 from ptls.preprocessing import PysparkDataPreprocessor
 from pyspark.sql import SparkSession
-from pyspark.sql.types import ArrayType, FloatType
+from pyspark.sql.types import FloatType
 from random import Random
 
 
@@ -49,7 +49,7 @@ def get_transactions(cache_dir):
                                  "small_group as labels",
                                  "amount_rur as amount")
     # Add log_amount.
-    udf = F.udf(lambda x: [math.log(abs(v) + 1) for v in x], ArrayType(FloatType(), False))
+    udf = F.udf(lambda x: math.log(abs(x) + 1), FloatType())
     dataset = dataset.withColumn("log_amount", udf(F.col("amount")))
     return dataset
 
