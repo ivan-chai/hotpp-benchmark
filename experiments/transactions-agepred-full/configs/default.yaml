@@ -32,7 +32,7 @@ hypro_loss_step: 64
 
 logger:
   _target_: pytorch_lightning.loggers.WandbLogger
-  project: hotpp-agepred
+  project: hotpp-agepred-full
   name: ${name}
   save_dir: lightning_logs
 model_path: checkpoints/${name}.ckpt

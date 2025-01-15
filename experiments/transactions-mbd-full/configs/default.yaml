@@ -25,7 +25,7 @@ reducer: mean-last-10
 
 logger:
   _target_: pytorch_lightning.loggers.WandbLogger
-  project: hotpp-mbd
+  project: hotpp-mbd-full
   name: ${name}
   save_dir: lightning_logs
 model_path: checkpoints/${name}.ckpt
