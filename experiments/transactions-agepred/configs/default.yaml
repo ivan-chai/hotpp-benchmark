@@ -77,10 +77,14 @@ conditional_head:
 module:
   seq_encoder:
     _target_: hotpp.nn.RnnEncoder
-    embeddings:
-      labels:
-        in: ${num_classes}
-        out: 256
+    embedder:
+      _target_: hotpp.nn.Embedder
+      embeddings:
+        labels:
+          in: ${num_classes}
+          out: 256
+      numeric_values:
+        timestamps: identity
     max_time_delta: ${max_time_delta}
   optimizer_partial:
     _partial_: true

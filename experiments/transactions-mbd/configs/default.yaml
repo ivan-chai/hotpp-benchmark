@@ -79,13 +79,17 @@ conditional_head:
 module:
   seq_encoder:
     _target_: hotpp.nn.RnnEncoder
-    embeddings:
-      event_type:
-        in: ${num_classes}
-        out: 16
-      src_type32:
-        in: ${num_src_type32}
-        out: 32
+    embedder:
+      _target_: hotpp.nn.Embedder
+      embeddings:
+        event_type:
+            in: ${num_classes}
+            out: 16
+        src_type32:
+            in: ${num_src_type32}
+            out: 32
+      numeric_values:
+        timestamps: identity
     max_time_delta: ${max_time_delta}
   optimizer_partial:
     _partial_: true
