@@ -89,9 +89,7 @@ module:
             in: ${num_src_type32}
             out: 32
       numeric_values:
-        timestamps:
-          - identity
-          - delta
+        timestamps: identity
         log_amount: identity
     max_time_delta: ${max_time_delta}
   optimizer_partial:

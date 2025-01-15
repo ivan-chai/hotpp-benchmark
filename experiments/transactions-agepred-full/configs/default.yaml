@@ -84,9 +84,7 @@ module:
           in: ${num_classes}
           out: 256
       numeric_values:
-        timestamps:
-          - identity
-          - delta
+        timestamps: identity
         log_amount: identity
     max_time_delta: ${max_time_delta}
   optimizer_partial:

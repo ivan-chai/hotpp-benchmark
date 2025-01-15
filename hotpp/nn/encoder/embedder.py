@@ -45,25 +45,6 @@ class LogEncoder(torch.nn.Module):
         return 1
 
 
-class DeltaEncoder(torch.nn.Module):
-    def __init__(self, max_delta=None):
-        super().__init__()
-        self.max_delta = max_delta
-
-    def forward(self, x):
-        if x.payload.ndim != 2:
-            raise ValueError(f"Expected tensor with shape (B, L), got {x.payload.shape}.")
-        payload = x.payload.clone()
-        payload[:, 1:] -= x.payload[:, :-1]
-        payload[:, 0] = 0
-        payload.clip_(max=self.max_delta)
-        return PaddedBatch(payload.unsqueeze(-1), x.seq_lens)  # (B, L, 1).
-
-    @property
-    def output_size(self) -> int:
-        return 1
-
-
 class EncoderList(torch.nn.ModuleList):
     def __init__(self, modules):
         super().__init__(modules)
@@ -79,7 +60,7 @@ class Embedder(torch.nn.Module):
     Args:
         embeddings: Mapping from the field name to a dictionary of the form `{"in": <num-classes>, "out": <embedding-dim>}`.
         numeric_values: Mapping from the field name to an embedder module
-          or one of "identity", "log", and "delta"
+          or one of "identity" and "log"
           or dictionary with "type" string and extra parameters
           or a list of multiple encoders.
         use_batch_norm: Whether to apply batch norm to numeric features embedding or not.
@@ -140,8 +121,6 @@ class Embedder(torch.nn.Module):
                 encoder = IdentityEncoder(**kwargs)
             elif spec == "log":
                 encoder = LogEncoder(**kwargs)
-            elif spec == "delta":
-                encoder = DeltaEncoder(**kwargs)
             else:
                 raise ValueError(f"Unknown encoder: {spec}.")
         else:
