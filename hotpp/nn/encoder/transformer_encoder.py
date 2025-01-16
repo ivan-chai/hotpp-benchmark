@@ -34,28 +34,25 @@ class TransformerEncoder(BaseEncoder):
     """Transformer sequence encoder.
 
     Args:
-        embeddings: Dict with categorical feature names. Values must be like this `{'in': dictionary_size, 'out': embedding_size}`.
+        embedder: An instance of embedder Class for input events encoding.
         transformer_partial: transformer decoder constructor with a single `input_dim` parameter.
         timestamps_field: The name of the timestamps field.
         max_time_delta: Limit maximum time delta at the model input.
         max_context: Maximum prefix length.
-        embedder_batch_norm: Use batch normalization in embedder.
         autoreg_batch_size: Apply auto-reg in the batched mode.
     """
     def __init__(self,
-                 embeddings,
+                 embedder,
                  transformer_partial,
                  timestamps_field="timestamps",
                  max_time_delta=None,
                  max_context=None,
-                 embedder_batch_norm=True,
                  autoreg_batch_size=None
                  ):
         super().__init__(
-            embeddings=embeddings,
+            embedder=embedder,
             timestamps_field=timestamps_field,
-            max_time_delta=max_time_delta,
-            embedder_batch_norm=embedder_batch_norm
+            max_time_delta=max_time_delta
         )
         self.transformer = transformer_partial(self.embedder.output_size)
         self.max_context = max_context

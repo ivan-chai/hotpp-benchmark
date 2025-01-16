@@ -1,0 +1,18 @@
+defaults:
+  - detection_base
+  - _self_
+
+data_module:
+  batch_size: 32
+
+detection_k: 32
+
+module:
+  loss:
+    loss_subset: 0.25
+    prefetch_factor: 1
+    match_weights:
+      _presence: 3
+      timestamps: 0.35
+      labels: 0.43
+      log_amount: 0.4

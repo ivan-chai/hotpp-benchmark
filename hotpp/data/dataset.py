@@ -55,6 +55,7 @@ class HotppDataset(torch.utils.data.IterableDataset):
         min_length: Minimum sequence length. Use 0 to disable subsampling.
         max_length: Maximum sequence length. Disable limit if `None`.
         position: Sample position (`random` or `last`).
+        fields: A list of fields to keep in data. Other fields will be discarded.
         global_target_fields: The name of the target field or a list of fields. Global targets are assigned to sequences.
         local_targets_fields: The name of the target field or a list of fields. Local targets are assigned to individual events.
         local_targets_indices_field: The name of the target field or a list of fields. Local targets are assigned to individual events.
@@ -63,6 +64,7 @@ class HotppDataset(torch.utils.data.IterableDataset):
                  min_length=0, max_length=None,
                  position="random",
                  min_required_length=None,
+                 fields=None,
                  id_field="id",
                  timestamps_field="timestamps",
                  global_target_fields=None,
@@ -91,6 +93,13 @@ class HotppDataset(torch.utils.data.IterableDataset):
         self.local_targets_fields = parse_fields(local_targets_fields)
         self.local_targets_indices_field = local_targets_indices_field
 
+        if fields is not None:
+            known_fields = [id_field, timestamps_field] + list(self.global_target_fields) + list(self.local_targets_fields)
+            if local_targets_indices_field is not None:
+                known_fields = known_fields + [local_targets_indices_field]
+            fields = list(set(fields) | set(known_fields))
+        self.fields = fields
+
     def shuffle_files(self, rnd=None):
         """Make a new dataset with shuffled partitions."""
         rnd = rnd if rnd is not None else random.Random()
@@ -98,7 +107,8 @@ class HotppDataset(torch.utils.data.IterableDataset):
         rnd.shuffle(filenames)
         return HotppDataset(filenames,
                             min_length=self.min_length, max_length=self.max_length,
-                            id_field=self.id_field, timestamps_field=self.timestamps_field, global_target_fields=self.global_target_fields,
+                            id_field=self.id_field, timestamps_field=self.timestamps_field,
+                            fields=self.fields, global_target_fields=self.global_target_fields,
                             local_targets_fields=self.local_targets_fields, local_targets_indices_field=self.local_targets_indices_field)
 
     def is_seq_feature(self, name, value, batch=False):
@@ -150,6 +160,8 @@ class HotppDataset(torch.utils.data.IterableDataset):
             for rec in read_pyarrow_file(filename, use_threads=True):
                 if (self.min_required_length is not None) and (len(rec[self.timestamps_field]) < self.min_required_length):
                     continue
+                if self.fields is not None:
+                    rec = {field: rec[field] for field in self.fields}
                 features = {k: to_torch_if_possible(v) for k, v in rec.items()}
                 yield self.process(features)
 
