@@ -17,11 +17,10 @@ logger = logging.getLogger(__name__)
 
 
 class InferenceModule(pl.LightningModule):
-    def __init__(self, model, id_field, reducer):
+    def __init__(self, model, id_field):
         super().__init__()
         self.model = model
         self.id_field = id_field
-        self.reducer = reducer
 
     def forward(self, batch):
         data, targets = batch
@@ -32,40 +31,6 @@ class InferenceModule(pl.LightningModule):
         targets = {name: value for name, value in targets.payload.items()
                    if name not in targets.seq_names}  # Keep only global targets.
         return embeddings, ids, targets
-
-    def reduce_mean(self, x):
-        x, masks, lengths = x.payload, x.seq_len_mask.bool(), x.seq_lens  # (B, L, D), (B, L), (B).
-        x = x.masked_fill(~masks.unsqueeze(2), 0)
-        sums = x.sum(1)  # (B, D).
-        embeddings = sums / lengths.unsqueeze(1)  # (B, D).
-        return embeddings
-
-    def reduce_last(self, x):
-        invalid = x.seq_lens == 0  # (B).
-        indices = (x.seq_lens - 1).clip(min=0)  # (B).
-        embeddings = x.payload.take_along_dim(indices[:, None, None], 1).squeeze(1)  # (B, D).
-        assert embeddings.ndim == 2
-        embeddings.masked_fill_(invalid.unsqueeze(1), 0)  # (B, D).
-        return embeddings
-
-    def reduce_middle(self, x):
-        invalid = x.seq_lens == 0  # (B).
-        indices = x.seq_lens // 2  # (B).
-        embeddings = x.payload.take_along_dim(indices[:, None, None], 1).squeeze(1)  # (B, D).
-        assert embeddings.ndim == 2
-        embeddings.masked_fill_(invalid.unsqueeze(1), 0)  # (B, D).
-        return embeddings
-
-    def reduce_mean_last(self, x, num):
-        x, lengths = x.payload, x.seq_lens  # (B, L, D), (B).
-        rng = torch.arange(x.shape[1], device=x.device)[None]  # (1, L).
-        masks = torch.logical_and(
-            rng < lengths[:, None],
-            rng > lengths[:, None] - num
-        ).unsqueeze(2)  # (B, L, 1).
-        x = x.masked_fill(~masks, 0)
-        embeddings = x.sum(1) / masks.sum(1)  # (B, D).
-        return embeddings
 
 
 class InferenceDataModule(pl.LightningDataModule):
@@ -108,8 +73,7 @@ def extract_embeddings(conf, model=None):
         model.load_state_dict(torch.load(conf.model_path))
     dm = hydra.utils.instantiate(conf.data_module)
     model = InferenceModule(model,
-                            id_field=dm.id_field,
-                            reducer=conf.get("reducer", "mean"))
+                            id_field=dm.id_field)
     trainer = get_trainer(conf)
 
     # Compute embeddings.
