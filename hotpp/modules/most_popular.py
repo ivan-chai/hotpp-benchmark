@@ -48,6 +48,8 @@ class MostPopularModule(BaseModule):
         kwargs: Ignored (keep for compatibility with base module).
     """
     def __init__(self, k, num_classes,
+                 seq_encoder=None, loss=None,  # Ignored.
+                 head_partial=None, optimizer_partial=None, lr_scheduler_partial=None,  # Ignored.
                  timestamps_field="timestamps",
                  labels_field="labels",
                  **kwargs):
