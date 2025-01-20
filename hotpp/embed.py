@@ -25,19 +25,8 @@ class InferenceModule(pl.LightningModule):
 
     def forward(self, batch):
         data, targets = batch
-        hiddens, _ = self.model.encode(data)  # (B, L, D).
-        assert hiddens.payload.ndim == 3
-        if self.reducer == "mean":
-            embeddings = self.reduce_mean(hiddens)
-        elif self.reducer == "last":
-            embeddings = self.reduce_last(hiddens)
-        elif self.reducer == "middle":
-            embeddings = self.reduce_middle(hiddens)
-        elif self.reducer.startswith("mean-last-"):
-            num = int(self.reducer.rsplit("-")[-1])
-            embeddings = self.reduce_mean_last(hiddens, num)
-        else:
-            raise ValueError(f"Unknown reducer: {self.reducer}.")
+        embeddings = self.model.embed(data)  # (B, D).
+        assert embeddings.ndim == 2
         # Embeddings: (B, D).
         ids = data.payload[self.id_field]  # (B).
         targets = {name: value for name, value in targets.payload.items()
