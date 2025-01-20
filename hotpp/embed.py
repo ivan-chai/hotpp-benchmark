@@ -105,11 +105,7 @@ def extract_embeddings(conf, model=None):
     # Use validation dataset parameters for all splits.
     conf = copy.deepcopy(conf)
     OmegaConf.set_struct(conf, False)
-    dataset_params = None
-    if "test_params" in conf.data_module:
-        dataset_params = conf.data_module.test_params
-    elif "val_params" in conf.data_module:
-        dataset_params = conf.data_module.val_params
+    dataset_params = conf.data_module.test_params if "test_params" in conf.data_module else None
     conf.data_module.train_params = dataset_params
     conf.data_module.val_params = dataset_params
     conf.data_module.test_params = dataset_params

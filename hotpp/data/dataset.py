@@ -56,6 +56,7 @@ class HotppDataset(torch.utils.data.IterableDataset):
         max_length: Maximum sequence length. Disable limit if `None`.
         position: Sample position (`random` or `last`).
         fields: A list of fields to keep in data. Other fields will be discarded.
+        drop_nans: A list of fields to skip nans for.
         global_target_fields: The name of the target field or a list of fields. Global targets are assigned to sequences.
         local_targets_fields: The name of the target field or a list of fields. Local targets are assigned to individual events.
         local_targets_indices_field: The name of the target field or a list of fields. Local targets are assigned to individual events.
@@ -67,6 +68,7 @@ class HotppDataset(torch.utils.data.IterableDataset):
                  fields=None,
                  id_field="id",
                  timestamps_field="timestamps",
+                 drop_nans=None,
                  global_target_fields=None,
                  local_targets_fields=None,
                  local_targets_indices_field=None):
@@ -86,6 +88,7 @@ class HotppDataset(torch.utils.data.IterableDataset):
         self.min_required_length = min_required_length
         self.id_field = id_field
         self.timestamps_field = timestamps_field
+        self.drop_nans = parse_fields(drop_nans)
         self.global_target_fields = parse_fields(global_target_fields)
 
         if local_targets_fields and not local_targets_indices_field:
@@ -107,8 +110,9 @@ class HotppDataset(torch.utils.data.IterableDataset):
         rnd.shuffle(filenames)
         return HotppDataset(filenames,
                             min_length=self.min_length, max_length=self.max_length,
-                            id_field=self.id_field, timestamps_field=self.timestamps_field,
-                            fields=self.fields, global_target_fields=self.global_target_fields,
+                            position=self.position, min_required_length=self.min_required_length,
+                            fields=self.fields, id_field=self.id_field, timestamps_field=self.timestamps_field,
+                            drop_nans=self.drop_nans, global_target_fields=self.global_target_fields,
                             local_targets_fields=self.local_targets_fields, local_targets_indices_field=self.local_targets_indices_field)
 
     def is_seq_feature(self, name, value, batch=False):
@@ -163,6 +167,13 @@ class HotppDataset(torch.utils.data.IterableDataset):
                 if self.fields is not None:
                     rec = {field: rec[field] for field in self.fields}
                 features = {k: to_torch_if_possible(v) for k, v in rec.items()}
+                skip = False
+                for field in self.drop_nans:
+                    if not features[field].isfinite().all():
+                        skip = True
+                        break
+                if skip:
+                    continue
                 yield self.process(features)
 
     def _make_batch(self, by_name, batch_size, seq_feature_name=None):
