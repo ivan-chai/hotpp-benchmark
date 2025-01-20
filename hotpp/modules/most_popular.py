@@ -50,8 +50,6 @@ class MostPopularModule(BaseModule):
     def __init__(self, k, num_classes,
                  timestamps_field="timestamps",
                  labels_field="labels",
-                 val_metric=None,
-                 test_metric=None,
                  **kwargs):
         super().__init__(seq_encoder=MostPopularEncoder(num_classes, timestamps_field=timestamps_field, labels_field=labels_field),
                          loss=Identity(2),
@@ -60,8 +58,7 @@ class MostPopularModule(BaseModule):
                          head_partial=lambda input_size, output_size: Identity(2),
                          optimizer_partial=lambda parameters: torch.optim.Adam(parameters, lr=0.001),  # Not used.
                          lr_scheduler_partial=lambda optimizer: torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=1),  # Not used.
-                         val_metric=val_metric,
-                         test_metric=test_metric)
+                         **kwargs)
         self._k = k
         self._num_classes = num_classes
         self.dummy = torch.nn.Parameter(torch.zeros(1))
@@ -98,9 +95,8 @@ class MostPopularModule(BaseModule):
         Returns:
             Predicted sequences with shape (B, I, N).
         """
-        hiddens, _ = self.encode(x)  # (B, L, D), (N, B, L, D).
         init_times = x.payload[self._timestamps_field].take_along_dim(indices.payload, 1)  # (B, I).
-        outputs = self.apply_head(hiddens)  # (B, L, D).
+        outputs, _ = self(x)  # (B, L, D).
         b, l = outputs.shape
 
         deltas, labels = outputs.payload[..., 0], outputs.payload[..., 1].long()  # (B, L), (B, L).
