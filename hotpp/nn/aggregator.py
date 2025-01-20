@@ -40,13 +40,13 @@ class MeanLastAggregator(torch.nn.Module):
         self.n = n
 
     def forward(self, embeddings):
-        embeddings, mask, lengths = embeddings.payload, embeddings.seq_len_mask.bool(), embeddings.seq_lens
+        embeddings, lengths = embeddings.payload, embeddings.seq_lens
         rng = torch.arange(embeddings.shape[1], device=embeddings.device)[None]  # (1, L).
-        masks = torch.logical_and(
+        mask = torch.logical_and(
             rng < lengths[:, None],
-            rng > lengths[:, None] - self.n
+            rng >= lengths[:, None] - self.n
         )  # (B, L).
         embeddings = embeddings.masked_fill(~mask.unsqueeze(2), 0)  # (B, L, D).
         sums = embeddings.sum(1)  # (B, D).
-        means = sums / masks.sum(1, keepdim=True)
+        means = sums / mask.sum(1, keepdim=True).clip(min=1)
         return means  # (B, D).
