@@ -1,9 +1,11 @@
-date: '2024-10-01 13:23:57'
+date: '2024-12-17 10:18:27'
 num_seeds: 5
 test/T-mAP (mean): 0.23108274340629578
 test/T-mAP (std): 0.0017025853559023028
 test/T-mAP-micro (mean): 0.6593285322189331
 test/T-mAP-micro (std): 0.00254118089034342
+test/horizon-max-accuracy-micro (mean): 0.6592200636863709
+test/horizon-max-accuracy-micro (std): 0.0018028824345208759
 test/horizon-mean-time-step (mean): 0.19802537858486174
 test/horizon-mean-time-step (std): 0.002031596174685396
 test/loss (mean): 2.2089333534240723
@@ -32,6 +34,8 @@ test/next-item-map (mean): 0.12334492355585099
 test/next-item-map (std): 0.0028632898859583347
 test/next-item-map-micro (mean): 0.3604132473468781
 test/next-item-map-micro (std): 0.0015318422131242986
+test/next-item-max-accuracy (mean): 0.45569363236427307
+test/next-item-max-accuracy (std): 0.0008483168706081746
 test/next-item-mean-time-step (mean): 0.8790849328041077
 test/next-item-mean-time-step (std): 0.002354380511752819
 test/next-item-rmse (mean): 1.078858995437622
@@ -50,6 +54,8 @@ val/T-mAP (mean): 0.24438766539096832
 val/T-mAP (std): 0.0019863717851950663
 val/T-mAP-micro (mean): 0.6643559336662292
 val/T-mAP-micro (std): 0.002574725140051977
+val/horizon-max-accuracy-micro (mean): 0.6650668621063233
+val/horizon-max-accuracy-micro (std): 0.0028456345616964755
 val/horizon-mean-time-step (mean): 0.1990049362182617
 val/horizon-mean-time-step (std): 0.001939020202331865
 val/loss (mean): 2.1684677600860596
@@ -78,6 +84,8 @@ val/next-item-map (mean): 0.1275002360343933
 val/next-item-map (std): 0.0020428296458902435
 val/next-item-map-micro (mean): 0.3766181945800781
 val/next-item-map-micro (std): 0.001967335611504322
+val/next-item-max-accuracy (mean): 0.46233893632888795
+val/next-item-max-accuracy (std): 0.0004502916980277972
 val/next-item-mean-time-step (mean): 0.9078915238380432
 val/next-item-mean-time-step (std): 0.0021362896991798165
 val/next-item-rmse (mean): 1.1023093700408935

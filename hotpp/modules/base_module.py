@@ -45,6 +45,7 @@ class BaseModule(pl.LightningModule):
         timestamps_field: The name of the timestamps field.
         labels_field: The name of the labels field.
         head_partial: FC head model class which accepts input and output dimensions.
+        aggregator: Embeddings aggregator.
         optimizer_partial:
             optimizer init partial. Network parameters are missed.
         lr_scheduler_partial:
@@ -56,6 +57,7 @@ class BaseModule(pl.LightningModule):
                  timestamps_field="timestamps",
                  labels_field="labels",
                  head_partial=None,
+                 aggregator=None,
                  optimizer_partial=None,
                  lr_scheduler_partial=None,
                  val_metric=None,
@@ -75,17 +77,9 @@ class BaseModule(pl.LightningModule):
         self._lr_scheduler_partial = lr_scheduler_partial
 
         self._head = head_partial(seq_encoder.hidden_size, loss.input_size) if head_partial is not None else torch.nn.Identity()
+        self._aggregator = aggregator
 
         self._loss.interpolator = Interpolator(self._seq_encoder, self._head)
-
-    def encode(self, x):
-        """Apply sequential model."""
-        hiddens, states = self._seq_encoder(x, return_full_states=True)  # (B, L, D), (N, B, L, D).
-        return hiddens, states
-
-    def apply_head(self, hiddens):
-        """Project hidden states to model outputs."""
-        return self._head(hiddens)
 
     def predict_next(self, inputs, outputs, states, fields=None, logits_fields_mapping=None, predict_delta=False):
         """Predict events from head outputs.
@@ -103,10 +97,18 @@ class BaseModule(pl.LightningModule):
         return results
 
     def forward(self, x):
-        hiddens, states = self.encode(x)
-        outputs = self.apply_head(hiddens)
-        predictions = self.predict_next(x, outputs, states)
-        return predictions
+        """Extract hidden activations and states."""
+        hiddens, states = self._seq_encoder(x, return_full_states=True)  # (B, L, D), (N, B, L, D).
+        outputs = self._head(hiddens)  # (B, L, D).
+        return outputs, states
+
+    def embed(self, x):
+        """Extract embeddings from the output of the sequential encoder."""
+        if self._aggregator is None:
+            raise ValueError("Need an aggregator for embeddings extraction.")
+        hiddens, _ = self._seq_encoder(x)  # (B, L, D).
+        embeddings = self._aggregator(hiddens)
+        return embeddings
 
     @abstractmethod
     def generate_sequences(self, x, indices):
@@ -137,8 +139,7 @@ class BaseModule(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         x, _ = batch
-        hiddens, states = self.encode(x)
-        outputs = self.apply_head(hiddens)  # (B, L, D).
+        outputs, states = self(x)  # (B, L, D), (N, B, L, D).
         losses, metrics = self.compute_loss(x, outputs, states)
         loss = sum(losses.values())
 
@@ -157,8 +158,7 @@ class BaseModule(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         x, _ = batch
-        hiddens, states = self.encode(x)
-        outputs = self.apply_head(hiddens)  # (B, L, D).
+        outputs, states = self(x)  # (B, L, D), (N, B, L, D).
         losses, metrics = self.compute_loss(x, outputs, states)
         loss = sum(losses.values())
 
@@ -176,8 +176,7 @@ class BaseModule(pl.LightningModule):
 
     def test_step(self, batch, batch_idx):
         x, _ = batch
-        hiddens, states = self.encode(x)
-        outputs = self.apply_head(hiddens)  # (B, L, D).
+        outputs, states = self(x)  # (B, L, D), (N, B, L, D).
         losses, metrics = self.compute_loss(x, outputs, states)
         loss = sum(losses.values())
 

@@ -9,7 +9,8 @@ from omegaconf import OmegaConf
 
 from hotpp.utils.config import as_flat_config
 
-from .train import train, dump_report
+from .train import train
+from .evaluate import dump_report
 
 logger = logging.getLogger(__name__)
 
@@ -45,8 +46,8 @@ def train_multiseed(conf):
     for k, vs in by_metric.items():
         if len(vs) != conf.num_evaluation_seeds:
             continue
-        multiseed_metrics[k + " (mean)"] = float(np.mean(vs))
-        multiseed_metrics[k + " (std)"] = float(np.std(vs))
+        multiseed_metrics[k] = float(np.mean(vs))
+        multiseed_metrics[k + "-std"] = float(np.std(vs))
     with open(conf.multiseed_report, "w") as fp:
         dump_report(multiseed_metrics, fp)
 

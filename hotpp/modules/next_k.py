@@ -57,10 +57,9 @@ class NextKModule(BaseModule):
         Returns:
             Predicted sequences with shape (B, I, N).
         """
-        hiddens, states = self.encode(x)  # (B, L, D), (N, B, L, D).
         init_times = x.payload[self._timestamps_field].take_along_dim(indices.payload, 1)  # (B, I).
         init_times = PaddedBatch({self._timestamps_field: init_times}, indices.seq_lens)
-        outputs = self.apply_head(hiddens)  # (B, L, D).
+        outputs, states = self(x)  # (B, L, D), (N, B, L, D).
         outputs = PaddedBatch(outputs.payload.take_along_dim(indices.payload.unsqueeze(2), 1),
                               indices.seq_lens)  # (B, I, D).
         states = states.take_along_dim(indices.payload[None, :, :, None], 2)  # (N, B, I, D).

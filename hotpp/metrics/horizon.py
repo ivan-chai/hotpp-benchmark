@@ -68,7 +68,10 @@ class HorizonMetric:
         step = self.horizon_evaluation_step
         l = seq_lens.max().item()
         # Skip first `step` events.
-        indices = torch.arange(step, l, step, device=seq_lens.device)  # (I).
+        if l > step:
+            indices = torch.arange(step, l, step, device=seq_lens.device)  # (I).
+        else:
+            indices = torch.zeros([], dtype=torch.long, device=seq_lens.device)  # (I).
         indices_lens = (indices[None] < seq_lens[:, None]).sum(1)  # (B).
         return PaddedBatch(indices[None].repeat(len(seq_lens), 1), indices_lens)  # (B, I).
 
@@ -127,6 +130,8 @@ class HorizonMetric:
 
         initial_timestamps = features.payload["timestamps"].take_along_dim(indices.payload, 1)  # (B, I).
         targets = self._extract_target_sequences(features, indices)  # (B, I, K).
+        if targets.seq_lens.sum() == 0:
+            return
 
         # Align lengths.
         lengths = torch.minimum(targets.seq_lens, predictions.seq_lens)  # (B).

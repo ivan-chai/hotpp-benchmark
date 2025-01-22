@@ -1,0 +1,18 @@
+defaults:
+  - detection_base
+  - _self_
+
+name: detection256
+detection_k: 32
+rnn_hidden_size: 256
+
+module:
+  loss:
+    loss_subset: 0.25
+    prefetch_factor: 1
+    match_weights:
+      _presence: 8
+      timestamps: 1
+      event_type: 1
+      log_amount: 1
+      src_type32: 1
