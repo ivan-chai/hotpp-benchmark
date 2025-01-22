@@ -92,6 +92,8 @@ module:
         timestamps: identity
         log_amount: identity
     max_time_delta: ${max_time_delta}
+  aggregator:
+    _target_: hotpp.nn.MeanAggregator
   optimizer_partial:
     _partial_: true
     _target_: torch.optim.Adam
