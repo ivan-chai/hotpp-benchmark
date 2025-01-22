@@ -46,13 +46,13 @@ class BaseEncoder(torch.nn.Module):
         return self.embedder(x)
 
     @abstractmethod
-    def forward(self, x, return_full_states=False):
+    def forward(self, x, return_states=False):
         """Apply the model.
 
         Args:
             x: PaddedBatch with input features with shape (B, T).
-            return_full_states: Whether to return full states with shape (B, T, D)
-                or only final states with shape (B, D).
+            return_states: Whether to return final states with shape (B, D), full states with shape (B, T, D)
+                or no states (either False, "last" or "full").
 
         Returns:
             Dictionary with "outputs" and optional "states" keys.

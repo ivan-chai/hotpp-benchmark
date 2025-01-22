@@ -4,34 +4,14 @@ import torch
 from hotpp.data import PaddedBatch
 from hotpp.utils.torch import deterministic
 from .base_encoder import BaseEncoder
+from .encoder import limit_history
 from .transformer import TransformerState
 
 
-def limit_history(x, seq_lens, max_length=None):
-    """Limit maximum history size.
-
-    Args:
-        x: Embeddings with shape (B, L, D) or (N, B, L, D).
-        seq_lens: Input sequence lengths with shape (B).
-        max_length: Maximum output sequence length.
-
-    Returns:
-        New embeddings with shape (B, L', D) and new lengths with shape (B).
-    """
-    if max_length is None:
-        return x, seq_lens
-    max_length = min(max_length, seq_lens.max().item())
-    b, l = x.shape[-3:-1]
-    exclude = (seq_lens - max_length).clip(min=0)  # (B).
-    indices = (torch.arange(max_length, device=x.device)[None] + exclude[:, None]).clip(max=l - 1)  # (B, L').
-    shape = [1] * (x.ndim - 3) + [b, max_length, 1]
-    indices = indices.reshape(*shape)  # (*, B, L', 1).
-    result = x.take_along_dim(indices, -2)  # (*, B, L, D).
-    return result, seq_lens.clip(max=max_length)
-
-
 class TransformerEncoder(BaseEncoder):
-    """Transformer sequence encoder.
+    """Transformer sequence encoder with KV cache.
+
+    The encoder optimizes generation for some types of transformers by reusing the KV cache in a multi-prefix inference.
 
     Args:
         embedder: An instance of embedder Class for input events encoding.
@@ -62,13 +42,13 @@ class TransformerEncoder(BaseEncoder):
     def hidden_size(self):
         return self.transformer.output_size
 
-    def forward(self, x, return_full_states=False):
+    def forward(self, x, return_states=False):
         """Apply encoder network.
 
         Args:
             x: PaddedBatch with input features.
-            return_full_states: Whether to return full states with shape (B, T, D)
-                or only final states with shape (B, D).
+            return_states: Whether to return final states with shape (B, D), full states with shape (B, T, D)
+                or no states (either False, "last" or "full").
 
         Returns:
             Outputs is with shape (B, T, D) and states with shape (N, B, D) or (N, B, T, D).
@@ -76,8 +56,12 @@ class TransformerEncoder(BaseEncoder):
         times = x[self._timestamps_field]  # (B, L).
         embeddings = self.embed(x, compute_time_deltas=False)
         outputs, states = self.transformer(embeddings, times)   # (B, L, D), (N, B, L, D).
-        if not return_full_states:
+        if not return_states:
+            states = None
+        elif return_states == "last":
             states = states.take_along_dim((states.seq_lens - 1)[None, :, None, None], 2).squeeze(2)  # (N, B, D).
+        elif return_states != "full":
+            raise ValueError(f"Unknown states flag: {return_states}")
         return outputs, states
 
     def interpolate(self, states, time_deltas):
@@ -121,7 +105,7 @@ class TransformerEncoder(BaseEncoder):
         prefix_lengths = indices.payload[prefix_indices[:, 0], prefix_indices[:, 1]] + 1  # (V).
 
         # Generate.
-        outputs, states = self(x, return_full_states=True)  # (B, L, D), (N, B, L, D).
+        outputs, states = self(x, return_states="full")  # (B, L, D), (N, B, L, D).
         predictions = defaultdict(list)
         sequences = []
         lengths = []

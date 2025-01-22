@@ -118,7 +118,7 @@ class TestTransformerEncoder(TestCase):
         encoder = SimpleSequenceEncoder()
 
         # Test forward.
-        fw_outputs, fw_states = encoder(batch, return_full_states=True)
+        fw_outputs, fw_states = encoder(batch, return_states="full")
         mask = batch.seq_len_mask.unsqueeze(-1)
         self.assertEqual(fw_states.shape, (1, b, l, d))
         self.assertTrue((fw_states.payload[0] * mask).allclose(features * mask))

@@ -16,7 +16,7 @@ class MostPopularEncoder(torch.nn.Module):
     def hidden_size(self):
         return 2
 
-    def forward(self, x, return_full_states=False):
+    def forward(self, x, return_states=False):
         timestamps = x.payload[self._timestamps_field]  # (B, L).
         deltas = timestamps.clone()
         deltas[:, 1:] -= timestamps[:, :-1]

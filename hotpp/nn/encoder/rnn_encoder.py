@@ -9,7 +9,11 @@ from .window import apply_windows
 
 
 class RnnEncoder(BaseEncoder):
-    """RNN sequence encoder.
+    """Optimized RNN sequence encoder.
+
+    The encoder is primarily used with a single-layer GRU backbone, which allows
+    effective intermediate state computation and multi-prefix inference. In other
+    cases prefere general Encoder class.
 
     Args:
         embedder: An instance of embedder Class for input events encoding.
@@ -43,13 +47,13 @@ class RnnEncoder(BaseEncoder):
     def num_layers(self):
         return self.rnn.num_layers
 
-    def forward(self, x, return_full_states=False):
+    def forward(self, x, return_states=False):
         """Apply RNN.
 
         Args:
             x: PaddedBatch with input features.
-            return_full_states: Whether to return full states with shape (B, T, D)
-                or only final states with shape (B, D).
+            return_states: Whether to return final states with shape (B, D), full states with shape (B, T, D)
+                or no states (either False, "last" or "full").
 
         Returns:
             Outputs is with shape (B, T, D) and states with shape (N, B, D) or (N, B, T, D).
@@ -57,7 +61,7 @@ class RnnEncoder(BaseEncoder):
         x = self.compute_time_deltas(x)
         time_deltas = x[self._timestamps_field]
         embeddings = self.embed(x, compute_time_deltas=False)
-        outputs, states = self.rnn(embeddings, time_deltas, return_full_states=return_full_states)
+        outputs, states = self.rnn(embeddings, time_deltas, return_states=return_states)
         return outputs, states
 
     def interpolate(self, states, time_deltas):
@@ -133,7 +137,7 @@ class RnnEncoder(BaseEncoder):
             raise NotImplementedError("Only single-layer RNN is supported.")
         embeddings = self.embed(batch, compute_time_deltas=False)  # (B, T, D).
         next_states = apply_windows((embeddings, time_deltas),
-                                    lambda xe, xt: PaddedBatch(self.rnn(xe, xt, return_full_states=True)[1].squeeze(0),
+                                    lambda xe, xt: PaddedBatch(self.rnn(xe, xt, return_states="full")[1].squeeze(0),
                                                                xe.seq_lens),
                                     self._max_context, self._context_step).payload[None]  # (N, B, T, D).
 
@@ -163,7 +167,7 @@ class RnnEncoder(BaseEncoder):
         for _ in range(n_steps):
             time_deltas = features[self._timestamps_field]
             embeddings = self.embed(features, compute_time_deltas=False)  # (B, 1, D).
-            embeddings, states = self.rnn(embeddings, time_deltas, states=states)  # (B, 1, D), (N, B, D).
+            embeddings, states = self.rnn(embeddings, time_deltas, states=states, return_states="last")  # (B, 1, D), (N, B, D).
             features = predict_fn(embeddings, states.unsqueeze(2))  # (B, 1).
             for k, v in features.payload.items():
                 outputs[k].append(v.squeeze(1))  # (B).

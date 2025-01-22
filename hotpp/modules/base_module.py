@@ -98,7 +98,7 @@ class BaseModule(pl.LightningModule):
 
     def forward(self, x):
         """Extract hidden activations and states."""
-        hiddens, states = self._seq_encoder(x, return_full_states=True)  # (B, L, D), (N, B, L, D).
+        hiddens, states = self._seq_encoder(x, return_states="full")  # (B, L, D), (N, B, L, D).
         outputs = self._head(hiddens)  # (B, L, D).
         return outputs, states
 

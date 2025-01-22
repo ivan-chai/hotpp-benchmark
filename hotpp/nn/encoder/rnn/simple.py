@@ -26,29 +26,33 @@ class GRU(torch.nn.GRU):
         return torch.zeros(1, self.hidden_size, dtype=p.dtype, device=p.device)  # (1, D).
 
     def forward(self, x: PaddedBatch, time_deltas: PaddedBatch,
-                states: Optional[Tensor]=None, return_full_states=False) -> Tuple[PaddedBatch, Tensor]:
+                states: Optional[Tensor]=None, return_states=False) -> Tuple[PaddedBatch, Tensor]:
         """Apply RNN.
 
         Args:
             x: Batch with shape (B, L, D).
             time_deltas (unused): Relative inputs timestamps.
             states: Initial states with shape (N, B, D), where N is the number of layers.
-            return_full_states: Whether to return full states with shape (B, L, D)
-                or only output states with shape (B, D).
+            return_states: Whether to return final states with shape (B, D), full states with shape (B, T, D)
+                or no states (either False, "last" or "full").
 
         Returns:
             Outputs with shape (B, L, D) and states with shape (N, B, D) or (N, B, L, D), where
             N is the number of layers.
         """
         outputs, _ = super().forward(x.payload, states)  # (B, L, D).
-        if return_full_states:
+        if not return_states:
+            output_states = None
+        elif return_states == "last":
+            output_states = outputs.take_along_dim((x.seq_lens - 1).clip(min=0)[:, None, None], 1).squeeze(1)[None]  # (1, B, D).
+        elif return_states == "full":
             if self.num_layers == 1:
                 # In GRU output and states are equal.
-                states = outputs[None]  # (1, B, L, D).
+                output_states = outputs[None]  # (1, B, L, D).
             else:
                 raise NotImplementedError("Multilayer GRU states")
         else:
-            states = outputs.take_along_dim((x.seq_lens - 1).clip(min=0)[:, None, None], 1).squeeze(1)[None]  # (1, B, D).
+            raise ValueError(f"Unknown states flag: {return_states}")
         outputs = PaddedBatch(outputs, x.seq_lens)
         return outputs, states
 

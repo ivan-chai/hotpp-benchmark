@@ -118,7 +118,7 @@ class ContTimeLSTM(torch.jit.ScriptModule):
         return torch.stack(outputs, 1), torch.stack(output_states, 1)
 
     def forward(self, x: PaddedBatch, time_deltas: PaddedBatch,
-                states: Optional[Tensor]=None, return_full_states=False) -> Tuple[PaddedBatch, Tensor]:
+                states: Optional[Tensor]=None, return_states=False) -> Tuple[PaddedBatch, Tensor]:
         """Apply RNN.
 
         Args:
@@ -126,8 +126,8 @@ class ContTimeLSTM(torch.jit.ScriptModule):
             time_deltas: Relative timestamps with shape (B, L).
             states: Initial states with shape (1, B, 4D).
                 State output gate, context_start, context_end, and delta parameter.
-            return_full_states: Whether to return full states with shape (B, T, D)
-                or only final states with shape (B, D).
+            return_states: Whether to return final states with shape (B, D), full states with shape (B, T, D)
+                or no states (either False, "last" or "full").
 
         Returns:
             Output with shape (B, L, D) and optional states tensor with shape (1, B, L, 4D).
@@ -144,9 +144,15 @@ class ContTimeLSTM(torch.jit.ScriptModule):
         x = self.cell.preprocess(x)  # (B, L, D).
         outputs, output_states = self._forward_loop(x, time_deltas, states)  # (B, L, D), (B, L, 4D).
         outputs = PaddedBatch(outputs, seq_lens)
-        if not return_full_states:
-            output_states = output_states.take_along_dim((seq_lens - 1).clip(min=0)[:, None, None], 1).squeeze(1)  # (B, 4D).
-        return outputs, output_states[None]  # (1, B, 4D) or (1, B, L, 4D).
+        if not return_states:
+            output_states = None
+        elif return_states == "last":
+            output_states = output_states.take_along_dim((seq_lens - 1).clip(min=0)[:, None, None], 1).squeeze(1)[None]  # (1, B, 4D).
+        elif return_states == "full":
+            output_states = output_states[None]  # (1, B, L, 4D)
+        else:
+            raise ValueError(f"Unknown states flag: {return_states}")
+        return outputs, output_states  # None or (1, B, 4D) or (1, B, L, 4D).
 
     @torch.jit.script_method
     def _interpolate_impl(self, states: Tensor, time_deltas: Tensor) -> Tensor:
