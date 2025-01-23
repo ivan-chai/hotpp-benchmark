@@ -98,9 +98,9 @@ class BaseModule(pl.LightningModule):
             results.payload[self._timestamps_field] += inputs.payload[self._timestamps_field]
         return results
 
-    def forward(self, x):
+    def forward(self, x, return_states=False):
         """Extract hidden activations and states."""
-        hiddens, states = self._seq_encoder(x, return_states="full" if self._need_states else False)  # (B, L, D), (N, B, L, D).
+        hiddens, states = self._seq_encoder(x, return_states=return_states)  # (B, L, D), (N, B, L, D).
         outputs = self._head(hiddens)  # (B, L, D).
         return outputs, states
 
@@ -141,7 +141,7 @@ class BaseModule(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         x, _ = batch
-        outputs, states = self(x)  # (B, L, D), (N, B, L, D).
+        outputs, states = self(x, return_states="full" if self._need_states else False)  # (B, L, D), (N, B, L, D).
         losses, metrics = self.compute_loss(x, outputs, states)
         loss = sum(losses.values())
 
@@ -160,7 +160,7 @@ class BaseModule(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         x, _ = batch
-        outputs, states = self(x)  # (B, L, D), (N, B, L, D).
+        outputs, states = self(x, return_states="full" if self._need_states else False)  # (B, L, D), (N, B, L, D).
         losses, metrics = self.compute_loss(x, outputs, states)
         loss = sum(losses.values())
 
@@ -178,7 +178,7 @@ class BaseModule(pl.LightningModule):
 
     def test_step(self, batch, batch_idx):
         x, _ = batch
-        outputs, states = self(x)  # (B, L, D), (N, B, L, D).
+        outputs, states = self(x, return_states="full" if self._need_states else False)  # (B, L, D), (N, B, L, D).
         losses, metrics = self.compute_loss(x, outputs, states)
         loss = sum(losses.values())
 
