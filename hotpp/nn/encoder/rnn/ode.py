@@ -141,6 +141,12 @@ class ODEGRU(torch.jit.ScriptModule):
         self.h0 = torch.nn.Parameter(torch.zeros(num_layers, hidden_size))  # (N, D).
 
     @property
+    def delta_time(self):
+        """Whether to take delta time or raw timestamps at input."""
+        # Need time_deltas.
+        return True
+
+    @property
     def output_size(self):
         return self.hidden_size
 

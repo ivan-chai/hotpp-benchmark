@@ -38,6 +38,8 @@ class RnnEncoder(BaseEncoder):
         self._max_context = max_inference_context
         self._context_step = inference_context_step
         self.rnn = rnn_partial(self.embedder.output_size)
+        if not self.rnn.delta_time:
+            raise NotImplementedError("Only RNNs with time delta at input are supported.")
 
     @property
     def hidden_size(self):
@@ -90,9 +92,8 @@ class RnnEncoder(BaseEncoder):
         """
         batch_size, index_size = indices.shape
 
-        initial_timestamps = x.payload[self._timestamps_field].take_along_dim(indices.payload, dim=1)  # (B, I).
-
         # Compute time deltas and save initial times.
+        initial_timestamps = x.payload[self._timestamps_field].take_along_dim(indices.payload, dim=1)  # (B, I).
         x = self.compute_time_deltas(x)
 
         # Select input state and initial feature for each index position.
@@ -130,7 +131,7 @@ class RnnEncoder(BaseEncoder):
         return PaddedBatch(payload, indices.seq_lens, sequences.seq_names)
 
     def _get_initial_states(self, batch, indices):
-        time_deltas = PaddedBatch(batch.payload[self._timestamps_field], batch.seq_lens)
+        time_deltas = batch[self._timestamps_field]
         indices, seq_lens = indices.payload, indices.seq_lens
 
         if self.num_layers != 1:

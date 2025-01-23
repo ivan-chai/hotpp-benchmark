@@ -88,6 +88,12 @@ class ContTimeLSTM(torch.jit.ScriptModule):
         self.bos = torch.nn.Parameter(torch.randn(input_size))  # (D).
 
     @property
+    def delta_time(self):
+        """Whether to take delta time or raw timestamps at input."""
+        # Need time_deltas.
+        return True
+
+    @property
     def output_size(self):
         return self.cell.hidden_size
 
