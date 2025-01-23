@@ -29,6 +29,8 @@ The HoTPP benchmark focuses on the long-horizon prediction of event sequences. E
 * Long-horizon prediction
 * Downstream classification
 * Working with heterogeneous input and output fields (general event sequences)
+* RNN and Transformer models
+* Discrete and continuous-time models
 * Improved TPP thinning algorithm
 * Optimized training and inference (ODE, cont. time models, multi-point generation with RNN)
 
