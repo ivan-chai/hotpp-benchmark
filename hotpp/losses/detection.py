@@ -113,20 +113,8 @@ class DetectionLoss(NextKLoss):
             self._matching_thresholds += self._momentum * quantiles
 
     @property
-    def interpolator(self):
-        return self._next_item.interpolator
-
-    @interpolator.setter
-    def interpolator(self, value):
-        self._next_item.interpolator = value
-
-    @property
     def num_events(self):
         return self._k
-
-    @property
-    def fields(self):
-        return self._next_item.fields
 
     @property
     def data_fields(self):
@@ -135,10 +123,6 @@ class DetectionLoss(NextKLoss):
     @property
     def input_size(self):
         return self._k * self._next_item.input_size  # One for the presence score.
-
-    def get_delta_type(self, field):
-        """Get time delta type."""
-        return self._next_item.get_delta_type(field)
 
     def forward(self, inputs, outputs, states):
         """Extract targets and compute loss between predictions and targets.

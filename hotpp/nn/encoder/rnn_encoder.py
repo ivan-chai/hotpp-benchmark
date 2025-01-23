@@ -42,6 +42,10 @@ class RnnEncoder(BaseEncoder):
             raise NotImplementedError("Only RNNs with time delta at input are supported.")
 
     @property
+    def need_states(self):
+        return True
+
+    @property
     def hidden_size(self):
         return self.rnn.output_size
 

@@ -25,6 +25,11 @@ class BaseEncoder(torch.nn.Module):
         self._max_time_delta = max_time_delta
 
     @abstractproperty
+    def need_states(self):
+        """Whether encoder uses states for inference optimization or not."""
+        pass
+
+    @abstractproperty
     def hidden_size(self):
         """The output dimension of the encoder."""
         pass

@@ -51,6 +51,10 @@ class NHPLoss(torch.nn.Module):
         self.beta = torch.nn.Parameter(torch.ones(num_classes))
 
     @property
+    def need_interpolator(self):
+        return True
+
+    @property
     def interpolator(self):
         return self._interpolator
 

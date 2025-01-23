@@ -60,7 +60,7 @@ class GRU(torch.nn.GRU):
         else:
             raise ValueError(f"Unknown states flag: {return_states}")
         outputs = PaddedBatch(outputs, x.seq_lens)
-        return outputs, states
+        return outputs, output_states
 
     def interpolate(self, states: Tensor, time_deltas: PaddedBatch) -> PaddedBatch:
         """Compute model outputs in continuous time.

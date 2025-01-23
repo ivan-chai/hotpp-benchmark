@@ -79,7 +79,9 @@ class BaseModule(pl.LightningModule):
         self._head = head_partial(seq_encoder.hidden_size, loss.input_size) if head_partial is not None else torch.nn.Identity()
         self._aggregator = aggregator
 
-        self._loss.interpolator = Interpolator(self._seq_encoder, self._head)
+        self._need_states = self._loss.need_interpolator or self._seq_encoder.need_states
+        if self._loss.need_interpolator:
+            self._loss.interpolator = Interpolator(self._seq_encoder, self._head)
 
     def predict_next(self, inputs, outputs, states, fields=None, logits_fields_mapping=None, predict_delta=False):
         """Predict events from head outputs.
@@ -98,7 +100,7 @@ class BaseModule(pl.LightningModule):
 
     def forward(self, x):
         """Extract hidden activations and states."""
-        hiddens, states = self._seq_encoder(x, return_states="full")  # (B, L, D), (N, B, L, D).
+        hiddens, states = self._seq_encoder(x, return_states="full" if self._need_states else False)  # (B, L, D), (N, B, L, D).
         outputs = self._head(hiddens)  # (B, L, D).
         return outputs, states
 

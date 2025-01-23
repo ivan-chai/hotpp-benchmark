@@ -59,6 +59,10 @@ class Encoder(BaseEncoder):
         self.autoreg_batch_size = autoreg_batch_size
 
     @property
+    def need_states(self):
+        return False
+
+    @property
     def hidden_size(self):
         return self.model.output_size
 

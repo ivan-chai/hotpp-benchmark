@@ -22,6 +22,10 @@ class NextKLoss(torch.nn.Module):
         self._loss_step = loss_step
 
     @property
+    def need_interpolator(self):
+        return self._next_item.need_interpolator
+
+    @property
     def interpolator(self):
         return self._next_item.interpolator
 

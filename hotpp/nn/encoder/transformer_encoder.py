@@ -43,6 +43,10 @@ class TransformerEncoder(BaseEncoder):
         self.autoreg_batch_size = autoreg_batch_size
 
     @property
+    def need_states(self):
+        return True
+
+    @property
     def hidden_size(self):
         return self.transformer.output_size
 
