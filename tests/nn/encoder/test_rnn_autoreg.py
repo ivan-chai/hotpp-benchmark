@@ -19,14 +19,18 @@ class SimpleRNN(torch.nn.GRU):
         super().__init__(2, 2)
         self.init_state = torch.zeros(1, 2)
 
-    def forward(self, x, timestamps, states=None, return_full_states=False):
+    def forward(self, x, timestamps, states=None, return_states=False):
         if states is None:
             b, l, d = x.payload.shape
             states = torch.zeros(1, b, l, d)
         else:
             states = states.unsqueeze(2).repeat(1, 1, x.shape[1], 1)
-        if not return_full_states:
+        if not return_states:
+            states = None
+        elif return_states == "last":
             states = states.take_along_dim((x.seq_lens - 1).clip(min=0)[None, :, None, None], 2).squeeze(2)  # (N, B, D).
+        else:
+            assert return_states == "full"
         return PaddedBatch(x.payload * 2 + 1, x.seq_lens), states
 
 

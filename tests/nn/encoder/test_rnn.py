@@ -78,7 +78,7 @@ class TestContTimeLSTM(TestCase):
             [cs_1, ce_1, d_1, o_1],
         ]).reshape(1, 1, -1, 4)
         lengths = torch.full([x.shape[0]], x.shape[1], dtype=torch.long)
-        outputs, output_states = rnn(PaddedBatch(x, lengths), PaddedBatch(dt, lengths), return_full_states=True)
+        outputs, output_states = rnn(PaddedBatch(x, lengths), PaddedBatch(dt, lengths), return_states="full")
         self.assertTrue(outputs.payload.allclose(outputs_gt))
         self.assertTrue(output_states.allclose(output_states_gt))
 
@@ -87,7 +87,7 @@ class TestContTimeLSTM(TestCase):
         x = torch.randn(2, 4, 3, requires_grad=True)
         dt = torch.rand(2, 4, requires_grad=True)
         lengths = torch.full([x.shape[0]], x.shape[1], dtype=torch.long)
-        outputs, output_states = rnn(PaddedBatch(x, lengths), PaddedBatch(dt, lengths), return_full_states=True)
+        outputs, output_states = rnn(PaddedBatch(x, lengths), PaddedBatch(dt, lengths), return_states="full")
         outputs.payload.mean().backward()
         self.assertEqual(outputs.payload.shape, (2, 4, 5))
         self.assertTrue((x.grad[:, :-1].abs() > EPS).all())
@@ -98,7 +98,7 @@ class TestContTimeLSTM(TestCase):
 
         x.grad = None
         dt.grad = None
-        outputs, output_states = rnn(PaddedBatch(x, lengths), PaddedBatch(dt, lengths), return_full_states=True)
+        outputs, output_states = rnn(PaddedBatch(x, lengths), PaddedBatch(dt, lengths), return_states="full")
         output_states.mean().backward()
         self.assertTrue((x.grad.abs() > EPS).all())
         self.assertTrue((dt.grad.abs() > EPS).all())
@@ -109,7 +109,7 @@ class TestContTimeLSTM(TestCase):
         x = torch.randn(2, 4, 3, requires_grad=True)
         dt = torch.rand(2, 4, requires_grad=True)
         lengths = torch.full([x.shape[0]], x.shape[1], dtype=torch.long)
-        outputs, output_states = rnn(PaddedBatch(x, lengths), PaddedBatch(dt, lengths), return_full_states=True)
+        outputs, output_states = rnn(PaddedBatch(x, lengths), PaddedBatch(dt, lengths), return_states="full")
         int_outputs = rnn.interpolate(output_states[:, :, :-1], PaddedBatch(dt[:, 1:, None], lengths - 1)).payload.squeeze(2)  # (B, L - 1, D).
         self.assertTrue(outputs.payload[:, 1:].allclose(int_outputs))
 
@@ -157,7 +157,7 @@ class TestODEGRU(TestCase):
             h_0, h_1
         ]).reshape(1, 1, -1, 1)
         lengths = torch.full([x.shape[0]], x.shape[1], dtype=torch.long)
-        outputs, output_states = rnn(PaddedBatch(x, lengths), PaddedBatch(dt, lengths), return_full_states=True)
+        outputs, output_states = rnn(PaddedBatch(x, lengths), PaddedBatch(dt, lengths), return_states="full")
         self.assertTrue(outputs.payload.allclose(outputs_gt))
         self.assertTrue(output_states.allclose(output_states_gt))
 
@@ -167,7 +167,7 @@ class TestODEGRU(TestCase):
         x = torch.randn(2, 4, 3, requires_grad=True)
         dt = torch.rand(2, 4, requires_grad=True)
         lengths = torch.full([x.shape[0]], x.shape[1], dtype=torch.long)
-        outputs, output_states = rnn(PaddedBatch(x, lengths), PaddedBatch(dt, lengths), return_full_states=True)
+        outputs, output_states = rnn(PaddedBatch(x, lengths), PaddedBatch(dt, lengths), return_states="full")
         outputs.payload.mean().backward()
         self.assertEqual(outputs.payload.shape, (2, 4, 5))
         self.assertTrue((x.grad.abs() > EPS).all())
@@ -176,7 +176,7 @@ class TestODEGRU(TestCase):
 
         x.grad = None
         dt.grad = None
-        outputs, output_states = rnn(PaddedBatch(x, lengths), PaddedBatch(dt, lengths), return_full_states=True)
+        outputs, output_states = rnn(PaddedBatch(x, lengths), PaddedBatch(dt, lengths), return_states="full")
         output_states.mean().backward()
         self.assertTrue((x.grad.abs() > EPS).all())
         self.assertTrue((dt.grad.abs() > EPS).all())
@@ -187,7 +187,7 @@ class TestODEGRU(TestCase):
         x = torch.randn(2, 4, 3, requires_grad=True)
         dt = torch.rand(2, 4, requires_grad=True)
         lengths = torch.full([x.shape[0]], x.shape[1], dtype=torch.long)
-        outputs, output_states = rnn(PaddedBatch(x, lengths), PaddedBatch(dt, lengths), return_full_states=True)
+        outputs, output_states = rnn(PaddedBatch(x, lengths), PaddedBatch(dt, lengths), return_states="full")
         int_outputs = rnn.interpolate(output_states[:, :, :-1], PaddedBatch(dt[:, 1:, None], lengths - 1)).payload.squeeze(2)  # (B, L - 1, D).
         int_outputs = rnn.cell.cell(x[:, 1:].flatten(0, 1), int_outputs.flatten(0, 1)).reshape(*int_outputs.shape)
         self.assertTrue(outputs.payload[:, 1:].allclose(int_outputs))

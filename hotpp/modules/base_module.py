@@ -79,7 +79,9 @@ class BaseModule(pl.LightningModule):
         self._head = head_partial(seq_encoder.hidden_size, loss.input_size) if head_partial is not None else torch.nn.Identity()
         self._aggregator = aggregator
 
-        self._loss.interpolator = Interpolator(self._seq_encoder, self._head)
+        self._need_states = self._loss.need_interpolator or self._seq_encoder.need_states
+        if self._loss.need_interpolator:
+            self._loss.interpolator = Interpolator(self._seq_encoder, self._head)
 
     def predict_next(self, inputs, outputs, states, fields=None, logits_fields_mapping=None, predict_delta=False):
         """Predict events from head outputs.
@@ -96,9 +98,9 @@ class BaseModule(pl.LightningModule):
             results.payload[self._timestamps_field] += inputs.payload[self._timestamps_field]
         return results
 
-    def forward(self, x):
+    def forward(self, x, return_states=False):
         """Extract hidden activations and states."""
-        hiddens, states = self._seq_encoder(x, return_full_states=True)  # (B, L, D), (N, B, L, D).
+        hiddens, states = self._seq_encoder(x, return_states=return_states)  # (B, L, D), (N, B, L, D).
         outputs = self._head(hiddens)  # (B, L, D).
         return outputs, states
 
@@ -139,7 +141,7 @@ class BaseModule(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         x, _ = batch
-        outputs, states = self(x)  # (B, L, D), (N, B, L, D).
+        outputs, states = self(x, return_states="full" if self._need_states else False)  # (B, L, D), (N, B, L, D).
         losses, metrics = self.compute_loss(x, outputs, states)
         loss = sum(losses.values())
 
@@ -158,7 +160,7 @@ class BaseModule(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         x, _ = batch
-        outputs, states = self(x)  # (B, L, D), (N, B, L, D).
+        outputs, states = self(x, return_states="full" if self._need_states else False)  # (B, L, D), (N, B, L, D).
         losses, metrics = self.compute_loss(x, outputs, states)
         loss = sum(losses.values())
 
@@ -176,7 +178,7 @@ class BaseModule(pl.LightningModule):
 
     def test_step(self, batch, batch_idx):
         x, _ = batch
-        outputs, states = self(x)  # (B, L, D), (N, B, L, D).
+        outputs, states = self(x, return_states="full" if self._need_states else False)  # (B, L, D), (N, B, L, D).
         losses, metrics = self.compute_loss(x, outputs, states)
         loss = sum(losses.values())
 

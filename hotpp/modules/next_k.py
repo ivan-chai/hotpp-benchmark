@@ -59,9 +59,9 @@ class NextKModule(BaseModule):
         """
         init_times = x.payload[self._timestamps_field].take_along_dim(indices.payload, 1)  # (B, I).
         init_times = PaddedBatch({self._timestamps_field: init_times}, indices.seq_lens)
-        outputs, states = self(x)  # (B, L, D), (N, B, L, D).
+        outputs, states = self(x, return_states="full" if self._need_states else False)  # (B, L, D), (N, B, L, D).
         outputs = PaddedBatch(outputs.payload.take_along_dim(indices.payload.unsqueeze(2), 1),
                               indices.seq_lens)  # (B, I, D).
-        states = states.take_along_dim(indices.payload[None, :, :, None], 2)  # (N, B, I, D).
+        states = states.take_along_dim(indices.payload[None, :, :, None], 2) if states is not None else states  # (N, B, I, D).
         sequences = self.predict_next_k(init_times, outputs, states, logits_fields_mapping={self._labels_field: self._labels_logits_field})  # (B, I, K) or (B, I, K, C).
         return sequences  # (B, I, K) or (B, I, K, C).

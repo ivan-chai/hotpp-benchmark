@@ -1,4 +1,4 @@
-from abc import ABC, abstractmethod
+from abc import ABC, abstractmethod, abstractproperty
 from collections.abc import Iterable
 
 import torch
@@ -54,6 +54,10 @@ class BaseLoss(ABC, torch.nn.Module):
         self._target_size = target_size
         self._grad_scale = grad_scale
         self._interpolator = None
+
+    @abstractproperty
+    def need_interpolator(self):
+        pass
 
     @property
     def interpolator(self):
@@ -159,6 +163,10 @@ class MAELoss(BaseLoss):
         super().__init__(input_size=1, target_size=1,
                          grad_scale=grad_scale)
 
+    @property
+    def need_interpolator(self):
+        return False
+
     def compute_loss(self, inputs, predictions, mask=None):
         """Compute losses and metrics.
 
@@ -207,6 +215,10 @@ class TimeMAELoss(BaseLoss):
         self.max_delta = max_delta
         self.smoothing = smoothing
         self.scale = scale
+
+    @property
+    def need_interpolator(self):
+        return False
 
     def compute_loss(self, inputs, predictions, mask=None):
         """Compute losses and metrics.
@@ -261,6 +273,10 @@ class TimeMSELoss(BaseLoss):
         self.smoothing = smoothing
         self.scale = scale
 
+    @property
+    def need_interpolator(self):
+        return False
+
     def compute_loss(self, inputs, predictions, mask=None):
         """Compute losses and metrics.
 
@@ -305,6 +321,10 @@ class CrossEntropyLoss(BaseLoss):
         super().__init__(input_size=num_classes, target_size=1,
                          grad_scale=grad_scale)
         self.normalize_logits = normalize_logits
+
+    @property
+    def need_interpolator(self):
+        return False
 
     @property
     def num_classes(self):
@@ -366,6 +386,10 @@ class BinaryCrossEntropyLoss(BaseLoss):
                          grad_scale=grad_scale)
         self.focal_alpha = focal_alpha
         self.focal_gamma = focal_gamma
+
+    @property
+    def need_interpolator(self):
+        return False
 
     @property
     def num_classes(self):
