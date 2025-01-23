@@ -13,6 +13,10 @@ class MostPopularEncoder(torch.nn.Module):
         self._labels_field = labels_field
 
     @property
+    def need_states(self):
+        return False
+
+    @property
     def hidden_size(self):
         return 2
 
@@ -34,6 +38,10 @@ class Identity(torch.nn.Identity):
     def __init__(self, dim):
         super().__init__()
         self.input_size = dim
+
+    @property
+    def need_interpolator(self):
+        return False
 
 
 class MostPopularModule(BaseModule):

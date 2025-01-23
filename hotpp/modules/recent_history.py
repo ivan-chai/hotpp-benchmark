@@ -13,6 +13,10 @@ class SlidingEncoder(torch.nn.Module):
         self._timestamps_field = timestamps_field
 
     @property
+    def need_states(self):
+        return False
+
+    @property
     def fields(self):
         return self._fields
 
@@ -39,6 +43,10 @@ class Identity(torch.nn.Identity):
     def __init__(self, dim):
         super().__init__()
         self.input_size = dim
+
+    @property
+    def need_interpolator(self):
+        return False
 
 
 class RecentHistoryModule(BaseModule):
