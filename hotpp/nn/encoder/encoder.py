@@ -124,12 +124,14 @@ class Encoder(BaseEncoder):
             bucket_lengths = prefix_lengths[start:stop]
             max_length = bucket_lengths.max().item()
             # Note, that bucket_lengths are strictly positive.
-            bucket_prefixes = PaddedBatch({k: v[bucket_indices][:, :max_length] for k, v in x.payload.items()},
-                                          bucket_lengths)  # (B, L).
+            bucket_prefixes = PaddedBatch({k: (v[bucket_indices][:, :max_length] if k in x.seq_names else v[bucket_indices]) for k, v in x.payload.items()},
+                                          bucket_lengths, seq_names=x.seq_names)  # (B, L).
             if self.max_context is not None:
-                bucket_prefixes = PaddedBatch({k: limit_history(v.unsqueeze(-1), bucket_prefixes.seq_lens, self.max_context)[0].squeeze(-1)
+                bucket_prefixes = PaddedBatch({k: (limit_history(v.unsqueeze(-1), bucket_prefixes.seq_lens, self.max_context)[0].squeeze(-1)
+                                                   if k in bucket_prefixes.seq_names else v)
                                                for k, v in bucket_prefixes.payload.items()},
-                                              bucket_prefixes.seq_lens.clip(max=self.max_context))  # (B, L).
+                                              bucket_prefixes.seq_lens.clip(max=self.max_context),
+                                              seq_names=bucket_prefixes.seq_names)  # (B, L).
             bucket_predictions = self._generate_autoreg(bucket_prefixes, predict_fn, n_steps)  # (V, N) or (V, N, C).
             assert (bucket_predictions.seq_lens == n_steps).all()
             for k, v in bucket_predictions.payload.items():
