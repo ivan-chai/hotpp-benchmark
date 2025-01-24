@@ -7,3 +7,4 @@ from .nhp import NHPLoss
 from .next_item import NextItemLoss
 from .next_k import NextKLoss
 from .detection import DetectionLoss
+from .diffusion import DiffusionLoss

@@ -9,8 +9,8 @@ class NextKLoss(torch.nn.Module):
     """Hybrid loss for next item prediction.
 
     Args:
+        next_item_loss: An instance of the next event prediction loss used for pairwise loss computation.
         k: The number of future events to predict.
-        losses: Mapping from the feature name to the loss function.
         prediction: The type of prediction (either `mean` or `mode`).
         loss_step: The period of loss evaluation.
     """
