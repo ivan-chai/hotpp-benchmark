@@ -19,6 +19,10 @@ module:
   loss:
     _target_: hotpp.losses.DiffusionLoss
     k: ${next_k}
+    diffusion_loss_weight: 1
+    decoder_loss_weight: 1
+    embedder_regulizer: 1
+    alpha: 0.1
     next_item_loss:
       _target_: hotpp.losses.NextItemLoss
       losses:

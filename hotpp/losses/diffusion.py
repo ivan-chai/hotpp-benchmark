@@ -49,7 +49,7 @@ class DiffusionLoss(NextKLoss):
 
     def _noise(self, batch_size, device):
         # Generate noise with shape (B, N, D).
-        return PaddedBatch(torch.randn(batch_size, self._generation_steps, self._embedder.output_size, device=device),
+        return PaddedBatch(torch.randn(batch_size, self._k, self._embedder.output_size, device=device),
                            torch.full([batch_size], self._k, device=device, dtype=torch.long))
 
     def _corrupt(self, embeddings, steps):
@@ -207,10 +207,10 @@ class DiffusionLoss(NextKLoss):
                                                    logits_fields_mapping=logits_fields_mapping)  # (V, N) or (V, N, C).
 
         # Gather results.
-        sequences = {k: torch.zeros(outputs.shape[0], outputs.shape[1], self._generation_steps,
+        sequences = {k: torch.zeros(outputs.shape[0], outputs.shape[1], self._k,
                                     dtype=v.dtype, device=v.device).masked_scatter_(mask.unsqueeze(-1), v)
                      for k, v in predictions.payload.items() if v.ndim == 2}  # (B, L, N).
-        sequences |= {k: torch.zeros(outputs.shape[0], outputs.shape[1], self._generation_steps, v.shape[2],
+        sequences |= {k: torch.zeros(outputs.shape[0], outputs.shape[1], self._k, v.shape[2],
                                      dtype=v.dtype, device=v.device).masked_scatter_(mask.unsqueeze(-1).unsqueeze(-1), v)
                       for k, v in predictions.payload.items() if v.ndim == 3}  # (B, L, N, C).
         sequences = PaddedBatch(sequences, torch.full([len(outputs)], self._k, dtype=torch.long))

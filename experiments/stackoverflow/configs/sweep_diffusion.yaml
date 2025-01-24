@@ -1,0 +1,39 @@
+project: hotpp-sweep-stackoverflow
+run_cap: 500
+name: diffusion
+command:
+  - ${env}
+  - python3
+  - -m
+  - hotpp.train
+  - --config-dir
+  - configs
+  - --config-name
+  - diffusion
+  - ~seed_everything
+  - ~model_path
+  - ~report
+  - ${args_no_hyphens}
+method: bayes
+metric:
+  name: val/T-mAP
+  goal: maximize
+early_terminate:
+  type: hyperband
+  min_iter: 3
+parameters:
+  module.loss.diffusion_loss_weight:
+    min: 0.0
+    max: 10.0
+  module.loss.decoder_loss_weight:
+    min: 0.0
+    max: 10.0
+  module.loss.embedder_regulizer:
+    min: 0.0
+    max: 10.0
+  module.loss.alpha:
+    min: 0.0
+    max: 1.0
+  diffusion_steps:
+    min: 2
+    max: 20
