@@ -1,0 +1,20 @@
+defaults:
+  - detection_2layer_base
+  - _self_
+
+name: detection_2layer
+
+detection_k: 48
+
+module:
+  seq_encoder:
+    _target_: hotpp.nn.Encoder
+    model_partial:
+      num_layers: 2
+  loss:
+    loss_subset: 0.5
+    prefetch_factor: 0.5
+    match_weights:
+      _presence: 4
+      timestamps: 2
+      labels: 1
