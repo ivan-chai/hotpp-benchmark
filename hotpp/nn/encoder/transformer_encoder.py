@@ -171,6 +171,7 @@ class TransformerEncoder(BaseEncoder):
                 break
             # Convert predicted delta to absolute time for the next input.
             times.payload += features.payload[self._timestamps_field]
+            # Features already contain deltas.
             embeddings = self.embed(features, compute_time_deltas=False)  # (B, 1, D).
             last_outputs, new_states = self.transformer.decode(embeddings, times, last_states)  # (B, 1, D), (N, B, 1, D).
             # Append to the beginning, since transformer doesn't take order into account.
