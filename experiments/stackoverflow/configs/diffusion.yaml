@@ -4,7 +4,7 @@ defaults:
 
 name: diffusion
 
-diffusion_steps: 10
+diffusion_steps: 15
 
 module:
   _target_: hotpp.modules.NextKModule
@@ -22,7 +22,7 @@ module:
     diffusion_loss_weight: 1
     decoder_loss_weight: 1
     embedder_regulizer: 1
-    alpha: 0.1
+    alpha: 0.5
     next_item_loss:
       _target_: hotpp.losses.NextItemLoss
       losses:
