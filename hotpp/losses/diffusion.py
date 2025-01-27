@@ -24,11 +24,13 @@ class DiffusionLoss(NextKLoss):
         loss_step: The period of loss evaluation.
         generation_steps: The number of denosing steps.
         alpha: One minus corruption noise level at each step in the range [0, 1].
+        prediction: One of "mode" and "sample".
     """
     def __init__(self, next_item_loss, k, embedder, denoiser_partial, decoder_partial,
                  timestamps_field="timestamps", max_time_delta=None, loss_step=1,
                  generation_steps=10, alpha=0.1,
-                 diffusion_loss_weight=1, decoder_loss_weight=1, embedder_regulizer=1):
+                 diffusion_loss_weight=1, decoder_loss_weight=1, embedder_regulizer=1,
+                 prediction="sample"):
         super().__init__(next_item_loss, k,
                          timestamps_field=timestamps_field,
                          loss_step=loss_step)
@@ -43,6 +45,7 @@ class DiffusionLoss(NextKLoss):
         self.register_buffer("_alpha", torch.full([1 + generation_steps], alpha))
         self._alpha[0] = 1
         self.register_buffer("_alpha_prods", self._alpha.cumprod(dim=0))
+        self._prediction = prediction
 
     @property
     def input_size(self):
@@ -50,8 +53,13 @@ class DiffusionLoss(NextKLoss):
 
     def _noise(self, batch_size, device):
         # Generate noise with shape (B, N, D).
-        return PaddedBatch(torch.randn(batch_size, self._k, self._embedder.output_size, device=device),
-                           torch.full([batch_size], self._k, device=device, dtype=torch.long))
+        if (self._prediction == "sample") or self.training:
+            x = torch.randn(batch_size, self._k, self._embedder.output_size, device=device)
+        else:
+            if self._prediction != "mode":
+                raise ValueError(f"Unknown prediction mode: {self._prediction}")
+            x = torch.zeros(batch_size, self._k, self._embedder.output_size, device=device)
+        return PaddedBatch(x, torch.full([batch_size], self._k, device=device, dtype=torch.long))
 
     def _corrupt(self, embeddings, steps):
         # Embeddings: (B, L, D).
@@ -74,10 +82,13 @@ class DiffusionLoss(NextKLoss):
         denum = 1 - self._alpha_prods[steps]  # (B).
         wx = self._alpha_prods[steps].sqrt() * (1 - self._alpha_prods[steps - 1]) / denum  # (B).
         wr = self._alpha_prods[steps - 1].sqrt() * (1 - self._alpha[steps]) / denum  # (B).
-        means = wx[:, None, None] * embeddings.payload + wr[:, None, None] * reconstruction.payload  # (B, L, D).
+        x = wx[:, None, None] * embeddings.payload + wr[:, None, None] * reconstruction.payload  # (B, L, D).
         sigma2 = (1 - self._alpha[steps]) * (1 - self._alpha_prods[steps - 1]) / denum  # (B).
-        return PaddedBatch(means + torch.randn_like(means) * sigma2[:, None, None].sqrt(),
-                           embeddings.seq_lens)
+        if (self._prediction == "sample") or self.training:
+            x = x + torch.randn_like(x) * sigma2[:, None, None].sqrt()
+        elif self._prediction != "mode":
+            raise ValueError(f"Unknown prediction mode: {self._prediction}")
+        return PaddedBatch(x, embeddings.seq_lens)
 
     def _compute_time_deltas(self, x):
         """Replace timestamps with time deltas."""
@@ -97,12 +108,19 @@ class DiffusionLoss(NextKLoss):
         metrics = {}
 
         b = len(targets)
+        # Embed.
         embeddings = self._embedder(self._compute_time_deltas(targets))  # (B, 1 + K, D).
         embeddings = PaddedBatch(embeddings.payload[:, 1:], (embeddings.seq_lens - 1).clip(min=0))  # (B, K, D).
+
+        # Corrupt.
         steps = torch.randint(1, self._generation_steps + 1, [b], device=embeddings.device)  # (B).
         steps[random.randint(0, b - 1)] = 1  # Need at least one 1.
         corrupted = self._corrupt(embeddings, steps)  # (B, K, D).
+
+        # Reconstruct.
         reconstructed = self._denoiser(corrupted, conditions, steps)  # (B, K, D).
+
+        # Compute losses.
         reconstruction_target = torch.where(steps[:, None, None] == 1, embeddings.payload, embeddings.payload.detach())
         losses["diffusion"] = ScaleGradient.apply((reconstructed.payload - reconstruction_target).square().mean(), self._diffusion_loss_weight)
 

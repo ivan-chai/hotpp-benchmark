@@ -64,9 +64,10 @@ class Embedder(torch.nn.Module):
           or dictionary with "type" string and extra parameters
           or a list of multiple encoders.
         use_batch_norm: Whether to apply batch norm to numeric features embedding or not.
+        categorical_noise: The level of additive normal noise added to categorical embeddings, added to embeddings.
     """
     def __init__(self, embeddings=None, numeric_values=None,
-                 use_batch_norm=True):
+                 use_batch_norm=True, categorical_noise=0):
         super().__init__()
         encoders = {}
         for name, spec in (embeddings or {}).items():
@@ -84,6 +85,7 @@ class Embedder(torch.nn.Module):
         self.use_batch_norm = use_batch_norm
         self.embeddings_order = list(embeddings or {})
         self.numeric_order = list(numeric_values or {})
+        self.categorical_noise = categorical_noise
 
         if use_batch_norm:
             custom_embedding_size = sum([encoders[name].output_size for name in self.numeric_order])
@@ -96,7 +98,10 @@ class Embedder(torch.nn.Module):
     def forward(self, batch):
         embeddings = []
         for name in self.embeddings_order:
-            embeddings.append(self.embeddings[name](batch[name]).payload)
+            x = self.embeddings[name](batch[name]).payload
+            if self.categorical_noise > 0:
+                x = x + torch.randn_like(x) * self.categorical_noise
+            embeddings.append(x)
 
         custom_embeddings = []
         for name in self.numeric_order:

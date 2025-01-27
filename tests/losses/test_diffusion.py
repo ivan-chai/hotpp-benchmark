@@ -36,6 +36,40 @@ class Denoiser(torch.nn.Module):
 
 
 class TestDiffusionLoss(TestCase):
+    def test_corruption(self):
+        steps = 10
+        torch.manual_seed(0)
+
+        losses = {
+            "timestamps": TimeMAELoss(),
+            "labels": CrossEntropyLoss(10)
+        }
+
+        embedder = Embedder(embeddings={"labels": {"in": 10, "out": 10}},
+                            numeric_values={"timestamps": "identity"},
+                            use_batch_norm=False)
+
+        denoiser_partial = lambda dim, length: Denoiser(dim, length, batch_size=6, steps=steps)
+        decoder_partial = lambda dim_in, dim_out: Head(dim_in, dim_out, hidden_dims=[32])
+
+        loss = DiffusionLoss(NextItemLoss(losses), 4, embedder,
+                             denoiser_partial, decoder_partial,
+                             generation_steps=steps)
+
+        b = 1000
+        batch = PaddedBatch({
+            "timestamps": torch.tensor([5.0, 5.3, 6.0, 6.1, 7.2, 8.0, 9.0, 20, 21, 21.5]).reshape(1, 10).repeat(b, 1),
+            "labels":     torch.tensor([5  , 9  , 0  , 1  , 0  , 1  , 5  , 7 , 8 , 1]).reshape(1, 10).repeat(b, 1),
+        }, torch.tensor([10] * b))  # (b, 10).
+
+        embeddings = loss._embedder(loss._compute_time_deltas(batch))  # (B, L, D).
+        embeddings = PaddedBatch(embeddings.payload[:, 1:], (embeddings.seq_lens - 1).clip(min=0))  # (B, L - 1, D).
+        steps = torch.full([b], steps, device=embeddings.device)  # (B).
+        corrupted = loss._corrupt(embeddings, steps)  # (B, L - 1, D).
+        atol = 0.2
+        self.assertTrue((corrupted.payload.mean(0).abs() < atol).all())
+        self.assertTrue(((corrupted.payload.std(0) - 1).abs() < atol).all())
+
     def test_convergence(self):
         steps = 5
         torch.manual_seed(0)
