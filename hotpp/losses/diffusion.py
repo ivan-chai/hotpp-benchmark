@@ -4,6 +4,7 @@ import torch
 
 from hotpp.data import PaddedBatch
 from hotpp.utils.torch import deterministic
+from .common import ScaleGradient
 from .next_k import NextKLoss
 
 
@@ -37,7 +38,7 @@ class DiffusionLoss(NextKLoss):
         self._decoder_loss_weight = decoder_loss_weight
         self._embedder_regulizer = embedder_regulizer
         self._embedder = embedder
-        self._denoiser = denoiser_partial(embedder.output_size)
+        self._denoiser = denoiser_partial(embedder.output_size, k)
         self._decoder = decoder_partial(embedder.output_size, next_item_loss.input_size)
         self.register_buffer("_alpha", torch.full([1 + generation_steps], alpha))
         self._alpha[0] = 1
@@ -103,16 +104,17 @@ class DiffusionLoss(NextKLoss):
         corrupted = self._corrupt(embeddings, steps)  # (B, K, D).
         reconstructed = self._denoiser(corrupted, conditions, steps)  # (B, K, D).
         reconstruction_target = torch.where(steps[:, None, None] == 1, embeddings.payload, embeddings.payload.detach())
-        losses["diffusion"] = self._diffusion_loss_weight * (reconstructed.payload - reconstruction_target).square().mean()
+        losses["diffusion"] = ScaleGradient.apply((reconstructed.payload - reconstruction_target).square().mean(), self._diffusion_loss_weight)
 
         decoded = self._decoder(PaddedBatch(embeddings.payload.detach(), embeddings.seq_lens))  # (B, K, D).
         decoded = PaddedBatch(torch.cat([decoded.payload, torch.empty_like(decoded.payload[:, :1])], 1), decoded.seq_lens)  # (B, K + 1, D).
         decoder_losses, metrics = self._next_item(targets, decoded, None)
         metrics.update({"decoder_" + k: v for k, v in metrics.items()})
-        losses.update({"decoder_" + k: self._decoder_loss_weight * v
+        losses.update({"decoder_" + k: ScaleGradient.apply(v, self._decoder_loss_weight)
                        for k, v in decoder_losses.items()})
 
-        losses["embedder"] = self._embedder_regulizer * self._alpha_prods[self._generation_steps] * embeddings.payload.square().mean()
+        losses["embedder_regularizer"] = ScaleGradient.apply(self._alpha_prods[self._generation_steps] * embeddings.payload.square().mean(),
+                                                             self._embedder_regulizer)
         return losses, metrics
 
     def forward(self, inputs, outputs, states):

@@ -1,6 +1,6 @@
 project: hotpp-sweep-stackoverflow
 run_cap: 500
-name: diffusion
+name: diffusion_gru
 command:
   - ${env}
   - python3
@@ -9,7 +9,7 @@ command:
   - --config-dir
   - configs
   - --config-name
-  - diffusion
+  - diffusion_gru
   - ~seed_everything
   - ~model_path
   - ~report

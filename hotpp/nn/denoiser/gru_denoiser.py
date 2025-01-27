@@ -3,7 +3,7 @@ from hotpp.data import PaddedBatch
 
 
 class GRUDenoiser(torch.nn.Module):
-    def __init__(self, input_size, hidden_size, generation_steps, num_layers=1, bidirectional=True):
+    def __init__(self, input_size, length, hidden_size, generation_steps, num_layers=1, bidirectional=True):
         super().__init__()
         self._steps_embedder = torch.nn.Embedding(generation_steps + 1, input_size)
         self._hidden_size = hidden_size

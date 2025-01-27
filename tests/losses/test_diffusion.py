@@ -21,7 +21,7 @@ class Model(torch.nn.Module):
 
 
 class Denoiser(torch.nn.Module):
-    def __init__(self, input_size, batch_size, length, steps):
+    def __init__(self, input_size, length, batch_size, steps):
         super().__init__()
         self.weight = torch.nn.Parameter(torch.randn(batch_size, steps + 1, length, input_size))
         self.lengths = torch.full([batch_size], length, dtype=torch.long)
@@ -49,7 +49,7 @@ class TestDiffusionLoss(TestCase):
                             numeric_values={"timestamps": "identity"},
                             use_batch_norm=False)
 
-        denoiser_partial = lambda dim: Denoiser(dim, batch_size=6, length=4, steps=steps)
+        denoiser_partial = lambda dim, length: Denoiser(dim, length, batch_size=6, steps=steps)
         decoder_partial = lambda dim_in, dim_out: Head(dim_in, dim_out, hidden_dims=[32])
 
         loss = DiffusionLoss(NextItemLoss(losses), 4, embedder,
