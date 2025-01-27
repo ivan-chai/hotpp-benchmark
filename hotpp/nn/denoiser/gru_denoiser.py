@@ -32,7 +32,7 @@ class GRUDenoiser(torch.nn.Module):
         b, l, d = embeddings.payload.shape
         step_embeddings = self._steps_embedder(steps)  # (B, D).
         inputs = embeddings.payload + step_embeddings[:, None, :]  # (B, L, D).
-        states = conditions[None].expand(self._total_layers, b, self._hidden_size)
+        states = conditions[None].expand(self._total_layers, b, self._hidden_size).contiguous()
         result, _ = self._model(inputs, states)  # (B, L, N * D).
         result = result.reshape(b, l, self._total_layers, self._hidden_size)  # (B, L, N, D).
         result = result[:, :, -2:] if self._bidirectional else result[:, :, -1:]
