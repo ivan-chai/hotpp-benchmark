@@ -4,11 +4,13 @@ defaults:
 
 name: diffusion_transformer
 
-diffusion_steps: 10
+diffusion_steps: 15
 
 module:
   _target_: hotpp.modules.NextKModule
   seq_encoder:
+    embedder:
+      categorical_noise: 0.1
     rnn_partial:
       _target_: hotpp.nn.GRU
       _partial_: true
