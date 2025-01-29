@@ -13,7 +13,7 @@ module:
   _target_: hotpp.modules.NextKModule
   seq_encoder:
     model_partial:
-      _target_: hotpp.nn.PublicTransformer
+      _target_: hotpp.nn.HuggingFaceTransformer
       _partial_: true
       model:
         _target_: transformers.GPT2Model
