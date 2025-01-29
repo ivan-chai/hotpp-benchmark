@@ -23,7 +23,7 @@ module:
     k: ${next_k}
     diffusion_loss_weight: 1
     decoder_loss_weight: 1
-    embedder_regulizer: 1
+    embedder_regularizer: 1
     alpha: 0.5
     next_item_loss:
       _target_: hotpp.losses.NextItemLoss
@@ -41,6 +41,7 @@ module:
       _partial_: true
       hidden_size: ${rnn_hidden_size}
       generation_steps: ${diffusion_steps}
+      num_layers: 1
     decoder_partial: ${head}
     max_time_delta: ${max_time_delta}
     loss_step: 1

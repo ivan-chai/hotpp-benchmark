@@ -29,7 +29,7 @@ class DiffusionLoss(NextKLoss):
     def __init__(self, next_item_loss, k, embedder, denoiser_partial, decoder_partial,
                  timestamps_field="timestamps", max_time_delta=None, loss_step=1,
                  generation_steps=10, alpha=0.1,
-                 diffusion_loss_weight=1, decoder_loss_weight=1, embedder_regulizer=1,
+                 diffusion_loss_weight=1, decoder_loss_weight=1, embedder_regularizer=1,
                  prediction="sample"):
         super().__init__(next_item_loss, k,
                          timestamps_field=timestamps_field,
@@ -38,7 +38,7 @@ class DiffusionLoss(NextKLoss):
         self._generation_steps = generation_steps
         self._diffusion_loss_weight = diffusion_loss_weight
         self._decoder_loss_weight = decoder_loss_weight
-        self._embedder_regulizer = embedder_regulizer
+        self._embedder_regularizer = embedder_regularizer
         self._embedder = embedder
         self._denoiser = denoiser_partial(embedder.output_size, k)
         self._decoder = decoder_partial(embedder.output_size, next_item_loss.input_size)
@@ -138,7 +138,7 @@ class DiffusionLoss(NextKLoss):
                        for k, v in decoder_losses.items()})
 
         losses["embedder_regularizer"] = ScaleGradient.apply(self._alpha_prods[self._generation_steps] * embeddings.payload.square().mean(),
-                                                             self._embedder_regulizer)
+                                                             self._embedder_regularizer)
         return losses, metrics
 
     def forward(self, inputs, outputs, states):

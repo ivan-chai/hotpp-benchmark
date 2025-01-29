@@ -1,4 +1,4 @@
-project: hotpp-sweep-stackoverflow
+project: hotpp-sweep-transactions
 run_cap: 500
 name: diffusion_gru
 command:
