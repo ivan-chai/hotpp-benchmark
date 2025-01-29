@@ -34,8 +34,8 @@ class GRUDenoiser(torch.nn.Module):
         inputs = embeddings.payload + step_embeddings[:, None, :]  # (B, L, D).
         states = conditions[None].expand(self._total_layers, b, self._hidden_size).contiguous()
         result, _ = self._model(inputs, states)  # (B, L, N * D).
-        result = result.reshape(b, l, self._total_layers, self._hidden_size)  # (B, L, N, D).
-        result = result[:, :, -2:] if self._bidirectional else result[:, :, -1:]
+        output_layers = 2 if self._bidirectional else 1
+        result = result.reshape(b, l, output_layers, self._hidden_size)  # (B, L, N, D).
         result = result.sum(2)  # (B, L, D).
         result = self._projection(result)
         return PaddedBatch(result, embeddings.seq_lens)
