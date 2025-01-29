@@ -42,7 +42,7 @@ class DiffusionLoss(NextKLoss):
         self._embedder = embedder
         self._denoiser = denoiser_partial(embedder.output_size, k)
         self._decoder = decoder_partial(embedder.output_size, next_item_loss.input_size)
-        self.register_buffer("_alpha", torch.full([1 + generation_steps], alpha))
+        self.register_buffer("_alpha", torch.full([1 + generation_steps], alpha, dtype=torch.float))
         self._alpha[0] = 1
         self.register_buffer("_alpha_prods", self._alpha.cumprod(dim=0))
         self._prediction = prediction
@@ -51,14 +51,16 @@ class DiffusionLoss(NextKLoss):
     def input_size(self):
         return self._denoiser.condition_size
 
-    def _noise(self, batch_size, device):
+    def _noise(self, batch_size, device, dtype):
         # Generate noise with shape (B, N, D).
         if (self._prediction == "sample") or self.training:
-            x = torch.randn(batch_size, self._k, self._embedder.output_size, device=device)
+            x = torch.randn(batch_size, self._k, self._embedder.output_size,
+                            device=device, dtype=dtype)
         else:
             if self._prediction != "mode":
                 raise ValueError(f"Unknown prediction mode: {self._prediction}")
-            x = torch.zeros(batch_size, self._k, self._embedder.output_size, device=device)
+            x = torch.zeros(batch_size, self._k, self._embedder.output_size,
+                            device=device, dtype=dtype)
         return PaddedBatch(x, torch.full([batch_size], self._k, device=device, dtype=torch.long))
 
     def _corrupt(self, embeddings, steps):
@@ -77,13 +79,17 @@ class DiffusionLoss(NextKLoss):
         # Step is the current step for input embeddings.
         # Returns step - 1 embeddings.
         assert step >= 1
+        dtype = embeddings.payload.dtype
+        alpha = self._alpha.to(dtype)
+        alpha_prods = self._alpha_prods.to(dtype)
+
         steps = torch.full([len(embeddings)], step, device=embeddings.device, dtype=torch.long)
         reconstruction = self._denoiser(embeddings, condition, steps)  # (B, L, D).
-        denum = 1 - self._alpha_prods[steps]  # (B).
-        wx = self._alpha_prods[steps].sqrt() * (1 - self._alpha_prods[steps - 1]) / denum  # (B).
-        wr = self._alpha_prods[steps - 1].sqrt() * (1 - self._alpha[steps]) / denum  # (B).
+        denum = 1 - alpha_prods[steps].to(dtype)  # (B).
+        wx = alpha_prods[steps].sqrt() * (1 - alpha_prods[steps - 1]) / denum  # (B).
+        wr = alpha_prods[steps - 1].sqrt() * (1 - alpha[steps]) / denum  # (B).
         x = wx[:, None, None] * embeddings.payload + wr[:, None, None] * reconstruction.payload  # (B, L, D).
-        sigma2 = (1 - self._alpha[steps]) * (1 - self._alpha_prods[steps - 1]) / denum  # (B).
+        sigma2 = (1 - alpha[steps]) * (1 - alpha_prods[steps - 1]) / denum  # (B).
         if (self._prediction == "sample") or self.training:
             x = x + torch.randn_like(x) * sigma2[:, None, None].sqrt()
         elif self._prediction != "mode":
@@ -216,7 +222,7 @@ class DiffusionLoss(NextKLoss):
 
         # Generate embeddings.
         b = len(conditions)
-        x = self._noise(b, device=conditions.device)  # (V, N, D).
+        x = self._noise(b, device=conditions.device, dtype=outputs.payload.dtype)  # (V, N, D).
         for i in range(self._generation_steps, 0, -1):  # N -> 1.
             x = self._denoising_step(x, conditions, i)
         x = self._decoder(x)  # (V, N, D).

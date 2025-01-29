@@ -226,6 +226,8 @@ class BaseModule(pl.LightningModule):
 
     @torch.autocast("cuda", enabled=False)
     def _update_metric(self, metric, features, outputs, states):
+        outputs = outputs.to(torch.float)
+        states = states.to(torch.float) if states is not None else None
         lengths = torch.minimum(outputs.seq_lens, features.seq_lens)
         next_items = self.predict_next(features, outputs, states,
                                        fields=[self._timestamps_field, self._labels_field],
