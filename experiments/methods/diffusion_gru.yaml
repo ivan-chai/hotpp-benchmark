@@ -42,7 +42,10 @@ module:
       hidden_size: ${rnn_hidden_size}
       generation_steps: ${diffusion_steps}
       num_layers: 1
-    decoder_partial: ${head}
+    decoder_partial:
+      _target_: hotpp.nn.Head
+      _partial_: true
+      hidden_dims: []
     max_time_delta: ${max_time_delta}
     loss_step: 1
     generation_steps: ${diffusion_steps}
