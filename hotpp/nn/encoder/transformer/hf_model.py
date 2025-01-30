@@ -13,7 +13,7 @@ class HuggingFaceTransformer(torch.nn.Module):
         super().__init__()
         self.model = model
         self._hidden_size = self.model.config.n_embd
-        self.input_proj = torch.nn.Linear(input_size, self.model.config.n_embd) #Layer to get right size
+        self.input_projection = torch.nn.Linear(input_size, self.model.config.n_embd) #Layer to get right size
 
     @property
     def output_size(self):
@@ -40,7 +40,7 @@ class HuggingFaceTransformer(torch.nn.Module):
         if return_states:
             raise ValueError("Transformers encoder doesn't support states return")
         
-        embeddings = self.input_proj(x.payload)
+        embeddings = self.input_projection(x.payload)
         outputs = self.model(inputs_embeds = embeddings, attention_mask = x.seq_len_mask)  # (B, L, D).
 
         return PaddedBatch(outputs.last_hidden_state, x.seq_lens), None
