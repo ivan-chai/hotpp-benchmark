@@ -28,11 +28,13 @@ class DiffusionLoss(NextKLoss):
         loss_step: The period of loss evaluation.
         generation_steps: The number of denosing steps.
         alpha: One minus corruption noise level at each step in the range [0, 1].
+        detach_embeddings_from_step: Don't propagate gradients to embeddings from latter reconstruction stages.
+        detach_decoder: Don't propage gradients to other modules when training the decoder model.
         prediction: One of "mode" and "sample".
     """
     def __init__(self, next_item_loss, k, embedder, denoiser_partial, decoder_partial,
                  timestamps_field="timestamps", max_time_delta=None, loss_step=1,
-                 generation_steps=10, alpha=0.1,
+                 generation_steps=10, alpha=0.1, detach_embeddings_from_step=1, detach_decoder=True,
                  diffusion_loss_weight=1, decoder_loss_weight=1, embedder_regularizer=1,
                  prediction="sample"):
         super().__init__(next_item_loss, k,
@@ -46,6 +48,8 @@ class DiffusionLoss(NextKLoss):
         self._embedder = embedder
         self._denoiser = denoiser_partial(embedder.output_size, k)
         self._decoder = decoder_partial(embedder.output_size, next_item_loss.input_size)
+        self._detach_embeddings_from_step = detach_embeddings_from_step
+        self._detach_decoder = detach_decoder
         self.register_buffer("_alpha", torch.full([1 + generation_steps], alpha, dtype=torch.float))
         self._alpha[0] = 1
         self.register_buffer("_alpha_prods", self._alpha.cumprod(dim=0))
@@ -131,9 +135,11 @@ class DiffusionLoss(NextKLoss):
         reconstructed = self._denoiser(corrupted, conditions, steps)  # (B, K, D).
 
         # Compute losses.
-        losses["diffusion"] = ScaleGradient.apply((reconstructed.payload - embeddings.payload).square().mean(), self._diffusion_loss_weight)
+        reconstruction_target = torch.where(steps[:, None, None] > self._detach_embeddings_from_step, embeddings.payload.detach(), embeddings.payload)
+        losses["diffusion"] = ScaleGradient.apply((reconstructed.payload - reconstruction_target).square().mean(), self._diffusion_loss_weight)
 
-        decoded = self._decoder(PaddedBatch(reconstructed.payload.detach(), reconstructed.seq_lens))  # (B, K, D).
+        decoded = self._decoder(PaddedBatch(reconstructed.payload.detach() if self._detach_decoder else reconstructed.payload,
+                                            reconstructed.seq_lens))  # (B, K, D).
         decoded = PaddedBatch(torch.cat([decoded.payload, torch.empty_like(decoded.payload[:, :1])], 1), decoded.seq_lens)  # (B, K + 1, D).
         decoder_losses, metrics = self._next_item(targets, decoded, None)
         metrics.update({"decoder_" + k: v for k, v in metrics.items()})
