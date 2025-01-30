@@ -1,3 +1,3 @@
 from .attnhp import AttNHPTransformer
 from .state import TransformerState
-from .transformers_example import HuggingFaceTransformer
+from .hf_model import HuggingFaceTransformer

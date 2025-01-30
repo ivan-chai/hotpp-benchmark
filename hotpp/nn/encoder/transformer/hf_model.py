@@ -40,10 +40,10 @@ class HuggingFaceTransformer(torch.nn.Module):
         if return_states:
             raise ValueError("Transformers encoder doesn't support states return")
         
-        x_emb = self.input_proj(x.payload)
-        outputs = self.model(inputs_embeds = x_emb, attention_mask = x.seq_len_mask)  # (B, L, D).
+        embeddings = self.input_proj(x.payload)
+        outputs = self.model(inputs_embeds = embeddings, attention_mask = x.seq_len_mask)  # (B, L, D).
 
         return PaddedBatch(outputs.last_hidden_state, x.seq_lens), None
 
     def interpolate(self, states: Tensor, time_deltas: PaddedBatch) -> PaddedBatch:
-        raise NotImplementedError('Transformers do not support continuous-time interpolation in this setup')
+        raise NotImplementedError("Transformers do not support continuous-time interpolation in this setup")
