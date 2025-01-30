@@ -11,6 +11,10 @@ from .next_k import NextKLoss
 class DiffusionLoss(NextKLoss):
     """Diffusion loss for next-k prediction.
 
+    See the original paper:
+    Zhou, Wang-Tao, et al. "Non-autoregressive diffusion-based temporal point processes
+    for continuous-time long-term event prediction." Expert Systems with Applications, 2025.
+
     Submodules:
     - Embedder: converts events to embeddings.
     - Denoiser: converts a sequence of embeddings and a condition vector to denoised sequences.
@@ -130,7 +134,7 @@ class DiffusionLoss(NextKLoss):
         reconstruction_target = torch.where(steps[:, None, None] == 1, embeddings.payload, embeddings.payload.detach())
         losses["diffusion"] = ScaleGradient.apply((reconstructed.payload - reconstruction_target).square().mean(), self._diffusion_loss_weight)
 
-        decoded = self._decoder(PaddedBatch(embeddings.payload.detach(), embeddings.seq_lens))  # (B, K, D).
+        decoded = self._decoder(PaddedBatch(reconstructed.payload.detach(), reconstructed.seq_lens))  # (B, K, D).
         decoded = PaddedBatch(torch.cat([decoded.payload, torch.empty_like(decoded.payload[:, :1])], 1), decoded.seq_lens)  # (B, K + 1, D).
         decoder_losses, metrics = self._next_item(targets, decoded, None)
         metrics.update({"decoder_" + k: v for k, v in metrics.items()})
