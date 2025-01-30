@@ -22,6 +22,9 @@ early_terminate:
   type: hyperband
   min_iter: 3
 parameters:
+  module.seq_encoder.embedder.categorical_noise:
+    min: 0.0
+    max: 2.0
   module.loss.denoiser_partial.num_layers:
     min: 1
     max: 3

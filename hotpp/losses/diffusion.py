@@ -131,8 +131,7 @@ class DiffusionLoss(NextKLoss):
         reconstructed = self._denoiser(corrupted, conditions, steps)  # (B, K, D).
 
         # Compute losses.
-        reconstruction_target = torch.where(steps[:, None, None] == 1, embeddings.payload, embeddings.payload.detach())
-        losses["diffusion"] = ScaleGradient.apply((reconstructed.payload - reconstruction_target).square().mean(), self._diffusion_loss_weight)
+        losses["diffusion"] = ScaleGradient.apply((reconstructed.payload - embeddings.payload).square().mean(), self._diffusion_loss_weight)
 
         decoded = self._decoder(PaddedBatch(reconstructed.payload.detach(), reconstructed.seq_lens))  # (B, K, D).
         decoded = PaddedBatch(torch.cat([decoded.payload, torch.empty_like(decoded.payload[:, :1])], 1), decoded.seq_lens)  # (B, K + 1, D).
