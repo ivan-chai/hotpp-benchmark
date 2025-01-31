@@ -19,8 +19,8 @@ module:
           n_embd: ${transformer_hidden_size}
           n_layer: ${transformer_layers}
           n_head: ${transformer_heads}
-          output_hidden_states: True #Necessary argument
-    max_context: ${rnn_inference_context}
+          output_hidden_states: True  #Necessary argument
+    max_context: ${transformer_context}
   head_partial: ${head}
   loss:
     _target_: hotpp.losses.NextItemLoss
