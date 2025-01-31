@@ -24,11 +24,9 @@ early_terminate:
   min_iter: 3
 parameters:
   transformer_hidden_size:
-    min: 32
-    max: 2048
+    values: [32, 64, 128, 256, 512, 1024, 2048]
   transformer_heads:
-    min: 1
-    max: 8
+    values: [1, 2, 4, 8]
   transformer_layers:
     min: 1
     max: 8
