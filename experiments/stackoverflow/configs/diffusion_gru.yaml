@@ -14,4 +14,4 @@ module:
     embedder_regularizer: 1.0
     alpha: 0.5
     detach_embeddings_from_step: 1
-    detach_decoder: true
+    detach_decoder: false

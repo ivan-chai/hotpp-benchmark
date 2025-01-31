@@ -26,7 +26,7 @@ module:
     embedder_regularizer: 1
     alpha: 0.5
     detach_embeddings_from_step: 1
-    detach_decoder: true
+    detach_decoder: false
     next_item_loss:
       _target_: hotpp.losses.NextItemLoss
       losses:
