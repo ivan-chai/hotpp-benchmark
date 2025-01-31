@@ -28,7 +28,7 @@ class DiffusionLoss(NextKLoss):
         loss_step: The period of loss evaluation.
         generation_steps: The number of denosing steps.
         alpha: One minus corruption noise level at each step in the range [0, 1].
-        detach_embeddings_from_step: Don't propagate gradients to embeddings from latter reconstruction stages.
+        detach_embeddings_from_step: Don't propagate gradients to embeddings from latter reconstruction stages (int or False).
         detach_decoder: Don't propage gradients to other modules when training the decoder model.
         prediction: One of "mode" and "sample".
     """
@@ -135,7 +135,10 @@ class DiffusionLoss(NextKLoss):
         reconstructed = self._denoiser(corrupted, conditions, steps)  # (B, K, D).
 
         # Compute losses.
-        reconstruction_target = torch.where(steps[:, None, None] > self._detach_embeddings_from_step, embeddings.payload.detach(), embeddings.payload)
+        if self._detach_embeddings_from_step is False:
+            reconstruction_target = embeddings.payload
+        else:
+            reconstruction_target = torch.where(steps[:, None, None] > self._detach_embeddings_from_step, embeddings.payload.detach(), embeddings.payload)
         losses["diffusion"] = ScaleGradient.apply((reconstructed.payload - reconstruction_target).square().mean(), self._diffusion_loss_weight)
 
         decoded = self._decoder(PaddedBatch(reconstructed.payload.detach() if self._detach_decoder else reconstructed.payload,
