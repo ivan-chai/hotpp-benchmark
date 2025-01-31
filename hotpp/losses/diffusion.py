@@ -30,13 +30,14 @@ class DiffusionLoss(NextKLoss):
         alpha: One minus corruption noise level at each step in the range [0, 1].
         detach_embeddings_from_step: Don't propagate gradients to embeddings from latter reconstruction stages (int or False).
         detach_decoder: Don't propage gradients to other modules when training the decoder model.
+        clamp_from_step: Apply clamping trick starting from the selected step. By default, disable clamping.
         prediction: One of "mode" and "sample".
     """
     def __init__(self, next_item_loss, k, embedder, denoiser_partial, decoder_partial,
                  timestamps_field="timestamps", max_time_delta=None, loss_step=1,
                  generation_steps=10, alpha=0.1, detach_embeddings_from_step=1, detach_decoder=True,
                  diffusion_loss_weight=1, decoder_loss_weight=1, embedder_regularizer=1,
-                 prediction="sample"):
+                 clamp_from_step=False, prediction="sample"):
         super().__init__(next_item_loss, k,
                          timestamps_field=timestamps_field,
                          loss_step=loss_step)
@@ -50,6 +51,7 @@ class DiffusionLoss(NextKLoss):
         self._decoder = decoder_partial(embedder.output_size, next_item_loss.input_size)
         self._detach_embeddings_from_step = detach_embeddings_from_step
         self._detach_decoder = detach_decoder
+        self._clamp_from_step = clamp_from_step
         self.register_buffer("_alpha", torch.full([1 + generation_steps], alpha, dtype=torch.float))
         self._alpha[0] = 1
         self.register_buffer("_alpha_prods", self._alpha.cumprod(dim=0))
@@ -93,12 +95,14 @@ class DiffusionLoss(NextKLoss):
 
         steps = torch.full([len(embeddings)], step, device=embeddings.device, dtype=torch.long)
         reconstruction = self._denoiser(embeddings, condition, steps)  # (B, L, D).
+        if self._clamp_from_step and (step <= self._clamp_from_step):
+            reconstruction = self._embedder.clamp(reconstruction)
         denum = 1 - alpha_prods[steps].to(dtype)  # (B).
         wx = alpha_prods[steps].sqrt() * (1 - alpha_prods[steps - 1]) / denum  # (B).
         wr = alpha_prods[steps - 1].sqrt() * (1 - alpha[steps]) / denum  # (B).
         x = wx[:, None, None] * embeddings.payload + wr[:, None, None] * reconstruction.payload  # (B, L, D).
-        sigma2 = (1 - alpha[steps]) * (1 - alpha_prods[steps - 1]) / denum  # (B).
         if (self._prediction == "sample") or self.training:
+            sigma2 = (1 - alpha[steps]) * (1 - alpha_prods[steps - 1]) / denum  # (B).
             x = x + torch.randn_like(x) * sigma2[:, None, None].sqrt()
         elif self._prediction != "mode":
             raise ValueError(f"Unknown prediction mode: {self._prediction}")

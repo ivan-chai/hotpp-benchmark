@@ -5,12 +5,36 @@ from ptls.nn.trx_encoder.batch_norm import RBatchNormWithLens
 
 
 class EmbeddingEncoder(torch.nn.Embedding):
+    def __init__(self, num_embeddings, embedding_dim, normalize=False):
+        super().__init__(num_embeddings, embedding_dim)
+        self.normalize = normalize
+
     def forward(self, x):
         if x.payload.ndim != 2:
             raise ValueError(f"Expected tensor with shape (B, L), got {x.payload.shape}.")
         payload = x.payload
         payload = super().forward(payload.clip(min=0, max=self.num_embeddings - 1))
+        if self.normalize:
+            payload = torch.nn.functional.normalize(payload, dim=-1)
+            if isinstance(self.normalize, (int, float)):
+                payload = payload * self.normalize
+            elif not isinstance(self.normalize, bool):
+                raise ValueError(f"Unexpected normalization parameter: {self.normalize}")
         return PaddedBatch(payload, x.seq_lens)  # (B, L, D).
+
+    def clamp(self, x):
+        """Map categorical embeddings to nearest centroids.
+
+        The method is primarily designed for diffusion models. Please, refer to the original paper:
+        Zhou, Wang-Tao, et al. "Non-autoregressive diffusion-based temporal point processes
+        for continuous-time long-term event prediction." Expert Systems with Applications, 2025.
+        """
+        centroids = self.weight[None]
+        if self.normalize:
+            centroids = torch.nn.functional.normalize(centroids, dim=-1)
+        distances = torch.cdist(x.payload, centroids)  # (B, L, N).
+        indices = distances.argmin(dim=-1)  # (B, L, 1).
+        return PaddedBatch(super().forward(indices), x.seq_lens)  # (B, L, D).
 
     @property
     def output_size(self):
@@ -71,7 +95,7 @@ class Embedder(torch.nn.Module):
         super().__init__()
         encoders = {}
         for name, spec in (embeddings or {}).items():
-            encoders[name] = EmbeddingEncoder(spec["in"], spec["out"])
+            encoders[name] = EmbeddingEncoder(spec["in"], spec["out"], normalize=spec.get("normalize", False))
         for name, spec in (numeric_values or {}).items():
             if isinstance(spec, (str, torch.nn.Module)):
                 encoders[name] = self._make_encoder(spec)
@@ -117,6 +141,27 @@ class Embedder(torch.nn.Module):
             embeddings.append(custom_embedding.payload)
         payload = torch.cat(embeddings, -1)  # (B, L, D).
         return PaddedBatch(payload, batch.seq_lens)
+
+    def clamp(self, embeddings):
+        """Map categorical embeddings to nearest centroids.
+
+        The method is primarily designed for diffusion models. Please, refer to the original paper:
+        Zhou, Wang-Tao, et al. "Non-autoregressive diffusion-based temporal point processes
+        for continuous-time long-term event prediction." Expert Systems with Applications, 2025.
+        """
+        result = []
+        offset = 0
+        for name in self.embeddings_order:
+            layer = self.embeddings[name]
+            dim = layer.output_size
+            x = PaddedBatch(embeddings.payload[..., offset:offset + dim],  # (B, L, D).
+                            embeddings.seq_lens)
+            result.append(layer.clamp(x).payload)
+            offset += dim
+        result.append(embeddings.payload[..., offset:])
+        result = PaddedBatch(torch.cat(result, dim=-1), embeddings.seq_lens)
+        assert result.payload.shape == embeddings.payload.shape
+        return result
 
     def _make_encoder(self, spec, **kwargs):
         if isinstance(spec, torch.nn.Module):
