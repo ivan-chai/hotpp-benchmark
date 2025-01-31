@@ -1,0 +1,34 @@
+project: hotpp-sweep-agepred
+run_cap: 100
+name: next-item
+command:
+  - ${env}
+  - python3
+  - -m
+  - hotpp.train
+  - --config-dir
+  - configs
+  - --config-name
+  - next_item_transformer
+  - ~seed_everything
+  - ~model_path
+  - ~report
+  - ~downstream_report
+  - ${args_no_hyphens}
+method: bayes
+metric:
+  name: val/T-mAP
+  goal: maximize
+early_terminate:
+  type: hyperband
+  min_iter: 3
+parameters:
+  transformer_hidden_size:
+    min: 32
+    max: 2048
+  transformer_heads:
+    min: 1
+    max: 8
+  transformer_layers:
+    min: 1
+    max: 8
