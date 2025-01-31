@@ -7,11 +7,11 @@ diffusion_steps: 10
 module:
   seq_encoder:
     embedder:
-      categorical_noise: 0.3
+      categorical_noise: 0.85
   loss:
-    diffusion_loss_weight: 4.0
-    decoder_loss_weight: 0.8
-    embedder_regularizer: 0.5
-    alpha: 0.1
+    diffusion_loss_weight: 1.0
+    decoder_loss_weight: 1.0
+    embedder_regularizer: 2.8
+    alpha: 0.06
     detach_embeddings_from_step: false
     detach_decoder: false
