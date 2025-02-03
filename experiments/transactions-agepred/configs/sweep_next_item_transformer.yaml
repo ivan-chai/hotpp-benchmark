@@ -1,6 +1,6 @@
 project: hotpp-sweep-agepred
 run_cap: 100
-name: next-item
+name: next-item-transformer
 command:
   - ${env}
   - python3
