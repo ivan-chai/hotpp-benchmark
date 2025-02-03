@@ -11,9 +11,11 @@ rnn_hidden_size: 64
 rnn_inference_context: 64
 rnn_inference_context_step: 32
 
+transformer_context: 128
 transformer_hidden_size: 64
 transformer_heads: 4
-transformer_layers: 2
+transformer_layers: 4
+transformer_positions: 96  # max_predictions + data_module.max_length
 transformer_pos_m: 1  # ~ minimum delta.
 transformer_pos_M: 5000  # ~ maximum delta.
 
