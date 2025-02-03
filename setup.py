@@ -34,6 +34,7 @@ setuptools.setup(
         "lightgbm",
         "numpy>=1.23",
         "pyarrow>=14.0.0",
+        "pymonad",
         "pyspark>=3",
         "pytorch-lifestream>=0.6.0",
         "pytorch-lightning",
