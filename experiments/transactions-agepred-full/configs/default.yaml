@@ -15,9 +15,11 @@ rnn_hidden_size: 512
 rnn_inference_context: 1200
 rnn_inference_context_step: 200
 
+transformer_context: 128
 transformer_hidden_size: 512
 transformer_heads: 4
 transformer_layers: 2
+transformer_positions: 1232  # max_predictions + data_module.max_length
 transformer_pos_m: 1  # ~ minimum delta.
 transformer_pos_M: 800  # ~ maximum delta.
 
@@ -88,8 +90,7 @@ module:
         log_amount: identity
     max_time_delta: ${max_time_delta}
   aggregator:
-    _target_:
-      hotpp.nn.MeanAggregator
+    _target_: hotpp.nn.MeanAggregator
   optimizer_partial:
     _partial_: true
     _target_: torch.optim.Adam
