@@ -107,7 +107,7 @@ def main(args):
         col_event_time="timestamps",
         event_time_transformation="none",
         cols_category=["labels"],
-        category_transformation="frequency"
+        category_transformation="none"
     )
     transactions = preprocessor.fit_transform(transactions).persist()
     transactions = transactions.join(targets, on="id", how="left")
