@@ -3,14 +3,10 @@ import torch
 from torch_linear_assignment import batch_linear_assignment
 from hotpp.data import PaddedBatch
 from hotpp.utils.torch import deterministic, module_mode
+from ..fields import PRESENCE, PRESENCE_PROB
 from .common import ScaleGradient
 from .next_item import NextItemLoss
 from .next_k import NextKLoss
-
-
-# Special fields.
-PRESENCE = "_presence"
-PRESENCE_LOGITS = "_presence_logits"
 
 
 class DetectionLoss(NextKLoss):
@@ -149,8 +145,8 @@ class DetectionLoss(NextKLoss):
                     presence_logits = self._next_item.predict_next(
                         reshaped_outputs, reshaped_states,
                         fields=set(),
-                        logits_fields_mapping={"_presence": "_presence_logit"}
-                    ).payload["_presence_logit"]  # (BL, K, 1).
+                        logits_fields_mapping={PRESENCE: "_presence_logits"}
+                    ).payload["_presence_logits"]  # (BL, K, 1).
                 presence_logits = presence_logits.reshape(b, l, self._k)  # (B, L, K).
                 if self._drop_partial_windows in {True, "calibration"}:
                     full_matching = PaddedBatch(matching.payload, indices.payload["full_mask"].sum(1))
@@ -225,10 +221,10 @@ class DetectionLoss(NextKLoss):
         """
         # Add logits to the prediction fields.
         logits_fields_mapping = dict(logits_fields_mapping or {})
-        for field in ["_presence"] + list(self._categorical_fields):
+        for field in [PRESENCE] + list(self._categorical_fields):
             if field not in logits_fields_mapping:
                 logits_fields_mapping[field] = field + "_logits"
-        presence_logits_field = logits_fields_mapping["_presence"]
+        presence_logits_field = logits_fields_mapping[PRESENCE]
 
         adapters = set(self._next_item_adapter.values())
         unknown_adapters = adapters - {"head", "first", "mean", "mode", "label_mode"}
@@ -265,13 +261,13 @@ class DetectionLoss(NextKLoss):
             sequences = PaddedBatch({k: v.reshape(b, l, self._k, *v.shape[2:]) for k, v in predictions.payload.items()},
                                     lengths)  # (B, L, K) or (B, L, K, C).
             presence = sequences.payload[presence_logits_field].squeeze(-1) > self._matching_thresholds  # (B, L, K).
-            sequences = PaddedBatch(sequences.payload | {"_presence": presence}, sequences.seq_lens)
+            sequences = PaddedBatch(sequences.payload | {PRESENCE: presence}, sequences.seq_lens)
             self.revert_delta_and_sort_time_inplace(sequences)
             # Sequences contain time shift from the last seen timestamps.
             # Events are sorted by timestamp.
 
             # Prepare data.
-            presence = sequences.payload["_presence"]
+            presence = sequences.payload[PRESENCE]
             presence_logits = sequences.payload[presence_logits_field].squeeze(-1)  # (B, L, K).
             presence_logits = presence_logits.detach()  # Don't pass gradient to presence during next-item loss computation.
             log_presence = torch.nn.functional.logsigmoid(presence_logits)  # (B, L, K).
@@ -345,10 +341,10 @@ class DetectionLoss(NextKLoss):
             PaddedBatch with predictions with shape (B, L, K) or (B, L, K, C) for logits.
         """
         logits_fields_mapping = dict(logits_fields_mapping or {})
-        for field in ["_presence"]:
+        for field in [PRESENCE]:
             if field not in logits_fields_mapping:
                 logits_fields_mapping[field] = field + "_logits"
-        presence_logits_field = logits_fields_mapping["_presence"]
+        presence_logits_field = logits_fields_mapping[PRESENCE]
 
         b, l = outputs.shape
         lengths = outputs.seq_lens
@@ -361,13 +357,8 @@ class DetectionLoss(NextKLoss):
 
         # Extract presence.
         presence_logit = next_values.payload[presence_logits_field]  # (BL, K, 1).
-        next_values.payload["_weights"] = presence_logit.squeeze(2) - self._matching_thresholds
-        next_values.payload["_presence"] = next_values.payload["_weights"] > 0
-
-        # Update logits with presence value.
-        for field, logit_field in logits_fields_mapping.items():
-            if field != "_presence":
-                next_values.payload[logit_field] += presence_logit  # (BL, K, C).
+        next_values.payload[PRESENCE] = presence_logit.squeeze(2) > self._matching_thresholds  # (BL, K).
+        next_values.payload[PRESENCE_PROB] = torch.sigmoid(presence_logit.squeeze(2))  # (BL, K).
 
         # Reshape and return.
         sequences = PaddedBatch({k: v.reshape(b, l, self._k, *v.shape[2:]) for k, v in next_values.payload.items()},

@@ -3,7 +3,8 @@ from abc import ABC, abstractmethod
 import pytorch_lightning as pl
 import torch
 
-from hotpp.data import PaddedBatch
+from ..fields import PRESENCE, PRESENCE_PROB
+from ..data import PaddedBatch
 
 
 class Interpolator:
@@ -245,7 +246,9 @@ class BaseModule(pl.LightningModule):
 
         if metric.horizon_prediction:
             indices = metric.select_horizon_indices(features.seq_lens)
-            sequences = self.generate_sequences(features, indices)
+            sequences = self.generate_sequences(features, indices)  # (B, I, N).
+            predicted_mask = sequences.payload.get(PRESENCE, None)  # (B, I, N).
+            predicted_probabilities = sequences.payload.get(PRESENCE_PROB, None)  # (B, I, N).
             metric.update_horizon(features.seq_lens,
                                   features.payload[self._timestamps_field],
                                   features.payload[self._labels_field],
@@ -254,7 +257,8 @@ class BaseModule(pl.LightningModule):
                                   sequences.payload[self._timestamps_field],
                                   sequences.payload[self._labels_field],
                                   sequences.payload[self._labels_logits_field],
-                                  seq_predicted_weights=sequences.payload.get("_weights", None))
+                                  seq_predicted_mask=predicted_mask,
+                                  seq_predicted_probabilities=predicted_probabilities)
 
     @torch.autocast("cuda", enabled=False)
     def _compute_single_batch_metrics(self, inputs, outputs, states):
