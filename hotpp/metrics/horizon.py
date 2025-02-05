@@ -106,7 +106,6 @@ class HorizonMetric:
         """Update sequence metrics with new observations.
 
         NOTE: Timestamps and labels must be provided without offset w.r.t. predictions, i.e. input features.
-        NOTE: seq_predicted_masks must be ordered (true values at the beginning and false values at the end).
 
         Args:
             seq_lens: Sequence lengths with shape (B).
@@ -119,7 +118,8 @@ class HorizonMetric:
             seq_predicted_labels_logits: Predicted labels logits with shape (B, I, N, C).
             seq_predicted_mask (optional): Mask of predicted events with shape (B, I, N).
             seq_predicted_probabilities (optional): Occurrence probabilities for each prediction with shape (B, I, N).
-                By default all probabilities are equal to one. Probabilities are used independent of seq_predicted_mask.
+                By default all probabilities are equal to one. If probabilities are provided, they are used in T-mAP
+                computation instead of seq_predicted_mask.
         """
         b, l, n = seq_predicted_timestamps.shape
         device = seq_predicted_timestamps.device
@@ -178,30 +178,33 @@ class HorizonMetric:
 
         # Update T-mAP.
         if self.tmap is not None:
-            predicted_labels_scores = predicted_labels_logits
+            tmap_predicted_labels_scores = predicted_labels_logits
+            tmap_predicted_mask = predicted_mask
             if predicted_probabilities is not None:
-                predicted_labels_scores = predicted_labels_scores + predicted_probabilities.clip(min=1e-6).log().unsqueeze(2)  # (V, N, C).
+                predicted_logprobs = predicted_probabilities.log().clip(min=-100)  # (V, N).
+                tmap_predicted_labels_scores = tmap_predicted_labels_scores + predicted_logprobs.unsqueeze(2)  # (V, N, C).
+                tmap_predicted_mask = torch.ones_like(tmap_predicted_mask)
             self.tmap.update(
                 initial_times=initial_timestamps,
                 target_mask=torch.ones(v, self.map_target_length, dtype=torch.bool, device=initial_timestamps.device),  # (V, K).
                 target_times=target_timestamps[:, :self.map_target_length],  # (V, K).
                 target_labels=target_labels[:, :self.map_target_length],  # (V, K).
-                predicted_mask=predicted_mask,  # (V, N).
+                predicted_mask=tmap_predicted_mask,  # (V, N).
                 predicted_times=predicted_timestamps,  # (V, N).
-                predicted_labels_scores=predicted_labels_scores  # (V, N, C).
+                predicted_labels_scores=tmap_predicted_labels_scores  # (V, N, C).
             )
 
         # Update OTD.
         if self.otd is not None:
             if predicted_timestamps.shape[-1] < self.otd_steps:
                 raise RuntimeError("Need more predicted events for OTD evaluation.")
-
-            otd_mask = predicted_mask.cumsum(1) <= self.otd_steps  # (V, N).
+            otd_mask = torch.logical_and(predicted_mask, predicted_mask.cumsum(1) <= self.otd_steps)  # (V, N).
             not_enough = otd_mask.sum(1) < self.otd_steps  # (V).
             if not_enough.any():
                 if predicted_probabilities is None:
                     raise ValueError("Not enough predictions for OTD, need predicted probabilities to select predictions")
                 top_indices = predicted_probabilities[not_enough].topk(self.otd_steps, dim=1)[1]  # (E, R).
+                otd_mask[not_enough] = False
                 otd_mask[not_enough] = otd_mask[not_enough].scatter(1, top_indices, torch.full_like(top_indices, True, dtype=torch.bool))
             otd_predicted_timestamps = predicted_timestamps[otd_mask].reshape(v, self.otd_steps)  # (V, S).
             otd_predicted_labels = predicted_labels[otd_mask].reshape(v, self.otd_steps)  # (V, S).

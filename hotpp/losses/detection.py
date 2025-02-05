@@ -358,7 +358,7 @@ class DetectionLoss(NextKLoss):
         # Extract presence.
         presence_logit = next_values.payload[presence_logits_field]  # (BL, K, 1).
         next_values.payload[PRESENCE] = presence_logit.squeeze(2) > self._matching_thresholds  # (BL, K).
-        next_values.payload[PRESENCE_PROB] = torch.sigmoid(presence_logit.squeeze(2))  # (BL, K).
+        next_values.payload[PRESENCE_PROB] = torch.exp(presence_logit.squeeze(2))  # (BL, K).
 
         # Reshape and return.
         sequences = PaddedBatch({k: v.reshape(b, l, self._k, *v.shape[2:]) for k, v in next_values.payload.items()},
