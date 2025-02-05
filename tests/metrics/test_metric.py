@@ -87,8 +87,9 @@ class TestMetrics(TestCase):
         self.assertAlmostEqual(metric.compute()["next-item-accuracy"], acc_gt)
 
     def test_map_metric(self):
-        metric = TMAPMetric(time_delta_thresholds=[0, 1])
+        metric = TMAPMetric(horizon=100, time_delta_thresholds=[0, 1])
         metric.update(
+            initial_times=self.seq_target_times[:, 0] - 1,
             target_mask=self.seq_target_mask,
             target_times=self.seq_target_times,
             target_labels=self.seq_target_labels,
@@ -97,30 +98,30 @@ class TestMetrics(TestCase):
             predicted_labels_scores=self.seq_predicted_labels_logits
         )
         # Matching (prediction -> target):
-        # Batch 1: 0 -> 1 for horizon 1 and 3 -> 1, 1 -> 0 for horizon 2.
+        # Batch 1: 0 -> 1 for delta 1 and 3 -> 1, 1 -> 0 for delta 2.
         # Batch 2: 2 -> 1.
         #
-        # Scores horizon 1, batch 1:
+        # Scores delta 1, batch 1:
         # class 0: Unmatched.
         # class 1: 0.9 (pos), 0, 1.
         #
-        # Scores horizon 2, batch 1:
+        # Scores delta 2, batch 1:
         # class 0: 0.0.
         # class 1: 0.9, 0, 1 (pos).
         #
-        # Scores horizon 1, batch 2:
+        # Scores delta 1, batch 2:
         # class 0: Empty.
         # class 1: 0.8, 0.09 (pos).
         #
-        # Scores horizon 2, batch 2:
+        # Scores delta 2, batch 2:
         # class 0: Empty.
         # class 1: 0.8, 0.09 (pos).
         #
-        # All scores horizon 1:
+        # All scores delta 1:
         # class 0: Unmatched, recall is always 0.
         # class 1: 0, 0.09 (pos), 0.8, 0.9 (pos), 1.
         #
-        # All scores horizon 2:
+        # All scores delta 2:
         # class 0: 0, 0.05 (pos), 0, 0, 0.
         # class 1: 0, 0.09 (pos), 0.8, 0.9, 1 (pos).
         ap_h1_c0 = 0
