@@ -81,6 +81,6 @@ class HorizonStatsMetric:
         targets = torch.cat(self._targets)  # (B, T).
         scores = torch.cat(self._scores)  # (B, T).
         return {
-            "horizon_stats_roc_auc": roc_auc_score(targets, scores, average="macro"),
-            "horizon_stats_roc_auc_weighted": roc_auc_score(targets, scores, average="weighted")
+            "horizon-stats-roc-auc": roc_auc_score(targets, scores, average="macro"),
+            "horizon-stats-roc-auc-weighted": roc_auc_score(targets, scores, average="weighted")
         }
