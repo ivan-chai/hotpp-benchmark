@@ -1,5 +1,6 @@
 defaults:
   - downstream@downstream
+  - stats_targets@metric.stats_targets
   - _self_
 
 seed_everything: 42
@@ -63,6 +64,7 @@ metric:
   otd_steps: 5
   otd_insert_cost: 1
   otd_delete_cost: 1
+  log_amount: true
 
 head:
   _target_: hotpp.nn.Head
@@ -77,6 +79,7 @@ conditional_head:
   use_batch_norm: true
 
 module:
+  amounts_field: log_amount
   seq_encoder:
     _target_: hotpp.nn.RnnEncoder
     embedder:

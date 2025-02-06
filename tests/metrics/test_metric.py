@@ -4,7 +4,7 @@ from unittest import TestCase, main
 
 import torch
 
-from hotpp.metrics import NextItemMetric, TMAPMetric, OTDMetric, HorizonMetric
+from hotpp.metrics import NextItemMetric, TMAPMetric, OTDMetric, HorizonMetric, HorizonStatsMetric
 
 
 class TestMetrics(TestCase):
@@ -50,6 +50,10 @@ class TestMetrics(TestCase):
             [ 0, 1],
             [-1, 1]
         ])
+        self.seq_target_amounts = torch.tensor([
+            [2, 1],
+            [0, 6]
+        ])
         self.seq_predicted_mask = torch.tensor([
             [True, True, False, True],
             [True, False, True, False]
@@ -72,6 +76,10 @@ class TestMetrics(TestCase):
                 [0, 0]
             ]
         ]).clip(min=1e-6).log()  # (1, 2, 4, 2).
+        self.seq_predicted_amounts = torch.tensor([
+            [2, 0, 5, 4],
+            [5, 2, 6, 6]
+        ])
 
     def test_next_item_metric(self):
         metric = NextItemMetric()
@@ -195,6 +203,39 @@ class TestMetrics(TestCase):
         metric.update(target_times, target_labels, predicted_times, predicted_labels)
         result = metric.compute()
         self.assertAlmostEqual(result["optimal-transport-distance"], 0)
+
+    def test_horizon_stats(self):
+        initial_times = torch.tensor([-1, 3.5])
+        targets = [
+            {"horizon": 1,
+             "label": [0, 1],
+             "threshold": 2,
+             "is_less": False},
+            {"horizon": 10,
+             "label": [1],
+             "threshold": 2,
+             "is_less": False}
+        ]
+        metric = HorizonStatsMetric(targets)
+        metric.update(
+            initial_times,
+            self.seq_target_mask,
+            self.seq_target_times,
+            self.seq_target_labels,
+            self.seq_predicted_mask.float(),
+            self.seq_predicted_times,
+            self.seq_predicted_labels_logits,
+            target_amounts=self.seq_target_amounts,
+            predicted_amounts=self.seq_predicted_amounts
+        )
+        results = metric.compute()
+        # AUC:
+        # target 0: 0
+        # target 1: 1
+        # MACRO: 0.5
+        # WEIGHTED: 0.5
+        self.assertAlmostEqual(results["horizon_stats_roc_auc"], 0.5)
+        self.assertAlmostEqual(results["horizon_stats_roc_auc_weighted"], 0.5)
 
     def test_end_to_end(self):
         metric = HorizonMetric(self.horizon, horizon_evaluation_step=3,

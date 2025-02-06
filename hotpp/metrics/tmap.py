@@ -173,6 +173,6 @@ class TMAPMetric:
             micro_accs.append((max_accs * micro_weights).sum().item())
         return {
             "T-mAP": sum(losses) / len(losses),
-            "T-mAP-micro": sum(micro_losses) / len(micro_losses),
-            "horizon-max-accuracy-micro": sum(micro_accs) / len(micro_accs)
+            "T-mAP-weighted": sum(micro_losses) / len(micro_losses),
+            "horizon-max-accuracy-weighted": sum(micro_accs) / len(micro_accs)
         }

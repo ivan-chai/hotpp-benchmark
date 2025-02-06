@@ -74,5 +74,5 @@ class NextItemMetric(torch.nn.Module):
             "next-item-accuracy": self._n_correct_labels / self._n_labels,
             "next-item-max-accuracy": (max_accs * micro_weights).sum(),
             "next-item-map": aps.mean(),
-            "next-item-map-micro": (aps * micro_weights).sum()
+            "next-item-map-weighted": (aps * micro_weights).sum()
         }

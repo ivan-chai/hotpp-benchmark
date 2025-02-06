@@ -1,9 +1,10 @@
 import torch
 
 from ..data import PaddedBatch
-from .tmap import TMAPMetric
+from .horizon_stats import HorizonStatsMetric
 from .next_item import NextItemMetric
 from .otd import OTDMetric, batch_bincount
+from .tmap import TMAPMetric
 
 
 class HorizonMetric:
@@ -19,10 +20,13 @@ class HorizonMetric:
         otd_steps: The number of steps for optimal transport distance evaluation.
         otd_insert_cost: OTD insert cost.
         otd_delete_cost: OTD delete cost.
+        stats_targets: Horizon targets in the form of dictionaries with "horizon", "label", "threshold", and "is_less" fields.
+        log_amount: Set this flag if input amount is processed with log(1 + x).
     """
     def __init__(self, horizon, horizon_evaluation_step=1, max_time_delta=None,
                  map_deltas=None, map_target_length=None,
-                 otd_steps=None, otd_insert_cost=None, otd_delete_cost=None):
+                 otd_steps=None, otd_insert_cost=None, otd_delete_cost=None,
+                 stats_targets=None, log_amount=False):
         self.horizon = horizon
         self.horizon_evaluation_step = horizon_evaluation_step
 
@@ -46,7 +50,16 @@ class HorizonMetric:
             self.otd_steps = None
             self.otd = None
 
+        if stats_targets is not None:
+            self.horizon_stats = HorizonStatsMetric(stats_targets, log_amount=log_amount)
+        else:
+            self.horizon_stats = None
+
         self.reset()
+
+    @property
+    def need_amount(self):
+        return self.horizon_stats is not None
 
     @property
     def horizon_prediction(self):
@@ -63,6 +76,8 @@ class HorizonMetric:
             self.tmap.reset()
         if self.otd is not None:
             self.otd.reset()
+        if self.horizon_stats is not None:
+            self.horizon_stats.reset()
 
     def select_horizon_indices(self, seq_lens):
         """Select indices for horizon metrics evaluation."""
@@ -102,7 +117,8 @@ class HorizonMetric:
     def update_horizon(self, seq_lens, timestamps, labels,
                        indices, indices_lens,
                        seq_predicted_timestamps, seq_predicted_labels, seq_predicted_labels_logits,
-                       seq_predicted_mask=None, seq_predicted_probabilities=None):
+                       seq_predicted_mask=None, seq_predicted_probabilities=None,
+                       amounts=None, seq_predicted_amounts=None):
         """Update sequence metrics with new observations.
 
         NOTE: Timestamps and labels must be provided without offset w.r.t. predictions, i.e. input features.
@@ -120,10 +136,15 @@ class HorizonMetric:
             seq_predicted_probabilities (optional): Occurrence probabilities for each prediction with shape (B, I, N).
                 By default all probabilities are equal to one. If probabilities are provided, they are used in T-mAP
                 computation instead of seq_predicted_mask.
+            amounts: Dataset amounts with shape (B, T).
+            seq_predicted_amounts (optional): Predicted amount values for a horizon stats metric with shape (B, I, N).
         """
         b, l, n = seq_predicted_timestamps.shape
         device = seq_predicted_timestamps.device
-        features = PaddedBatch({"timestamps": timestamps, "labels": labels}, seq_lens)
+        features = {"timestamps": timestamps, "labels": labels}
+        if amounts is not None:
+            features["amounts"] = amounts
+        features = PaddedBatch(features, seq_lens)
         indices = PaddedBatch(indices, indices_lens)
         if not features.seq_len_mask.take_along_dim(indices.payload, 1).masked_select(indices.seq_len_mask).all():
             raise ValueError("Some indices are out of sequence lengths")
@@ -142,6 +163,10 @@ class HorizonMetric:
         initial_timestamps = seq_initial_timestamps[:, :l][seq_mask]  # (V).
         target_timestamps = targets.payload["timestamps"][seq_mask]  # (V, K).
         target_labels = targets.payload["labels"][seq_mask]  # (V, K).
+        if "amounts" in targets.payload:
+            target_amounts = targets.payload["amounts"][seq_mask]
+        else:
+            target_amounts = None
         predicted_timestamps = seq_predicted_timestamps[:, :l][seq_mask]  # (V, N).
         predicted_labels = seq_predicted_labels[:, :l][seq_mask]  # (V, N).
         predicted_labels_logits = seq_predicted_labels_logits[:, :l][seq_mask]  # (V, N, C).
@@ -152,6 +177,10 @@ class HorizonMetric:
             predicted_probabilities = None
         else:
             predicted_probabilities = seq_predicted_probabilities[:, :l][seq_mask]  # (V, N).
+        if seq_predicted_amounts is None:
+            predicted_amounts = None
+        else:
+            predicted_amounts = seq_predicted_amounts[:, :l][seq_mask]  # (V, N).
 
         # Compute simple horizon metrics.
         horizon_targets_mask = target_timestamps - initial_timestamps.unsqueeze(1) < self.horizon  # (V, N).
@@ -215,6 +244,24 @@ class HorizonMetric:
                 predicted_labels=otd_predicted_labels,  # (V, S).
             )
 
+        # Update horizon stats binary targets classification.
+        if self.horizon_stats is not None:
+            if predicted_probabilities is not None:
+                stats_predicted_probabilities = predicted_probabilities
+            else:
+                stats_predicted_probabilities = predicted_mask.float()
+            self.horizon_stats.update(
+                initial_times=initial_timestamps,
+                target_mask=torch.ones(*target_timestamps.shape, dtype=torch.bool, device=target_timestamps.device),  # (V, K).
+                target_times=target_timestamps,  # (V, K).
+                target_labels=target_labels,  # (V, K).
+                target_amounts=target_amounts,  # (V, K).
+                predicted_probabilities=stats_predicted_probabilities,  # (V, K).
+                predicted_times=predicted_timestamps,  # (V, N).
+                predicted_labels_logits=predicted_labels_logits,  # (V, N, C).
+                predicted_amounts=predicted_amounts,  # (V, K).
+            )
+
     def compute(self):
         values = {}
         if self._target_lengths:
@@ -232,6 +279,8 @@ class HorizonMetric:
             values.update(self.tmap.compute())
         if self.otd is not None:
             values.update(self.otd.compute())
+        if self.horizon_stats is not None:
+            values.update(self.horizon_stats.compute())
         return values
 
     def _extract_target_sequences(self, features, indices):

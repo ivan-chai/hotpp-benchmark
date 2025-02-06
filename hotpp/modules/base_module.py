@@ -45,6 +45,7 @@ class BaseModule(pl.LightningModule):
         loss: Training loss.
         timestamps_field: The name of the timestamps field.
         labels_field: The name of the labels field.
+        amounts_field (optional): The name of the amount field for some metrics.
         head_partial: FC head model class which accepts input and output dimensions.
         aggregator: Embeddings aggregator.
         optimizer_partial:
@@ -57,6 +58,7 @@ class BaseModule(pl.LightningModule):
     def __init__(self, seq_encoder, loss,
                  timestamps_field="timestamps",
                  labels_field="labels",
+                 amounts_field=None,
                  head_partial=None,
                  aggregator=None,
                  optimizer_partial=None,
@@ -68,6 +70,7 @@ class BaseModule(pl.LightningModule):
         self._timestamps_field = timestamps_field
         self._labels_field = labels_field
         self._labels_logits_field = f"{labels_field}_logits"
+        self._amounts_field = amounts_field
 
         self._loss = loss
         self._seq_encoder = seq_encoder
@@ -249,6 +252,12 @@ class BaseModule(pl.LightningModule):
             sequences = self.generate_sequences(features, indices)  # (B, I, N).
             predicted_mask = sequences.payload.get(PRESENCE, None)  # (B, I, N).
             predicted_probabilities = sequences.payload.get(PRESENCE_PROB, None)  # (B, I, N).
+            kwargs = {}
+            if metric.need_amount:
+                if self._amounts_field is None:
+                    raise ValueError("Need amount field name to compute the horizon stats metric")
+                kwargs["amounts"] = features.payload[self._amounts_field]
+                kwargs["seq_predicted_amounts"] = sequences.payload[self._amounts_field]
             metric.update_horizon(features.seq_lens,
                                   features.payload[self._timestamps_field],
                                   features.payload[self._labels_field],
@@ -258,7 +267,8 @@ class BaseModule(pl.LightningModule):
                                   sequences.payload[self._labels_field],
                                   sequences.payload[self._labels_logits_field],
                                   seq_predicted_mask=predicted_mask,
-                                  seq_predicted_probabilities=predicted_probabilities)
+                                  seq_predicted_probabilities=predicted_probabilities,
+                                  **kwargs)
 
     @torch.autocast("cuda", enabled=False)
     def _compute_single_batch_metrics(self, inputs, outputs, states):
