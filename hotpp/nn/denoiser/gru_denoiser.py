@@ -30,6 +30,8 @@ class GRUDenoiser(torch.nn.Module):
             Cleaned embeddings with shape (B, L, D).
         """
         b, l, d = embeddings.payload.shape
+        if (embeddings.seq_lens != l).any():
+            raise NotImplementedError(f"Can't use padding in denoiser.")
         step_embeddings = self._steps_embedder(steps)  # (B, D).
         inputs = embeddings.payload + step_embeddings[:, None, :]  # (B, L, D).
         states = conditions[None].expand(self._total_layers, b, self._hidden_size).contiguous()
