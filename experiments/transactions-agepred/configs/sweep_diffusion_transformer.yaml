@@ -1,0 +1,56 @@
+project: hotpp-sweep-transactions
+run_cap: 100
+name: diffusion_transformer
+command:
+  - ${env}
+  - python3
+  - -m
+  - hotpp.train
+  - --config-dir
+  - configs
+  - --config-name
+  - diffusion_transformer
+  - ~seed_everything
+  - ~model_path
+  - ~report
+  - ${args_no_hyphens}
+method: bayes
+metric:
+  name: val/T-mAP
+  goal: maximize
+early_terminate:
+  type: hyperband
+  min_iter: 3
+parameters:
+  transformer_layers:
+    min: 1
+    max: 6
+  transformer_heads:
+    min: 1
+    max: 4
+  transformer_hidden_size:
+    values: [16, 32, 64, 128, 256]
+  module.seq_encoder.embedder.categorical_noise:
+    min: 0.0
+    max: 2.0
+  module.loss.denoiser_partial.dropout:
+    min: 0.0
+    max: 0.5
+  module.loss.diffusion_loss_weight:
+    min: 0.0
+    max: 10.0
+  module.loss.decoder_loss_weight:
+    min: 0.0
+    max: 10.0
+  module.loss.embedder_regularizer:
+    min: 0.0
+    max: 10.0
+  module.loss.alpha:
+    min: 0.0
+    max: 1.0
+  module.loss.detach_embeddings_from_step:
+    min: 1
+    max: 20
+  diffusion_steps:
+    min: 2
+    max: 20
