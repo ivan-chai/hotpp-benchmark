@@ -34,6 +34,25 @@ The HoTPP benchmark focuses on the long-horizon prediction of event sequences. E
 * Improved TPP thinning algorithm
 * Optimized training and inference (ODE, cont. time models, multi-point generation with RNN)
 
+# Implemented Methods
+The list of implemented papers:
+
+| Year | Name      | Paper                                                                                                      | Source                           |
+|------|-----------|------------------------------------------------------------------------------------------------------------|----------------------------------|
+| 2025 | Diffusion | Non-autoregressive diffusion-based temporal point processes for continuous-time long-term event prediction | Expert Systems with Applications |
+| 2024 | DeTPP     | DeTPP: Leveraging Object Detection for Robust Long-Horizon Event Prediction                                | arXiv                            |
+| 2022 | AttNHP    | Transformer embeddings of irregularly spaced events and their participants                                 | ICLR 2022                        |
+| 2022 | HYPRO     | Hypro: A hybridly normalized probabilistic model for long-horizon prediction of event sequences            | NeurIPS 2022                     |
+| 2020 | IFTPP     | Intensity-free learning of temporal point processes                                                        | ICLR 2020                        |
+| 2019 | ODE       | Latent ordinary differential equations for irregularly-sampled time series                                 | NeurIPS 2019                     |
+| 2017 | NHP       | The neural hawkes process: A neurally self-modulating multivariate point process                           | NeurIPS 2017                     |
+| 2016 | RMTPP     | Recurrent marked temporal point processes: Embedding event history to vector                               | SIGKDD 2016                      |
+
+Other methods:
+* Simple baselines (MostPopular, Last-K)
+* Next-K extensions of IFTPP and RMTPP.
+* Transformer variants of RMTPP and IFTPP.
+
 # Installation
 Install via PyPI:
 ```sh
