@@ -234,8 +234,8 @@ class TestMetrics(TestCase):
         # target 1: 1
         # MACRO: 0.5
         # WEIGHTED: 0.5
-        self.assertAlmostEqual(results["horizon_stats_roc_auc"], 0.5)
-        self.assertAlmostEqual(results["horizon_stats_roc_auc_weighted"], 0.5)
+        self.assertAlmostEqual(results["horizon-stats-roc-auc"], 0.5)
+        self.assertAlmostEqual(results["horizon-stats-roc-auc-weighted"], 0.5)
 
     def test_end_to_end(self):
         metric = HorizonMetric(self.horizon, horizon_evaluation_step=3,
