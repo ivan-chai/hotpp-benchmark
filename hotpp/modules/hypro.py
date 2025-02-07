@@ -2,6 +2,7 @@ import warnings
 import torch
 from hotpp.data import PaddedBatch
 from hotpp.utils.torch import module_mode, BATCHNORM_TYPES
+from ..fields import LABELS_LOGITS
 from .next_item import NextItemModule
 
 
@@ -124,7 +125,7 @@ class HyproModule(NextItemModule):
         # Join fields before windowing.
         b, l = x.shape
         device = x.device
-        fields = [field for field in sequences.seq_names if field != self._labels_logits_field]
+        fields = [field for field in sequences.seq_names if field != LABELS_LOGITS]
         joined = torch.stack([x.payload[field] for field in fields], -1)  # (B, L, D).
 
         # Extract prefixes.
@@ -204,17 +205,17 @@ class HyproModule(NextItemModule):
                                 indices.seq_lens)  # (B, I, S, N, *).
         result = PaddedBatch({k: v.take_along_dim(best_indices.unsqueeze(3), 2).squeeze(2)
                               for k, v in sequences.payload.items()
-                              if (k in sequences.seq_names) and (k != self._labels_logits_field)},
+                              if (k in sequences.seq_names) and (k != LABELS_LOGITS)},
                              indices.seq_lens)  # (B, I, N).
 
         # Gather logits.
         if self._hypro_logits_prediction == "best":
             logits_indices = best_indices.unsqueeze(3).unsqueeze(4)  # (B, I, 1, 1, 1).
-            result.payload[self._labels_logits_field] = sequences.payload[self._labels_logits_field].take_along_dim(logits_indices, 2).squeeze(2)  # (B, I, N, C).
+            result.payload[LABELS_LOGITS] = sequences.payload[LABELS_LOGITS].take_along_dim(logits_indices, 2).squeeze(2)  # (B, I, N, C).
         elif self._hypro_logits_prediction == "mean-prob":
-            logits = sequences.payload[self._labels_logits_field]  # (B, I, S, N, C).
+            logits = sequences.payload[LABELS_LOGITS]  # (B, I, S, N, C).
             probs = torch.nn.functional.softmax(logits, -1)  # (B, I, S, N, C).
-            result.payload[self._labels_logits_field] = (probs * weights.unsqueeze(3).unsqueeze(4)).sum(2).clip(min=1e-6).log()  # (B, I, N, C).
+            result.payload[LABELS_LOGITS] = (probs * weights.unsqueeze(3).unsqueeze(4)).sum(2).clip(min=1e-6).log()  # (B, I, N, C).
         else:
             raise ValueError(f"Unknown logits prediction mode: {self._hypro_logits_prediction}")
 

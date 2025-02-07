@@ -196,7 +196,10 @@ class HorizonMetric:
             self._horizon_n_predicted_deltas += deltas.numel()
 
         # Update entropies.
-        not_event = seq_predicted_labels[seq_predicted_mask].max().item() + 1
+        if seq_predicted_mask.sum() > 0:
+            not_event = seq_predicted_labels[seq_predicted_mask].max().item() + 1
+        else:
+            not_event = 0
         horizon_seq_predicted_mask = torch.logical_and(torch.logical_and(seq_predicted_mask, seq_mask.unsqueeze(2)),
                                                        seq_predicted_timestamps - seq_initial_timestamps.unsqueeze(2) < self.horizon)
         predicted_labels_masked = seq_predicted_labels.masked_fill(~horizon_seq_predicted_mask, not_event).flatten(1, 2)  # (B, IN).
