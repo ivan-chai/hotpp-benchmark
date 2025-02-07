@@ -80,7 +80,10 @@ class HorizonStatsMetric:
             return {}
         targets = torch.cat(self._targets)  # (B, T).
         scores = torch.cat(self._scores)  # (B, T).
-        is_less = torch.tensor([t["is_less"] for t in self.targets], dtype=torch.bool)
+        active_classes = torch.logical_and(targets.any(0), ~targets.all(0))  # (T).
+        targets = targets[:, active_classes]
+        scores = scores[:, active_classes]
+        is_less = torch.tensor([t["is_less"] for t in self.targets], dtype=torch.bool)[active_classes]
         scores[:, is_less] *= -1
         return {
             "horizon-stats-roc-auc": roc_auc_score(targets, scores, average="macro"),

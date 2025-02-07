@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 import pytorch_lightning as pl
 import torch
 
-from ..fields import PRESENCE, PRESENCE_PROB
+from ..fields import PRESENCE, PRESENCE_PROB, LABELS_LOGITS
 from ..data import PaddedBatch
 
 
@@ -69,7 +69,6 @@ class BaseModule(pl.LightningModule):
         super().__init__()
         self._timestamps_field = timestamps_field
         self._labels_field = labels_field
-        self._labels_logits_field = f"{labels_field}_logits"
         self._amounts_field = amounts_field
 
         self._loss = loss
@@ -235,10 +234,10 @@ class BaseModule(pl.LightningModule):
         lengths = torch.minimum(outputs.seq_lens, features.seq_lens)
         next_items = self.predict_next(features, outputs, states,
                                        fields=[self._timestamps_field, self._labels_field],
-                                       logits_fields_mapping={self._labels_field: self._labels_logits_field})
+                                       logits_fields_mapping={self._labels_field: LABELS_LOGITS})
         predicted_timestamps = next_items.payload[self._timestamps_field]  # (B, L).
         predicted_labels = next_items.payload[self._labels_field]  # (B, L).
-        predicted_logits = next_items.payload[self._labels_logits_field]  # (B, L, C).
+        predicted_logits = next_items.payload[LABELS_LOGITS]  # (B, L, C).
 
         metric.update_next_item(lengths,
                                 features.payload[self._timestamps_field],
@@ -265,7 +264,7 @@ class BaseModule(pl.LightningModule):
                                   indices.seq_lens,
                                   sequences.payload[self._timestamps_field],
                                   sequences.payload[self._labels_field],
-                                  sequences.payload[self._labels_logits_field],
+                                  sequences.payload[LABELS_LOGITS],
                                   seq_predicted_mask=predicted_mask,
                                   seq_predicted_probabilities=predicted_probabilities,
                                   **kwargs)

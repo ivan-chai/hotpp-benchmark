@@ -1,7 +1,7 @@
 import torch
 from hotpp.data import PaddedBatch
 from hotpp.utils.torch import deterministic
-from ..nn import Head
+from ..fields import LABELS_LOGITS
 from .base_module import BaseModule
 
 
@@ -120,5 +120,5 @@ class MostPopularModule(BaseModule):
         logits = torch.nn.functional.one_hot(labels, self._num_classes).float()  # (B, L, C).
         sequences = {self._timestamps_field: timestamps,
                      self._labels_field: labels,
-                     self._labels_logits_field: logits}
+                     LABELS_LOGITS: logits}
         return PaddedBatch(sequences, indices.seq_lens)
