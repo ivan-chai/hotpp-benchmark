@@ -1,0 +1,50 @@
+project: hotpp-sweep-mimiciv
+run_cap: 500
+name: diffusion_gru
+command:
+  - ${env}
+  - python3
+  - -m
+  - hotpp.train
+  - --config-dir
+  - configs
+  - --config-name
+  - diffusion_gru
+  - ~seed_everything
+  - ~model_path
+  - ~report
+  - ${args_no_hyphens}
+method: bayes
+metric:
+  name: val/T-mAP
+  goal: maximize
+early_terminate:
+  type: hyperband
+  min_iter: 3
+parameters:
+  module.seq_encoder.embedder.categorical_noise:
+    min: 0.0
+    max: 2.0
+  module.loss.denoiser_partial.num_layers:
+    min: 1
+    max: 3
+  module.loss.diffusion_loss_weight:
+    min: 0.0
+    max: 10.0
+  module.loss.decoder_loss_weight:
+    min: 0.0
+    max: 10.0
+  module.loss.embedder_regularizer:
+    min: 0.0
+    max: 10.0
+  module.loss.alpha:
+    min: 0.0
+    max: 1.0
+  module.loss.detach_embeddings_from_step:
+    min: 1
+    max: 20
+  module.loss.detach_decoder:
+    values: [true, false]
+  diffusion_steps:
+    min: 2
+    max: 20

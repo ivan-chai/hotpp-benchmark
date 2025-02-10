@@ -1,0 +1,3 @@
+defaults:
+  - diffusion_transformer_base
+  - _self_

@@ -11,9 +11,11 @@ rnn_hidden_size: 64
 rnn_inference_context: 264
 rnn_inference_context_step: 50
 
-transformer_hidden_size: 64
+transformer_context: 128
+transformer_hidden_size: 32
 transformer_heads: 4
 transformer_layers: 2
+transformer_positions: 132  # max_predictions + data_module.max_length
 transformer_pos_m: 1  # ~ minimum delta.
 transformer_pos_M: 2500  # ~ maximum delta.
 
@@ -71,10 +73,14 @@ conditional_head:
 module:
   seq_encoder:
     _target_: hotpp.nn.RnnEncoder
-    embeddings:
-      labels:
-        in: ${num_classes}
-        out: 16
+    embedder:
+      _target_: hotpp.nn.Embedder
+      embeddings:
+        labels:
+          in: ${num_classes}
+          out: 16
+      numeric_values:
+        timestamps: identity
     max_time_delta: ${max_time_delta}
   optimizer_partial:
     _partial_: true

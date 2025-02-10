@@ -1,0 +1,10 @@
+defaults:
+  - detection256
+  - _self_
+
+name: detection256_hybrid
+
+module:
+  loss:
+    next_item_adapter: head
+    next_item_loss_weight: 4

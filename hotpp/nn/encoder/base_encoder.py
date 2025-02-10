@@ -1,33 +1,33 @@
 from abc import ABC, abstractmethod, abstractproperty
 import torch
 
-from ptls.nn import TrxEncoder
 from hotpp.data import PaddedBatch
+from .embedder import Embedder
 
 
 class BaseEncoder(torch.nn.Module):
     """Combines embedder and sequential model.
 
     Args:
-        embeddings: Dict with categorical feature names. Values must be like this `{'in': dictionary_size, 'out': embedding_size}`.
+        embedder: An instance of embedder Class for input events encoding.
+        numeric_values: Dict with numeric feature names (including timestamps). Values must be one of "identity", "sigmoid", "log", and "year".
         timestamps_field: The name of the timestamps field.
         max_time_delta: Limit maximum time delta at the model input.
         embedder_batch_norm: Use batch normalization in embedder.
     """
     def __init__(self,
-                 embeddings,
+                 embedder,
                  timestamps_field="timestamps",
-                 max_time_delta=None,
-                 embedder_batch_norm=True):
+                 max_time_delta=None):
         super().__init__()
-        self.embedder = TrxEncoder(
-            embeddings=embeddings,
-            numeric_values={timestamps_field: "identity"},
-            use_batch_norm=embedder_batch_norm,
-            use_batch_norm_with_lens=True
-        )
+        self.embedder = embedder
         self._timestamps_field = timestamps_field
         self._max_time_delta = max_time_delta
+
+    @abstractproperty
+    def need_states(self):
+        """Whether encoder uses states for inference optimization or not."""
+        pass
 
     @abstractproperty
     def hidden_size(self):
@@ -48,18 +48,16 @@ class BaseEncoder(torch.nn.Module):
     def embed(self, x, compute_time_deltas=True):
         if compute_time_deltas:
             x = self.compute_time_deltas(x)
-        embeddings = self.embedder(x)
-        # Convert PTLS batch to HoTPP batch.
-        return PaddedBatch(embeddings.payload, embeddings.seq_lens)
+        return self.embedder(x)
 
     @abstractmethod
-    def forward(self, x, return_full_states=False):
+    def forward(self, x, return_states=False):
         """Apply the model.
 
         Args:
             x: PaddedBatch with input features with shape (B, T).
-            return_full_states: Whether to return full states with shape (B, T, D)
-                or only final states with shape (B, D).
+            return_states: Whether to return final states with shape (B, D), full states with shape (B, T, D)
+                or no states (either False, "last" or "full").
 
         Returns:
             Dictionary with "outputs" and optional "states" keys.

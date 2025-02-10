@@ -21,6 +21,10 @@ class NextItemLoss(torch.nn.Module):
         self._interpolator = None
 
     @property
+    def need_interpolator(self):
+        return any([loss.need_interpolator for loss in self._losses.values()])
+
+    @property
     def interpolator(self):
         return self._interpolator
 

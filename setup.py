@@ -15,7 +15,7 @@ if not os.environ.get("HOTPP_PUBLISH", False):
 
 setuptools.setup(
     name="hotpp-benchmark",
-    version="0.0.1",
+    version="0.3.0",
     author="Ivan Karpukhin",
     author_email="karpuhini@yandex.ru",
     description="Evaluate generative event sequence models on the long horizon prediction task.",
@@ -34,6 +34,7 @@ setuptools.setup(
         "lightgbm",
         "numpy>=1.23",
         "pyarrow>=14.0.0",
+        "pymonad",
         "pyspark>=3",
         "pytorch-lifestream>=0.6.0",
         "pytorch-lightning",

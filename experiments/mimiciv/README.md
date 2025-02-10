@@ -31,12 +31,7 @@ docker cp esgpt:/var/lib/postgresql/MIMICIV_FMs_public/data/hotpp_cohort/dynamic
 ```
 pip install git+https://github.com/xiyori/ICD-Mappings.git
 ```
-2. Download GEM mappings:
-```
-wget https://ftp.cdc.gov/pub/Health_Statistics/NCHS/Publications/ICD10CM/2013/DiagnosisGEMs_2013.zip
-unzip DiagnosisGEMs_2013.zip -d data
-```
-3. Run data preparation script:
+2. Run data preparation script:
 ```
 spark-submit --master 'local[8]' scripts/make-dataset.py
 ```

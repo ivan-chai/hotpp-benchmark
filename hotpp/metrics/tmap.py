@@ -96,7 +96,8 @@ class TMAPMetric:
         target_labels_counts = target_labels_counts.sum(0)  # (C).
 
         costs = -predicted_labels_scores.take_along_dim(target_labels.clip(min=0)[:, None, :], 2)  # (B, P, T).
-        inf_cost = costs[predicted_mask].max().item() + 2
+        predicted_costs = costs[predicted_mask]
+        inf_cost = predicted_costs.max().item() + 2 if len(predicted_costs) > 0 else 1e6
         valid_cost_threshold = inf_cost - 1
         costs.masked_fill_(~predicted_mask.unsqueeze(2), inf_cost)
         costs.masked_fill_(~target_mask.unsqueeze(1), inf_cost)

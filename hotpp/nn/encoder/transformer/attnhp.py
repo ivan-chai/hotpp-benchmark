@@ -153,6 +153,12 @@ class AttNHPTransformer(torch.nn.Module):
         self.sample_to_batch = sample_to_batch
 
     @property
+    def delta_time(self):
+        """Whether to take delta time or raw timestamps at input."""
+        # Need raw time for positional encoding.
+        return False
+
+    @property
     def output_size(self):
         return self.hidden_size
 
@@ -160,12 +166,15 @@ class AttNHPTransformer(torch.nn.Module):
     def num_layers(self):
         return len(self.layers)
 
-    def forward(self, embeddings: PaddedBatch, times: PaddedBatch):
+    def forward(self, embeddings: PaddedBatch, times: PaddedBatch,
+                return_states=False):
         """Encode input sequences with a causal mask.
 
         Args:
             embeddings: Input embeddings with shape (B, L, D).
             times: Input times with shape (B, L), absolute.
+            return_states: Whether to return final states with shape (B, D), full states with shape (B, T, D)
+                or no states (either False, "last" or "full").
 
         Returns:
             Outputs with shape (B, L, D) and activations with shape (N, B, L, D).
@@ -179,8 +188,15 @@ class AttNHPTransformer(torch.nn.Module):
         for layer in self.layers:
             results.append(layer(results[-1], mask, attn_mask))  # (B, L, D).
         outputs = PaddedBatch(results[-1], embeddings.seq_lens)
-        states = torch.stack(results[:-1])  # (N, B, L, D).
-        states = TransformerState(times.payload, states, embeddings.seq_lens)
+        if not return_states:
+            states = None
+        elif return_states == "last":
+            raise NotImplementedError("Only full or no states can be returned.")
+        elif return_states == "full":
+            states = torch.stack(results[:-1])  # (N, B, L, D).
+            states = TransformerState(times.payload, states, embeddings.seq_lens)
+        else:
+            raise ValueError(f"Unknown states flag: {return_states}")
         return outputs, states
 
     def decode(self, embeddings: PaddedBatch, times: PaddedBatch, history_states: TransformerState):

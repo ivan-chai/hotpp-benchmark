@@ -1,0 +1,51 @@
+defaults:
+  - default
+  - _self_
+
+name: detection
+
+detection_k: 64
+
+conditional_head:
+  k: ${detection_k}
+
+module:
+  _target_: hotpp.modules.NextKModule
+  labels_field: event_type
+  seq_encoder:
+    rnn_partial:
+      _target_: hotpp.nn.GRU
+      _partial_: true
+      hidden_size: ${rnn_hidden_size}
+    max_inference_context: ${rnn_inference_context}
+    inference_context_step: ${rnn_inference_context_step}
+  head_partial: ${conditional_head}
+  loss:
+    _target_: hotpp.losses.DetectionLoss
+    categorical_fields:
+      - event_type
+      - src_type32
+    k: ${detection_k}
+    horizon: ${metric.horizon}
+    next_item_adapter:
+      timestamps: mode
+      event_type: mode
+      src_type32: mode
+      log_amount: mode
+    next_item_loss:
+      _target_: hotpp.losses.NextItemLoss
+      losses:
+        _presence:
+          _target_: hotpp.losses.BinaryCrossEntropyLoss
+        timestamps:
+          _target_: hotpp.losses.TimeMAELoss
+          delta: start
+          max_delta: ${max_duration}
+        event_type:
+          _target_: hotpp.losses.CrossEntropyLoss
+          num_classes: ${num_classes}
+        src_type32:
+          _target_: hotpp.losses.CrossEntropyLoss
+          num_classes: ${num_src_type32}
+        log_amount:
+          _target_: hotpp.losses.MAELoss

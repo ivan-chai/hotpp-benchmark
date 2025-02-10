@@ -55,7 +55,7 @@ def get_targets(cache_dir):
     key = next(iter(dataset.keys()))
     dataset = dataset2spark(dataset[key], "targets", cache_dir)
     dataset = dataset.selectExpr("client_id as id",
-                                 "bins as global_target")
+                                 "bins as target")
     return dataset
 
 
@@ -77,7 +77,6 @@ def train_val_test_split(transactions, targets):
     train_ids = set(train_ids[:-n_clients_val])
 
     testset = transactions.filter(transactions["id"].isin(test_ids))
-    testset = testset.join(targets, on="id", how="inner")
     trainset = transactions.filter(transactions["id"].isin(train_ids))
     valset = transactions.filter(transactions["id"].isin(val_ids))
     return trainset.persist(), valset.persist(), testset.persist()
@@ -105,13 +104,10 @@ def main(args):
         category_transformation="frequency"
     )
     transactions = preprocessor.fit_transform(transactions).persist()
+    transactions = transactions.join(targets, on="id", how="left")
 
     print("Split")
     train, val, test = train_val_test_split(transactions, targets)
-
-    print("Dump downstream indices")
-    targets.toPandas().set_index("id").to_csv(os.path.join(args.root, "global_target.csv"))
-    test.select("id").toPandas().set_index("id").to_csv(os.path.join(args.root, "test_ids.csv"))
 
     train_path = os.path.join(args.root, "train.parquet")
     val_path = os.path.join(args.root, "val.parquet")

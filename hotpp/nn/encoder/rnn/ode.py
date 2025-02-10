@@ -141,6 +141,12 @@ class ODEGRU(torch.jit.ScriptModule):
         self.h0 = torch.nn.Parameter(torch.zeros(num_layers, hidden_size))  # (N, D).
 
     @property
+    def delta_time(self):
+        """Whether to take delta time or raw timestamps at input."""
+        # Need time_deltas.
+        return True
+
+    @property
     def output_size(self):
         return self.hidden_size
 
@@ -165,7 +171,7 @@ class ODEGRU(torch.jit.ScriptModule):
         return torch.stack(outputs, 1), torch.stack(output_states, 1)
 
     def forward(self, x: PaddedBatch, time_deltas: PaddedBatch,
-                states: Optional[Tensor]=None, return_full_states=False) -> Tuple[PaddedBatch, Tensor]:
+                states: Optional[Tensor]=None, return_states=False) -> Tuple[PaddedBatch, Tensor]:
         """Apply RNN.
 
         Args:
@@ -173,8 +179,8 @@ class ODEGRU(torch.jit.ScriptModule):
             time_deltas: Relative timestamps with shape (B, L).
             states: Initial states with shape (1, B, D).
                 State output gate, context_start, context_end, and delta parameter.
-            return_full_states: Whether to return full states with shape (B, T, D)
-                or only final states with shape (B, D).
+            return_states: Whether to return final states with shape (B, D), full states with shape (B, T, D)
+                or no states (either False, "last" or "full").
 
         Returns:
             Output with shape (B, L, D) and optional states tensor with shape (1, B, L, D).
@@ -190,9 +196,15 @@ class ODEGRU(torch.jit.ScriptModule):
             states = states.squeeze(0)  # Remove layer dim, (B, D).
         outputs, output_states = self._forward_loop(x, time_deltas, states)  # (B, L, D), (B, L, D).
         outputs = PaddedBatch(outputs, seq_lens)
-        if not return_full_states:
-            output_states = output_states.take_along_dim((seq_lens - 1).clip(min=0)[:, None, None], 1).squeeze(1)  # (B, 4D).
-        return outputs, output_states[None]  # (1, B, D) or (1, B, L, D).
+        if not return_states:
+            output_states = None
+        elif return_states == "last":
+            output_states = output_states.take_along_dim((seq_lens - 1).clip(min=0)[:, None, None], 1).squeeze(1)[None]  # (1, B, 4D).
+        elif return_states == "full":
+            output_states = output_states[None]  # (1, B, L, 4D)
+        else:
+            raise ValueError(f"Unknown states flag: {return_states}")
+        return outputs, output_states  # None or (1, B, D) or (1, B, L, D).
 
     def interpolate(self, states: Tensor, time_deltas: PaddedBatch) -> PaddedBatch:
         """Compute model outputs in continuous time.
