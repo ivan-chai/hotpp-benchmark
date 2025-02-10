@@ -42,30 +42,18 @@ class HyproModule(NextItemModule):
                  base_checkpoint,
                  hypro_encoder, hypro_head_partial,
                  hypro_loss, hypro_loss_step,
-                 timestamps_field="timestamps",
-                 labels_field="labels",
-                 head_partial=None,
-                 optimizer_partial=None,
-                 lr_scheduler_partial=None,
-                 val_metric=None,
-                 test_metric=None,
                  autoreg_max_steps=None,
                  hypro_context=None,
                  hypro_sample_size=20,
-                 hypro_logits_prediction="best"):
+                 hypro_logits_prediction="best",
+                 **kwargs):
         if hypro_context is None:
             hypro_context = autoreg_max_steps
         super().__init__(
             seq_encoder=seq_encoder,
             loss=loss,
-            timestamps_field=timestamps_field,
-            labels_field=labels_field,
-            head_partial=head_partial,
-            optimizer_partial=optimizer_partial,
-            lr_scheduler_partial=lr_scheduler_partial,
-            val_metric=val_metric,
-            test_metric=test_metric,
-            autoreg_max_steps=autoreg_max_steps
+            autoreg_max_steps=autoreg_max_steps,
+            **kwargs
         )
         self._base_checkpoint = base_checkpoint
         self._hypro_encoder = hypro_encoder
