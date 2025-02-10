@@ -59,6 +59,11 @@ Install via PyPI:
 pip install hotpp-benchmark
 ```
 
+To install downstream evaluation tools:
+```sh
+pip install 'hotpp-benchmark[downstream]'
+```
+
 Sometimes the following parameters are necessary for [successful dependency installation](https://github.com/ivan-chai/torch-linear-assignment?tab=readme-ov-file#install):
 ```sh
 CXX=<c++-compiler> CC=<gcc-compiler> pip install hotpp-benchmark
