@@ -28,7 +28,7 @@ def compute_map(targets, scores, device=None, cuda_buffer_size=10**7):
         # Compute large tasks step-by-step.
         batch_size = max(cuda_buffer_size // int(b), 1) if cuda_buffer_size is not None else c
         if batch_size < c:
-            aps, f_scores = [], [], []
+            aps, f_scores = [], []
             for start in range(0, c, batch_size):
                 ap, f_score = compute_map(targets[:, start:start + batch_size].to(device),
                                           scores[:, start:start + batch_size].to(device),
