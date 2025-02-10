@@ -64,15 +64,16 @@ class NextItemMetric(torch.nn.Module):
         labels = torch.cat(self._labels)
         one_hot_labels = torch.nn.functional.one_hot(labels.long(), nc).bool()  # (B, C).
         micro_weights = one_hot_labels.sum(0) / one_hot_labels.sum()  # (C).
-        aps, max_accs = compute_map(one_hot_labels, scores, device=self._device)  # (C).
+        aps, max_f_scores = compute_map(one_hot_labels, scores, device=self._device)  # (C).
         aps = aps.cpu()
-        max_accs = max_accs.cpu()
+        max_f_scores = max_f_scores.cpu()
         return {
             "next-item-mean-time-step": torch.stack(self._delta_sums).sum() / self._n_deltas,
             "next-item-mae": torch.stack(self._ae_sums).sum() / self._n_labels,
             "next-item-rmse": (torch.stack(self._se_sums).sum() / self._n_labels).sqrt(),
             "next-item-accuracy": self._n_correct_labels / self._n_labels,
-            "next-item-max-accuracy": (max_accs * micro_weights).sum(),
+            "next-item-max-f-score": max_f_scores.mean(),
+            "next-item-max-f-score-weighted": (max_f_scores * micro_weights).sum(),
             "next-item-map": aps.mean(),
             "next-item-map-weighted": (aps * micro_weights).sum()
         }

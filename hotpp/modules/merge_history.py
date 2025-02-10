@@ -137,7 +137,7 @@ class MergeHistoryModule(BaseModule):
         next_items = {}
         for field in fields:
             next_items[field] = sequences.payload[field][mask].reshape(b, l)  # (B, L).
-        if self._labels_field in logits_fields_mapping:
+        if self._labels_field in (logits_fields_mapping or {}):
             next_items[logits_fields_mapping[self._labels_field]] = sequences.payload[LABELS_LOGITS][mask].reshape(b, l, self._num_classes)
         return PaddedBatch(next_items, inputs.seq_lens)
 
