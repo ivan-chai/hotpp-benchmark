@@ -82,10 +82,12 @@ class TestStatisticalBaselines(TestCase):
         # [0, 0, 0], [0, 0, 0], [0.33, 0, 0.33], [0.5, 0, 0.25]
         # avg amounts:
         # [0, 0, 0], [0, 0, 0], [0.66, 0, 0.33], [1.0, 0, 0.25]
-        probs_gt = [[0.0, 0.0, 0.5, 0.0, 0.0, 0.0], [0.0, 0.25, 0.25, 0.5, 0.0, 0.25]]
+        #
+        # + Apply sorting by probability.
+        probs_gt = [[0.5, 0.0, 0.0, 0.0, 0.0, 0.0], [0.25, 0.25, 0.0, 0.5, 0.25, 0.0]]
         timestamps_gt = [[1.5, 1.5, 1.5, 2.5, 2.5, 2.5], [3.5, 3.5, 3.5, 4.5, 4.5, 4.5]]
-        labels_gt = [[0, 1, 2, 0, 1, 2], [0, 1, 2, 0, 1, 2]]
-        amounts_gt = [[0.0, 0.0, 0.5, 0.0, 0.0, 0.0], [0.0, 0.75, 0.25, 1, 0.0, 0.25]]
+        labels_gt = [[2, 0, 1, 0, 1, 2], [1, 2, 0, 0, 2, 1]]
+        amounts_gt = [[0.5, 0.0, 0.0, 0.0, 0.0, 0.0], [0.75, 0.25, 0.0, 1, 0.25, 0.0]]
         self.assertEqual(sequences.payload[PRESENCE_PROB].squeeze().tolist(), probs_gt)
         self.assertEqual(sequences.payload["timestamps"].squeeze().tolist(), timestamps_gt)
         self.assertEqual(sequences.payload["labels"].squeeze().tolist(), labels_gt)
