@@ -8,12 +8,13 @@ from .base_module import BaseModule
 class MostPopularEncoder(torch.nn.Module):
     """Compute mean time delta and labels distribution using historical data."""
     def __init__(self, num_classes, timestamps_field="timestamps", labels_field="labels",
-                 amounts_field=None, log_amount=False):
+                 max_time_delta=None, amounts_field=None, log_amount=False):
         super().__init__()
         self._num_classes = num_classes
         self._timestamps_field = timestamps_field
         self._labels_field = labels_field
         self._amounts_field = amounts_field
+        self._max_time_delta = max_time_delta
         self._log_amount = log_amount
 
     @property
@@ -29,6 +30,8 @@ class MostPopularEncoder(torch.nn.Module):
         deltas = timestamps.clone()
         deltas[:, 1:] -= timestamps[:, :-1]
         deltas[:, 0] = 0
+        if self._max_time_delta is not None:
+            deltas = deltas.clip(max=self._max_time_delta)
         parts = []
         with deterministic(False):
             arange = torch.arange(1, x.shape[1] + 1, device=x.device)[None, :, None]
@@ -80,10 +83,11 @@ class MostPopularModule(BaseModule):
                  timestamps_field="timestamps",
                  labels_field="labels",
                  amounts_field=None,
+                 max_time_delta=None,
                  log_amount=False,
                  **kwargs):
         super().__init__(seq_encoder=MostPopularEncoder(num_classes, timestamps_field=timestamps_field, labels_field=labels_field,
-                                                        amounts_field=amounts_field, log_amount=log_amount),
+                                                        amounts_field=amounts_field, max_time_delta=max_time_delta, log_amount=log_amount),
                          loss=Identity(2),
                          timestamps_field=timestamps_field,
                          labels_field=labels_field,
