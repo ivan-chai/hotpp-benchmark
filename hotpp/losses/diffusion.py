@@ -255,7 +255,7 @@ class DiffusionLoss(NextKLoss):
         sequences |= {k: torch.zeros(outputs.shape[0], outputs.shape[1], self._k, v.shape[2],
                                      dtype=v.dtype, device=v.device).masked_scatter_(mask.unsqueeze(-1).unsqueeze(-1), v)
                       for k, v in predictions.payload.items() if v.ndim == 3}  # (B, L, N, C).
-        sequences = PaddedBatch(sequences, torch.full([len(outputs)], self._k, dtype=torch.long))
+        sequences = PaddedBatch(sequences, torch.full([len(outputs)], self._k, dtype=torch.long, device=x.device))
 
         # Revert time delta.
         self.revert_delta_and_sort_time_inplace(sequences)
