@@ -28,47 +28,52 @@ def compute_map(targets, scores, device=None, cuda_buffer_size=10**7):
         # Compute large tasks step-by-step.
         batch_size = max(cuda_buffer_size // int(b), 1) if cuda_buffer_size is not None else c
         if batch_size < c:
-            aps, accs = [], []
+            aps, f_scores = [], []
             for start in range(0, c, batch_size):
-                ap, acc = compute_map(targets[:, start:start + batch_size].to(device),
-                                      scores[:, start:start + batch_size].to(device),
-                                      cuda_buffer_size=cuda_buffer_size)
+                ap, f_score = compute_map(targets[:, start:start + batch_size].to(device),
+                                          scores[:, start:start + batch_size].to(device),
+                                          cuda_buffer_size=cuda_buffer_size)
                 aps.append(ap)
-                accs.append(acc)
-            return torch.cat(aps), torch.cat(accs)
+                f_scores.append(f_score)
+            return torch.cat(aps), torch.cat(f_scores)
         else:
             targets = targets.to(device)
             scores = scores.to(device)
     order = scores.argsort(dim=0, descending=True)  # (B, C).
     targets = targets.take_along_dim(order, dim=0)  # (B, C).
-    cumsum = targets.cumsum(0)
-    recalls = cumsum / targets.sum(0).clip(min=1)
-    precisions = cumsum / torch.arange(1, 1 + len(targets), device=device)[:, None]
+    arange = torch.arange(1, 1 + len(targets), device=device)  # (B).
+    n_positives = targets.sum(0)  # (C).
+    tp = targets.cumsum(0)  # (B, C).
+
+    recalls = tp / n_positives.clip(min=1)
+    precisions = tp / arange[:, None]
     aps = ((recalls[1:] - recalls[:-1]) * precisions[1:]).sum(0)
     aps += precisions[0] * recalls[0]
 
-    neg_rates = 1 - targets.float().mean(0)  # (C).
-    accs = (2 * recalls + neg_rates - recalls / precisions.clip(min=1e-6)) / (neg_rates + 1)  # (B, C).
-    max_accs = accs.max(0)[0]  # (C).
-    return aps, max_accs
+    f_scores = 2 * precisions * recalls / (precisions + recalls).clip(min=1e-6)  # (B, C).
+    f_scores = f_scores.max(0)[0]  # (C).
+    return aps, f_scores
 
 
 class TMAPMetric:
     """Average mAP metric among different time difference thresholds.
 
     Args:
+        horizon: Prediction horizon.
         time_delta_thresholds: A list of time difference thresholds to average metric for.
     """
-    def __init__(self, time_delta_thresholds):
+    def __init__(self, horizon, time_delta_thresholds):
+        self.horizon = horizon
         self.time_delta_thresholds = time_delta_thresholds
         self.reset()
 
-    def update(self, target_mask, target_times, target_labels, predicted_mask, predicted_times, predicted_labels_scores):
+    def update(self, initial_times, target_mask, target_times, target_labels, predicted_mask, predicted_times, predicted_labels_scores):
         """Update metric statistics.
 
         NOTE: If predicted scores contain log probabilities, then total cost is equal to likelihood.
 
         Args:
+            initial_times: Last event time seen by the model with shape (B).
             target_mask: Mask of valid targets with shape (B, T).
             target_times: Target timestamps with shape (B, T).
             target_labels: Target labels with shape (B, T).
@@ -80,8 +85,10 @@ class TMAPMetric:
         b, p, c = predicted_labels_scores.shape
         if b == 0:
             return
-        predicted_mask = predicted_mask.bool()
-        target_mask = target_mask.bool()
+        predicted_mask = torch.logical_and(predicted_mask.bool(),
+                                           predicted_times - initial_times[:, None] < self.horizon)
+        target_mask = torch.logical_and(target_mask.bool(),
+                                        target_times - initial_times[:, None] < self.horizon)
         target_labels = target_labels.long()
         sorted_time_delta_thresholds = torch.tensor(list(sorted(self.time_delta_thresholds, reverse=True)), device=device)  # (D).
         time_deltas = (predicted_times[:, :, None] - target_times[:, None, :]).abs()  # (B, P, T).
@@ -148,26 +155,30 @@ class TMAPMetric:
         total_targets = torch.stack([v.reshape(c) for v in self._total_targets]).sum(0)  # (C).
         micro_weights = total_targets / total_targets.sum()  # (C).
         matched_scores = torch.cat([v.reshape(len(v), c) for v in self._matched_scores])  # (B, C).
-        losses = []
-        micro_losses = []
-        micro_accs = []
+        maps = []
+        micro_maps = []
+        f_scores = []
+        micro_f_scores = []
         for i in range(len(self.time_delta_thresholds)):
             n_unmatched_targets = torch.stack([v.reshape(c) for v in self._n_unmatched_targets_by_delta[i]]).sum(0)  # (C).
             matched_targets = torch.cat([v.reshape(v.shape[0], c) for v in self._matched_by_delta[i]])  # (B, C).
             max_recalls = 1 - n_unmatched_targets / total_targets.clip(min=1)
             assert (max_recalls >= 0).all() and (max_recalls <= 1).all()
             label_mask = torch.logical_and(~matched_targets.all(0), matched_targets.any(0))  # (C).
-            aps, max_accs = compute_map(matched_targets[:, label_mask],
-                                        matched_scores[:, label_mask],
-                                        device=self._device)  # (C').
+            aps, max_f_scores = compute_map(matched_targets[:, label_mask],
+                                            matched_scores[:, label_mask],
+                                            device=self._device)  # (C').
             aps = torch.zeros(c).masked_scatter_(label_mask, aps.cpu())
             aps *= max_recalls
-            max_accs = torch.zeros(c).masked_scatter_(label_mask, max_accs.cpu())
-            losses.append(aps.sum().item() / c)
-            micro_losses.append((aps * micro_weights).sum().item())
-            micro_accs.append((max_accs * micro_weights).sum().item())
+            maps.append(aps.sum().item() / c)
+            micro_maps.append((aps * micro_weights).sum().item())
+
+            max_f_scores = torch.zeros(c).masked_scatter_(label_mask, max_f_scores.cpu())
+            f_scores.append(max_f_scores.sum().item() / c)
+            micro_f_scores.append((max_f_scores * micro_weights).sum().item())
         return {
-            "T-mAP": sum(losses) / len(losses),
-            "T-mAP-micro": sum(micro_losses) / len(micro_losses),
-            "horizon-max-accuracy-micro": sum(micro_accs) / len(micro_accs)
+            "T-mAP": sum(maps) / len(maps),
+            "T-mAP-weighted": sum(micro_maps) / len(micro_maps),
+            "horizon-max-f-score": sum(f_scores) / len(f_scores),
+            "horizon-max-f-score-weighted": sum(micro_f_scores) / len(micro_f_scores)
         }

@@ -22,6 +22,7 @@ module:
     prediction:
       timestamps: mean
       labels: sample
+      log_amount: mean
     losses:
       timestamps:
         _target_: hotpp.losses.TimeRMTPPLoss
@@ -31,6 +32,8 @@ module:
       labels:
         _target_: hotpp.losses.CrossEntropyLoss
         num_classes: ${num_classes}
+      log_amount:
+        _target_: hotpp.losses.MAELoss
   autoreg_max_steps: ${max_predictions}
   base_checkpoint: checkpoints/rmtpp-seed-${seed_everything}.ckpt
   hypro_encoder:
@@ -43,6 +46,7 @@ module:
           out: 256
       numeric_values:
         timestamps: identity
+        log_amount: identity
     rnn_partial:
       _target_: hotpp.nn.GRU
       _partial_: true
