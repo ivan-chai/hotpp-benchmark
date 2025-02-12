@@ -89,7 +89,7 @@ class MostPopularModule(BaseModule):
             predict_delta: If True, return delta times. Generate absolute timestamps otherwise.
         """
         deltas, probabilities = outputs.payload[..., 0], outputs.payload[..., 1:]  # (B, L), (B, L, C).
-        if self._prediction == "mode":
+        if self._prediction in {"mode", "distribution"}:
             labels = probabilities.argmax(2)  # (B, L).
         elif self._prediction == "sample":
             labels = torch.distributions.Categorical(probabilities).sample()  # (B, L).
@@ -134,6 +134,19 @@ class MostPopularModule(BaseModule):
         elif self._prediction == "sample":
             with deterministic(False):
                 labels = torch.multinomial(probabilities.flatten(0, 1), self._k, replacement=True).reshape(b, indices.shape[1], self._k)
+        elif self._prediction == "distribution":
+            labels = torch.empty(b, indices.shape[1], self._k, dtype=torch.long, device=x.device)  # (B, I, K).
+            fractions = torch.full_like(probabilities[:, :, :1], -1 / self._k)
+            p = probabilities.clone()
+            for i in range(self._k):
+                ids = p.argmax(2)
+                labels[:, :, i] = ids
+                if i < self._k - 1:
+                    k = self._k - i
+                    p.scatter_add_(2, ids.unsqueeze(2), fractions) * k / (k - 1)
+                    p.clip_(min=0)
+                    p /= p.sum(-1, keepdim=True)
+                    fractions *= k / (k - 1)
         else:
             raise NotImplementedError(f"{self._prediction} prediction.")
 
