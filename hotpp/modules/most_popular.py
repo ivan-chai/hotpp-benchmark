@@ -6,6 +6,7 @@ from .base_module import BaseModule
 
 
 class MostPopularEncoder(torch.nn.Module):
+    """Compute mean time delta and labels distribution using historical data."""
     def __init__(self, num_classes, timestamps_field="timestamps", labels_field="labels"):
         super().__init__()
         self._num_classes = num_classes
@@ -18,7 +19,7 @@ class MostPopularEncoder(torch.nn.Module):
 
     @property
     def hidden_size(self):
-        return 2
+        return 1 + self._num_classes
 
     def forward(self, x, return_states=False):
         timestamps = x.payload[self._timestamps_field]  # (B, L).
@@ -26,12 +27,13 @@ class MostPopularEncoder(torch.nn.Module):
         deltas[:, 1:] -= timestamps[:, :-1]
         deltas[:, 0] = 0
         with deterministic(False):
-            deltas = deltas.cumsum(1) / (1 + torch.arange(deltas.shape[1], dtype=deltas.dtype, device=deltas.device))
+            arange = torch.arange(1, x.shape[1] + 1, device=x.device)[None, :, None]
+            deltas = deltas.cumsum(1).unsqueeze(2) / arange  # (B, L, 1).
             encoded_labels = torch.nn.functional.one_hot(x.payload[self._labels_field].long(), self._num_classes)  # (B, L, C).
-            top_labels = encoded_labels.cumsum(1).argmax(-1)  # (B, L).
-        hiddens = torch.stack([deltas, top_labels.to(deltas.dtype)], dim=2)  # (B, L, 2).
+            probabilities = encoded_labels.cumsum(1) / arange  # (B, L, C).
+        hiddens = torch.concatenate([deltas.to(probabilities.dtype), probabilities], dim=2)  # (B, L, 1 + C).
         hiddens = PaddedBatch(hiddens, x.seq_lens)
-        return hiddens, hiddens.payload[None]  # (B, L, KD), (N, B, L, KD).
+        return hiddens, hiddens.payload[None]  # (B, L, 1 + C), (N, B, L, 1 + C).
 
 
 class Identity(torch.nn.Identity):
@@ -51,11 +53,14 @@ class MostPopularModule(BaseModule):
 
     Parameters.
         k: History length.
+        num_classes: The number of classes in the dataset.
+        prediction: Predict most popular label if "mode", sample labels if "sample", and approximate next-k distribution if "distribution".
         val_metric: Validation set metric.
         test_metric: Test set metric.
         kwargs: Ignored (keep for compatibility with base module).
     """
     def __init__(self, k, num_classes,
+                 prediction="mode",
                  seq_encoder=None, loss=None,  # Ignored.
                  head_partial=None, optimizer_partial=None, lr_scheduler_partial=None,  # Ignored.
                  timestamps_field="timestamps",
@@ -71,6 +76,7 @@ class MostPopularModule(BaseModule):
                          **kwargs)
         self._k = k
         self._num_classes = num_classes
+        self._prediction = prediction
         self.dummy = torch.nn.Parameter(torch.zeros(1))
 
     def predict_next(self, inputs, outputs, states, fields=None, logits_fields_mapping=None, predict_delta=False):
@@ -82,7 +88,13 @@ class MostPopularModule(BaseModule):
             states (unused): Sequence model states with shape (N, B, L, D), where N is the number of layers.
             predict_delta: If True, return delta times. Generate absolute timestamps otherwise.
         """
-        deltas, labels = outputs.payload[..., 0], outputs.payload[..., 1].long()  # (B, L), (B, L).
+        deltas, probabilities = outputs.payload[..., 0], outputs.payload[..., 1:]  # (B, L), (B, L, C).
+        if self._prediction == "mode":
+            labels = probabilities.argmax(2)  # (B, L).
+        elif self._prediction == "sample":
+            labels = torch.distributions.Categorical(probabilities).sample()  # (B, L).
+        else:
+            raise NotImplementedError(f"{self._prediction} prediction.")
         results = {self._timestamps_field: deltas,
                    self._labels_field: labels}  # (B, L).
         if not predict_delta:
@@ -109,14 +121,22 @@ class MostPopularModule(BaseModule):
         outputs, _ = self(x)  # (B, L, D).
         b, l = outputs.shape
 
-        deltas, labels = outputs.payload[..., 0], outputs.payload[..., 1].long()  # (B, L), (B, L).
+        deltas, probabilities = outputs.payload[..., 0], outputs.payload[..., 1:]  # (B, L), (B, L, C).
         deltas = deltas.take_along_dim(indices.payload, 1)  # (B, I).
-        labels = labels.take_along_dim(indices.payload, 1)  # (B, I).
+        probabilities = probabilities.take_along_dim(indices.payload.unsqueeze(2), 1)  # (B, I, C).
         with deterministic(False):
             timestamps = deltas[:, :, None].repeat(1, 1, self._k).cumsum(2)  # (B, L, K).
         # Convert delta time to time.
         timestamps += init_times.unsqueeze(-1)
-        labels = labels[:, :, None].repeat(1, 1, self._k)  # (B, L, K).
+        if self._prediction == "mode":
+            labels = probabilities.argmax(2)  # (B, I).
+            labels = labels.unsqueeze(2).repeat(1, 1, self._k)  # (B, I, K).
+        elif self._prediction == "sample":
+            with deterministic(False):
+                labels = torch.multinomial(probabilities.flatten(0, 1), self._k, replacement=True).reshape(b, indices.shape[1], self._k)
+        else:
+            raise NotImplementedError(f"{self._prediction} prediction.")
+
         logits = torch.nn.functional.one_hot(labels, self._num_classes).float()  # (B, L, C).
         sequences = {self._timestamps_field: timestamps,
                      self._labels_field: labels,
