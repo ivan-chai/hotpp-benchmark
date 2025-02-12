@@ -7,11 +7,14 @@ from .base_module import BaseModule
 
 class MostPopularEncoder(torch.nn.Module):
     """Compute mean time delta and labels distribution using historical data."""
-    def __init__(self, num_classes, timestamps_field="timestamps", labels_field="labels"):
+    def __init__(self, num_classes, timestamps_field="timestamps", labels_field="labels",
+                 amounts_field=None, log_amount=False):
         super().__init__()
         self._num_classes = num_classes
         self._timestamps_field = timestamps_field
         self._labels_field = labels_field
+        self._amounts_field = amounts_field
+        self._log_amount = log_amount
 
     @property
     def need_states(self):
@@ -19,21 +22,32 @@ class MostPopularEncoder(torch.nn.Module):
 
     @property
     def hidden_size(self):
-        return 1 + self._num_classes
+        return 1 + self._num_classes * (2 if self._amounts_field else 1)
 
     def forward(self, x, return_states=False):
         timestamps = x.payload[self._timestamps_field]  # (B, L).
         deltas = timestamps.clone()
         deltas[:, 1:] -= timestamps[:, :-1]
         deltas[:, 0] = 0
+        parts = []
         with deterministic(False):
             arange = torch.arange(1, x.shape[1] + 1, device=x.device)[None, :, None]
             deltas = deltas.cumsum(1).unsqueeze(2) / arange  # (B, L, 1).
             encoded_labels = torch.nn.functional.one_hot(x.payload[self._labels_field].long(), self._num_classes)  # (B, L, C).
             probabilities = encoded_labels.cumsum(1) / arange  # (B, L, C).
-        hiddens = torch.concatenate([deltas.to(probabilities.dtype), probabilities], dim=2)  # (B, L, 1 + C).
+            parts.append(deltas.to(probabilities.dtype))
+            parts.append(probabilities)
+            if self._amounts_field is not None:
+                amounts = x.payload[self._amounts_field]
+                if self._log_amount:
+                    amounts = amounts.exp() - 1
+                amounts = (amounts.unsqueeze(2) * encoded_labels).cumsum(1) / encoded_labels.cumsum(1).clip(min=1)  # (B, L, C).
+                if self._log_amount:
+                    amounts = (amounts + 1).log()
+                parts.append(amounts)
+        hiddens = torch.concatenate(parts, dim=2)  # (B, L, D).
         hiddens = PaddedBatch(hiddens, x.seq_lens)
-        return hiddens, hiddens.payload[None]  # (B, L, 1 + C), (N, B, L, 1 + C).
+        return hiddens, hiddens.payload[None]  # (B, L, D), (N, B, L, D).
 
 
 class Identity(torch.nn.Identity):
@@ -65,11 +79,15 @@ class MostPopularModule(BaseModule):
                  head_partial=None, optimizer_partial=None, lr_scheduler_partial=None,  # Ignored.
                  timestamps_field="timestamps",
                  labels_field="labels",
+                 amounts_field=None,
+                 log_amount=False,
                  **kwargs):
-        super().__init__(seq_encoder=MostPopularEncoder(num_classes, timestamps_field=timestamps_field, labels_field=labels_field),
+        super().__init__(seq_encoder=MostPopularEncoder(num_classes, timestamps_field=timestamps_field, labels_field=labels_field,
+                                                        amounts_field=amounts_field, log_amount=log_amount),
                          loss=Identity(2),
                          timestamps_field=timestamps_field,
                          labels_field=labels_field,
+                         amounts_field=amounts_field,
                          head_partial=lambda input_size, output_size: Identity(2),
                          optimizer_partial=lambda parameters: torch.optim.Adam(parameters, lr=0.001),  # Not used.
                          lr_scheduler_partial=lambda optimizer: torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=1),  # Not used.
@@ -88,7 +106,7 @@ class MostPopularModule(BaseModule):
             states (unused): Sequence model states with shape (N, B, L, D), where N is the number of layers.
             predict_delta: If True, return delta times. Generate absolute timestamps otherwise.
         """
-        deltas, probabilities = outputs.payload[..., 0], outputs.payload[..., 1:]  # (B, L), (B, L, C).
+        deltas, probabilities = outputs.payload[..., 0], outputs.payload[..., 1:1 + self._num_classes]  # (B, L), (B, L, C).
         if self._prediction in {"mode", "distribution"}:
             labels = probabilities.argmax(2)  # (B, L).
         elif self._prediction == "sample":
@@ -97,6 +115,9 @@ class MostPopularModule(BaseModule):
             raise NotImplementedError(f"{self._prediction} prediction.")
         results = {self._timestamps_field: deltas,
                    self._labels_field: labels}  # (B, L).
+        if self._amounts_field:
+            amounts = outputs.payload[..., 1 + self._num_classes:1 + 2 * self._num_classes]  # (B, L, C).
+            results[self._amounts_field] = amounts.take_along_dim(labels.unsqueeze(2), 2).squeeze(2)  # (B, L).
         if not predict_delta:
             # Convert delta time to time.
             results[self._timestamps_field] += inputs.payload[self._timestamps_field]
@@ -121,7 +142,7 @@ class MostPopularModule(BaseModule):
         outputs, _ = self(x)  # (B, L, D).
         b, l = outputs.shape
 
-        deltas, probabilities = outputs.payload[..., 0], outputs.payload[..., 1:]  # (B, L), (B, L, C).
+        deltas, probabilities = outputs.payload[..., 0], outputs.payload[..., 1:1 + self._num_classes]  # (B, L), (B, L, C).
         deltas = deltas.take_along_dim(indices.payload, 1)  # (B, I).
         probabilities = probabilities.take_along_dim(indices.payload.unsqueeze(2), 1)  # (B, I, C).
         with deterministic(False):
@@ -154,4 +175,8 @@ class MostPopularModule(BaseModule):
         sequences = {self._timestamps_field: timestamps,
                      self._labels_field: labels,
                      LABELS_LOGITS: logits}
+        if self._amounts_field:
+            amounts = outputs.payload[..., 1 + self._num_classes:1 + 2 * self._num_classes]  # (B, L, C).
+            amounts = amounts.take_along_dim(indices.payload.unsqueeze(2), 1)  # (B, I, C).
+            sequences[self._amounts_field] = amounts.take_along_dim(labels, 2)  # (B, I, K).
         return PaddedBatch(sequences, indices.seq_lens)
