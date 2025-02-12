@@ -186,14 +186,15 @@ class MergeHistoryModule(BaseModule):
             if i > 0:
                 inter_counts = (inter_counts - counts[:, :, i - 1]).clip(min=0)
                 inter_amounts = (inter_amounts - amounts[:, :, i - 1]).clip(min=0) if amounts is not None else None
+            order = inter_counts[:, :, active_classes].argsort(2, descending=True)  # (B, I, C).
             start = i * n_active
             stop = (i + 1) * n_active
             probs = inter_counts.clip(max=1)[:, :, active_classes]
-            sequences[PRESENCE_PROB][..., start:stop] = probs
+            sequences[PRESENCE_PROB][..., start:stop] = probs.take_along_dim(order, -1)
             sequences[self._timestamps_field][..., start:stop] = init_times[:, :, None] + timedelta
-            sequences[self._labels_field][..., start:stop] = active_indices
+            sequences[self._labels_field][..., start:stop] = active_indices[None, None].expand(b, l, n_active).take_along_dim(order, -1)
             if amounts is not None:
-                sequences[self._amounts_field][..., start:stop] = inter_amounts[:, :, active_classes] / probs.clip(min=1e-6)
+                sequences[self._amounts_field][..., start:stop] = (inter_amounts[:, :, active_classes] / probs.clip(min=1e-6)).take_along_dim(order, -1)
         sequences[LABELS_LOGITS] = (torch.nn.functional.one_hot(sequences[self._labels_field], self._num_classes) - 1) * 1000.0
         if (amounts is not None) and self._log_amount:
             sequences[self._amounts_field] = (sequences[self._amounts_field] + 1).log()
