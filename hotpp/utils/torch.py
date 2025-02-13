@@ -45,3 +45,19 @@ def module_mode(*modules, training=True, layer_types=None):
     finally:
         for m, mode in zip(modules, orig_training):
             m.train(mode)
+
+
+def prefix_medians(x):
+    """Compute median value for each prefix.
+
+    Args:
+        x: Input tensor with shape (B, L).
+
+    Returns:
+        Prefix medians with shape (B, L).
+    """
+    b, l = x.shape
+    medians = []
+    for i in range(l):
+        medians.append(torch.median(x[:, :i + 1], dim=1)[0])  # (B).
+    return torch.stack(medians, 1)  # (B, L).

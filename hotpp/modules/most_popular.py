@@ -1,21 +1,36 @@
 import torch
-from hotpp.data import PaddedBatch
-from hotpp.utils.torch import deterministic
+from ..data import PaddedBatch
+from ..utils.torch import deterministic, prefix_medians
 from ..fields import LABELS_LOGITS
 from .base_module import BaseModule
+
+
+def exponential_average(x, momentum, dim=1):
+    assert x.ndim == 3
+    assert dim == 1
+    b, l, d = x.shape
+    results = torch.empty_like(x)  # (B, L, D).
+    results[:, 0] = x[:, 0]
+    for i in range(1, l):
+        results[:, i] = momentum * results[:, i - 1] + (1 - momentum) * x[:, i]
+    return results
 
 
 class MostPopularEncoder(torch.nn.Module):
     """Compute mean time delta and labels distribution using historical data."""
     def __init__(self, num_classes, timestamps_field="timestamps", labels_field="labels",
-                 max_time_delta=None, amounts_field=None, log_amount=False):
+                 time_aggregation="mean", max_time_delta=None,
+                 amounts_field=None, log_amount=False,
+                 exp_moving_avg=None):
         super().__init__()
         self._num_classes = num_classes
         self._timestamps_field = timestamps_field
         self._labels_field = labels_field
+        self._time_aggregation = time_aggregation
         self._amounts_field = amounts_field
         self._max_time_delta = max_time_delta
         self._log_amount = log_amount
+        self._exp_moving_avg = exp_moving_avg
 
     @property
     def need_states(self):
@@ -26,7 +41,7 @@ class MostPopularEncoder(torch.nn.Module):
         return 1 + self._num_classes * (2 if self._amounts_field else 1)
 
     def forward(self, x, return_states=False):
-        timestamps = x.payload[self._timestamps_field]  # (B, L).
+        timestamps = x.payload[self._timestamps_field].float()  # (B, L).
         deltas = timestamps.clone()
         deltas[:, 1:] -= timestamps[:, :-1]
         deltas[:, 0] = 0
@@ -35,16 +50,33 @@ class MostPopularEncoder(torch.nn.Module):
         parts = []
         with deterministic(False):
             arange = torch.arange(1, x.shape[1] + 1, device=x.device)[None, :, None]
-            deltas = deltas.cumsum(1).unsqueeze(2) / arange  # (B, L, 1).
-            encoded_labels = torch.nn.functional.one_hot(x.payload[self._labels_field].long(), self._num_classes)  # (B, L, C).
-            probabilities = encoded_labels.cumsum(1) / arange  # (B, L, C).
-            parts.append(deltas.to(probabilities.dtype))
+            if self._time_aggregation == "mean":
+                if self._exp_moving_avg:
+                    deltas = exponential_average(deltas.unsqueeze(2), self._exp_moving_avg)  # (B, L, 1).
+                else:
+                    deltas_arange = arange - 1
+                    deltas_arange[:, 0] = 1
+                    deltas = deltas.cumsum(1).unsqueeze(2) / deltas_arange  # (B, L, 1).
+            elif self._time_aggregation == "median":
+                deltas = prefix_medians(deltas).unsqueeze(2)  # (B, L, 1).
+            else:
+                raise ValueError(f"Unknown time aggregation: {self._time_aggregation}")
+            encoded_labels = torch.nn.functional.one_hot(x.payload[self._labels_field].long(), self._num_classes).float()  # (B, L, C).
+            if self._exp_moving_avg:
+                probabilities = exponential_average(encoded_labels, self._exp_moving_avg)  # (B, L, C).
+                probabilities /= probabilities.sum(-1, keepdim=True)
+            else:
+                probabilities = encoded_labels.cumsum(1) / arange  # (B, L, C).
+            parts.append(deltas)
             parts.append(probabilities)
             if self._amounts_field is not None:
                 amounts = x.payload[self._amounts_field]
                 if self._log_amount:
                     amounts = amounts.exp() - 1
-                amounts = (amounts.unsqueeze(2) * encoded_labels).cumsum(1) / encoded_labels.cumsum(1).clip(min=1)  # (B, L, C).
+                if self._exp_moving_avg:
+                    amounts = exponential_average(amounts.unsqueeze(2) * encoded_labels, self._exp_moving_avg) / probabilities.clip(min=1e-6)  # (B, L, C).
+                else:
+                    amounts = (amounts.unsqueeze(2) * encoded_labels).cumsum(1) / encoded_labels.cumsum(1).clip(min=1)  # (B, L, C).
                 if self._log_amount:
                     amounts = (amounts + 1).log()
                 parts.append(amounts)
@@ -83,11 +115,14 @@ class MostPopularModule(BaseModule):
                  timestamps_field="timestamps",
                  labels_field="labels",
                  amounts_field=None,
-                 max_time_delta=None,
+                 time_aggregation="mean", max_time_delta=None,
+                 exp_moving_avg=None,
                  log_amount=False,
                  **kwargs):
         super().__init__(seq_encoder=MostPopularEncoder(num_classes, timestamps_field=timestamps_field, labels_field=labels_field,
-                                                        amounts_field=amounts_field, max_time_delta=max_time_delta, log_amount=log_amount),
+                                                        time_aggregation=time_aggregation, max_time_delta=max_time_delta,
+                                                        exp_moving_avg=exp_moving_avg,
+                                                        amounts_field=amounts_field, log_amount=log_amount),
                          loss=Identity(2),
                          timestamps_field=timestamps_field,
                          labels_field=labels_field,

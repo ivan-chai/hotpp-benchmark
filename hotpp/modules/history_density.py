@@ -1,24 +1,8 @@
 import torch
-from hotpp.data import PaddedBatch
-from hotpp.utils.torch import deterministic
+from ..data import PaddedBatch
+from ..utils.torch import deterministic, prefix_medians
 from ..fields import PRESENCE_PROB, LABELS_LOGITS
 from .base_module import BaseModule
-
-
-def prefix_medians(x):
-    """Compute median value for each prefix.
-
-    Args:
-        x: Input tensor with shape (B, L).
-
-    Returns:
-        Prefix medians with shape (B, L).
-    """
-    b, l = x.shape
-    medians = []
-    for i in range(l):
-        medians.append(torch.median(x[:, :i + 1], dim=1)[0])  # (B).
-    return torch.stack(medians, 1)  # (B, L).
 
 
 class HistoryDensityEncoder(torch.nn.Module):
@@ -70,19 +54,16 @@ class HistoryDensityEncoder(torch.nn.Module):
         deltas[:, 1:] -= timestamps[:, :-1]
 
         arange = torch.arange(1, l + 1, device=x.device)
+        encoded_labels = torch.nn.functional.one_hot(x.payload[self._labels_field].long(), self._num_classes)  # (B, L, C).
         if self._max_time_delta is not None:
             deltas = deltas.clip(max=self._max_time_delta)
-        if self._time_aggregation == "mean":
-            with deterministic(False):
-                agg_deltas = deltas.cumsum(1) / arange[None]  # (B, L).
-        elif self._time_aggregation == "median":
-            with deterministic(False):
-                agg_deltas = prefix_medians(deltas)  # (B, L).
-        else:
-            raise ValueError(f"Unknown time aggregation: {self._time_aggregation}")
-
-        encoded_labels = torch.nn.functional.one_hot(x.payload[self._labels_field].long(), self._num_classes)  # (B, L, C).
         with deterministic(False):
+            if self._time_aggregation == "mean":
+                agg_deltas = deltas.cumsum(1) / arange[None]  # (B, L).
+            elif self._time_aggregation == "median":
+                agg_deltas = prefix_medians(deltas)  # (B, L).
+            else:
+                raise ValueError(f"Unknown time aggregation: {self._time_aggregation}")
             label_densities = encoded_labels.cumsum(1) / offsets.unsqueeze(2)  # (B, L, C).
 
         hiddens = [agg_deltas.unsqueeze(2), label_densities]
@@ -133,9 +114,9 @@ class HistoryDensityModule(BaseModule):
                  amounts_field=None, log_amount=False,
                  **kwargs):
         super().__init__(seq_encoder=HistoryDensityEncoder(num_classes,
-                                                         timestamps_field=timestamps_field, labels_field=labels_field,
-                                                         time_aggregation=time_aggregation, max_time_delta=max_time_delta,
-                                                         amounts_field=amounts_field, log_amount=log_amount),
+                                                           timestamps_field=timestamps_field, labels_field=labels_field,
+                                                           time_aggregation=time_aggregation, max_time_delta=max_time_delta,
+                                                           amounts_field=amounts_field, log_amount=log_amount),
                          loss=Identity(2),
                          timestamps_field=timestamps_field,
                          labels_field=labels_field,
