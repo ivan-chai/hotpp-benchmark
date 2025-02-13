@@ -17,7 +17,7 @@ def prefix_medians(x):
     b, l = x.shape
     medians = []
     for i in range(l):
-        medians.append(torch.median(x[:, :i + 1], dim=1))  # (B).
+        medians.append(torch.median(x[:, :i + 1], dim=1)[0])  # (B).
     return torch.stack(medians, 1)  # (B, L).
 
 
@@ -76,7 +76,8 @@ class HistoryDensityEncoder(torch.nn.Module):
             with deterministic(False):
                 agg_deltas = deltas.cumsum(1) / arange[None]  # (B, L).
         elif self._time_aggregation == "median":
-            agg_deltas = prefix_medians(deltas)  # (B, L).
+            with deterministic(False):
+                agg_deltas = prefix_medians(deltas)  # (B, L).
         else:
             raise ValueError(f"Unknown time aggregation: {self._time_aggregation}")
 

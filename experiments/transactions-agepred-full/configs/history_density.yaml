@@ -8,6 +8,7 @@ module:
   _target_: hotpp.modules.HistoryDensityModule
   horizons: ${history_density_horizons}
   num_classes: ${num_classes}
+  time_aggregation: median
   seq_encoder:  # Unused.
     rnn_partial:
       _target_: hotpp.nn.GRU
