@@ -5,22 +5,43 @@ from ..fields import PRESENCE_PROB, LABELS_LOGITS
 from .base_module import BaseModule
 
 
-class MergeHistoryEncoder(torch.nn.Module):
-    """For each horizon compute labels frequency and (optionally) amounts per label.
-    During inference generate all labels on the horizon with corresponding mean statistics.
+def prefix_medians(x):
+    """Compute median value for each prefix.
 
     Args:
-        horizons: The list of horizon intervals to model.
+        x: Input tensor with shape (B, L).
+
+    Returns:
+        Prefix medians with shape (B, L).
+    """
+    b, l = x.shape
+    medians = []
+    for i in range(l):
+        medians.append(torch.median(x[:, :i + 1], dim=1))  # (B).
+    return torch.stack(medians, 1)  # (B, L).
+
+
+class HistoryDensityEncoder(torch.nn.Module):
+    """Compute labels and amounts density using historical data.
+    Density is estimated with respect to time rather than indices.
+    Amounts density is estimated for each label independently.
+
+    Args:
+        num_classes: The number of classes in the dataset.
+        time_aggregation: One of "mean" and "median".
+        max_time_delta: Truncate time deltas to this value during mean value estimation.
+        log_amount: Whether amounts are preprocessed with log(x + 1).
     """
 
-    def __init__(self, num_classes, horizons,
-                 timestamps_field="timestamps", labels_field="labels",
+    def __init__(self, num_classes, timestamps_field="timestamps", labels_field="labels",
+                 time_aggregation="mean", max_time_delta=None,
                  amounts_field=None, log_amount=False):
         super().__init__()
         self._num_classes = num_classes
-        self._horizons = list(sorted(horizons))
         self._timestamps_field = timestamps_field
         self._labels_field = labels_field
+        self._time_aggregation = time_aggregation
+        self._max_time_delta = max_time_delta
         self._amounts_field = amounts_field
         self._log_amount = log_amount
 
@@ -30,44 +51,49 @@ class MergeHistoryEncoder(torch.nn.Module):
 
     @property
     def hidden_size(self):
-        return len(self._horizons) * self._num_classes * (2 if self._amounts_field else 1)
+        # 1 for time, C for labels density and (optionally) C for amounts density per label.
+        return 1 + self._num_classes * (2 if self._amounts_field else 1)
 
     def forward(self, x, return_states=False):
+        b, l = x.shape
         seq_mask = x.seq_len_mask.bool()  # (B, L).
         timestamps = x.payload[self._timestamps_field]  # (B, L).
-        timestamps = timestamps.masked_fill(~seq_mask, timestamps[seq_mask].max().item())
-        timestamps = torch.cat([timestamps[:, :1], timestamps], 1)  # (B, 1 + L).
-        labels = x.payload[self._labels_field].masked_fill(~seq_mask, 0)  # (B, L).
+
+        # Compute time offsets from the beginning. The first offset is the initial timestamp (to avoid zeros).
+        offsets = timestamps.clone()
+        offsets[:, 1:] -= timestamps[:, :1]  # (B, L).
+        offsets.clip_(min=1e-6 * (1 if self._max_time_delta is None else self._max_time_delta))
+
+        # Compute time offsets from previous events.
+        deltas = timestamps.clone()
+        deltas[:, 0] = 0
+        deltas[:, 1:] -= timestamps[:, :-1]
+
+        arange = torch.arange(1, l + 1, device=x.device)
+        if self._max_time_delta is not None:
+            deltas = deltas.clip(max=self._max_time_delta)
+        if self._time_aggregation == "mean":
+            with deterministic(False):
+                agg_deltas = deltas.cumsum(1) / arange[None]  # (B, L).
+        elif self._time_aggregation == "median":
+            agg_deltas = prefix_medians(deltas)  # (B, L).
+        else:
+            raise ValueError(f"Unknown time aggregation: {self._time_aggregation}")
+
         encoded_labels = torch.nn.functional.one_hot(x.payload[self._labels_field].long(), self._num_classes)  # (B, L, C).
         with deterministic(False):
-            n_labels = encoded_labels.cumsum(1)  # (B, L, C).
-            n_labels = torch.cat([torch.zeros_like(n_labels[:, :1]), n_labels], 1)  # (B, 1 + L, C).
-            if self._amounts_field:
-                amounts = x.payload[self._amounts_field]
-                if self._log_amount:
-                    amounts = amounts.exp() - 1
-                label_sums = (encoded_labels * amounts.unsqueeze(2)).cumsum(1)  # (B, L, C).
-                label_sums = torch.cat([torch.zeros_like(label_sums[:, :1]), label_sums], 1)  # (B, 1 + L, C).
-        hiddens = []
-        arange = 1 + torch.arange(x.shape[1], device=x.device)[None, :, None]  # (1, L, 1).
-        for h in self._horizons:
-            start = torch.searchsorted(timestamps, timestamps - h, side="left").unsqueeze(2)  # (B, 1 + L, 1).
-            start = (start - 1).clip(min=0)
-            end = torch.searchsorted(timestamps, timestamps, side="left").unsqueeze(2)  # (B, 1 + L, 1).
-            end = torch.maximum(start, end - 1)  # (B, 1 + L, 1)
-            # Ignore start == 0 (truncated horizon).
-            counts = n_labels.take_along_dim(end, 1) - n_labels.take_along_dim(start, 1)  # (B, 1 + L, C).
-            counts = counts[:, 1:]  # (B, L, C).
-            assert counts.shape[2] == self._num_classes
+            label_densities = encoded_labels.cumsum(1) / offsets.unsqueeze(2)  # (B, L, C).
+
+        hiddens = [agg_deltas.unsqueeze(2), label_densities]
+        if self._amounts_field:
+            amounts = x.payload[self._amounts_field]
+            if self._log_amount:
+                amounts = amounts.exp() - 1
             with deterministic(False):
-                horizon_hiddens = counts.cumsum(1) / arange  # Average horizon sums with shape (B, L, C).
-                if self._amounts_field is not None:
-                    amounts = label_sums.take_along_dim(end, 1) - label_sums.take_along_dim(start, 1)  # (B, 1 + L, C).
-                    amounts = amounts[:, 1:]  # (B, L, C).
-                    horizon_hiddens = torch.cat([horizon_hiddens, amounts.cumsum(1) / arange], dim=-1)  # (B, L, 2C).
-            hiddens.append(horizon_hiddens)
-        hiddens = PaddedBatch(torch.cat(hiddens, dim=-1), x.seq_lens)  # (B, L, H2C).
-        return hiddens, hiddens.payload[None]  # (B, L, H2C), (N, B, L, H2C).
+                amount_densities = (amounts.unsqueeze(2) * encoded_labels).cumsum(1) / offsets.unsqueeze(2)  # (B, L, C).
+            hiddens.append(amount_densities)
+        hiddens = PaddedBatch(torch.cat(hiddens, dim=-1), x.seq_lens)  # (B, L, D).
+        return hiddens, hiddens.payload[None]  # (B, L, D), (N, B, L, D).
 
 
 class Identity(torch.nn.Identity):
@@ -80,15 +106,21 @@ class Identity(torch.nn.Identity):
         return False
 
 
-class MergeHistoryModule(BaseModule):
-    """The model computes per-label average activations and predicts the full set of labels with average horizon statistics.
+class HistoryDensityModule(BaseModule):
+    """Compute labels and amounts density using historical data.
+    Density is estimated with respect to time rather than indices.
+    Amounts density is estimated for each label independently.
+
+    During inference, the module predicts average sequences for each horizon interval.
 
     The model doesn't require training.
 
     Parameters.
+        num_classes: The number of classes in the dataset.
         horizons: The list of horizon intervals to model.
-        val_metric: Validation set metric.
-        test_metric: Test set metric.
+        time_aggregation: One of "mean" and "median".
+        max_time_delta: Truncate time deltas to this value during mean value estimation.
+        log_amount: Whether amounts are preprocessed with log(x + 1).
         kwargs: Ignored (keep for compatibility with base module).
     """
     def __init__(self, num_classes, horizons,
@@ -96,10 +128,12 @@ class MergeHistoryModule(BaseModule):
                  head_partial=None, optimizer_partial=None, lr_scheduler_partial=None,  # Ignored.
                  timestamps_field="timestamps",
                  labels_field="labels",
+                 time_aggregation="mean", max_time_delta=None,
                  amounts_field=None, log_amount=False,
                  **kwargs):
-        super().__init__(seq_encoder=MergeHistoryEncoder(num_classes, horizons,
+        super().__init__(seq_encoder=HistoryDensityEncoder(num_classes,
                                                          timestamps_field=timestamps_field, labels_field=labels_field,
+                                                         time_aggregation=time_aggregation, max_time_delta=max_time_delta,
                                                          amounts_field=amounts_field, log_amount=log_amount),
                          loss=Identity(2),
                          timestamps_field=timestamps_field,
@@ -129,7 +163,8 @@ class MergeHistoryModule(BaseModule):
         mask = sequences.payload[PRESENCE_PROB] > 0
         is_empty = mask.sum(2, keepdim=True) == 0  # (B, L, 1).
         mask.masked_fill_(is_empty, True)
-        mask = torch.logical_and(mask, mask.cumsum(2) == 1)  # (B, L, K).
+        with deterministic(False):
+            mask = torch.logical_and(mask, mask.cumsum(2) == 1)  # (B, L, K).
 
         fields = [PRESENCE_PROB, self._timestamps_field, self._labels_field]
         if self._amounts_field:
@@ -155,18 +190,17 @@ class MergeHistoryModule(BaseModule):
             Predicted sequences with shape (B, I, N).
         """
         init_times = x.payload[self._timestamps_field].take_along_dim(indices.payload, 1)  # (B, I).
-        outputs, _ = self(x)  # (B, L, H2C).
-        outputs = outputs.payload.take_along_dim(indices.payload.unsqueeze(2), 1)  # (B, I, H2C).
+        outputs, _ = self(x)  # (B, L, D).
+        outputs = outputs.payload.take_along_dim(indices.payload.unsqueeze(2), 1)  # (B, I, D).
         seq_mask = indices.seq_len_mask.bool()  # (B, I).
         b, l, _ = outputs.shape
-        r = 2 if self._amounts_field else 1
-        outputs = outputs.reshape(b, l, len(self._horizons), r, self._seq_encoder._num_classes)  # (B, I, H, 2, C).
-        counts = outputs[:, :, :, 0, :]  # (B, I, H, C).
+
+        deltas = outputs[..., 0]  # (B, I).
+        label_densities = outputs[..., 1:1 + self._num_classes]  # (B, I, C).
         if self._amounts_field:
-            amounts = outputs[:, :, :, 1, :]  # (B, I, H, C).
-        else:
-            amounts = None
-        active_classes = (counts[seq_mask] > 0).flatten(0, 1).any(0)  # (C).
+            amount_densities = outputs[..., 1 + self._num_classes:1 + 2 * self._num_classes]  # (B, I, C).
+
+        active_classes = (label_densities[seq_mask] > 0).any(0)  # (C).
         active_indices = active_classes.nonzero()[:, 0]  # (A).
         assert (active_classes.ndim == 1) and (len(active_classes) == self._num_classes)
         n_active = active_classes.sum().item()
@@ -176,16 +210,14 @@ class MergeHistoryModule(BaseModule):
             self._timestamps_field: torch.zeros(b, l, k, device=x.device),
             self._labels_field: torch.zeros(b, l, k, device=x.device, dtype=torch.long)
         }
-        if amounts is not None:
+        if self._amounts_field:
             sequences[self._amounts_field] = torch.zeros(b, l, k, device=x.device)
         for i, h in enumerate(self._horizons):
             prev_h = self._horizons[i - 1] if i > 0 else 0
             timedelta = prev_h + (h - prev_h) / 2
-            inter_counts = counts[:, :, i]  # (B, I, C).
-            inter_amounts = amounts[:, :, i] if amounts is not None else None  # (B, I, C).
-            if i > 0:
-                inter_counts = (inter_counts - counts[:, :, i - 1]).clip(min=0)
-                inter_amounts = (inter_amounts - amounts[:, :, i - 1]).clip(min=0) if amounts is not None else None
+
+            inter_counts = (h - prev_h) * label_densities  # (B, I, C).
+
             order = inter_counts[:, :, active_classes].argsort(2, descending=True)  # (B, I, C).
             start = i * n_active
             stop = (i + 1) * n_active
@@ -193,9 +225,11 @@ class MergeHistoryModule(BaseModule):
             sequences[PRESENCE_PROB][..., start:stop] = probs.take_along_dim(order, -1)
             sequences[self._timestamps_field][..., start:stop] = init_times[:, :, None] + timedelta
             sequences[self._labels_field][..., start:stop] = active_indices[None, None].expand(b, l, n_active).take_along_dim(order, -1)
-            if amounts is not None:
+            if self._amounts_field:
+                inter_amounts = (h - prev_h) * amount_densities  # (B, I, C).
                 sequences[self._amounts_field][..., start:stop] = (inter_amounts[:, :, active_classes] / probs.clip(min=1e-6)).take_along_dim(order, -1)
+
         sequences[LABELS_LOGITS] = (torch.nn.functional.one_hot(sequences[self._labels_field], self._num_classes) - 1) * 1000.0
-        if (amounts is not None) and self._log_amount:
+        if self._amounts_field and self._log_amount:
             sequences[self._amounts_field] = (sequences[self._amounts_field] + 1).log()
         return PaddedBatch(sequences, indices.seq_lens)

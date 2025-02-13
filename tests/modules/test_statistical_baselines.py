@@ -4,14 +4,14 @@ import torch
 
 from hotpp.data import PaddedBatch
 from hotpp.fields import PRESENCE_PROB
-from hotpp.modules import RecentHistoryModule, MostPopularModule, MergeHistoryModule
+from hotpp.modules import RecentHistoryModule, MostPopularModule, HistoryDensityModule
 
 
 class TestStatisticalBaselines(TestCase):
     def test_generation(self):
         rh_module = RecentHistoryModule(2, 3)
         mp_module = MostPopularModule(2, 3)
-        mh_module = MergeHistoryModule(3, [1, 2], amounts_field="amounts")  # num_classes, horizons.
+        hd_module = HistoryDensityModule(3, [1, 2], amounts_field="amounts")  # num_classes, horizons.
         batch = PaddedBatch({
             "timestamps": torch.tensor([0.5, 1, 2.5, 3])[None],
             "labels": torch.tensor([2, 0, 1, 0])[None],
@@ -51,54 +51,57 @@ class TestStatisticalBaselines(TestCase):
         self.assertEqual(sequences.payload["timestamps"].squeeze().tolist(), timestamps_gt)
         self.assertEqual(sequences.payload["labels"].squeeze().tolist(), labels_gt)
 
-        # Test MergeHistory.
-        sequences = mh_module.generate_sequences(batch, indices)
-        # Horizon 1
-        # windows:
-        # [], [0.5], [], [2.5]
-        # labels:
-        # [], [2], [], [1]
-        # amounts:
-        # [], [1], [], [3]
-        # avg counts:
-        # [0, 0, 0], [0, 0, 0.5], [0, 0, 0.33], [0, 0.25, 0.25]
-        # avg amounts:
-        # [0, 0, 0], [0, 0, 0.5], [0, 0, 0.33], [0, 0.75, 0.25]
+        # Test HistoryDensity.
+        sequences = hd_module.generate_sequences(batch, indices)
+        # Time offsets
+        #  0.5, 0.5, 2.0, 2.5
+        # Time deltas:
+        #  0, 0.5, 1.5, 0.5.
+        # Mean time deltas:
+        #  0, 0.25, 2 / 3, 2.5 / 4
+        # Median time deltas:
+        #  0, 0, 0.5, 0.5
         #
-        # Horizon 2
-        # windows:
-        # [], [0.5], [0.5, 1], [1, 2.5]
-        # labels:
-        # [], [2], [2, 0], [0, 1]
-        # amounts:
-        # [], [1], [1, 2], [2, 3]
-        # avg counts:
-        # [0, 0, 0], [0, 0, 0.5], [0.33, 0, 0.66], [0.5, 0.25, 0.5]
-        # avg amounts:
-        # [0, 0, 0], [0, 0, 0.5], [0.66, 0, 0.66], [1.0, 0.75, 0.5]
+        # Label 0 densities:
+        #  0, 2, 0.5, 0.8
+        # Label 1 densities:
+        #  0, 0, 0.5, 0.4
+        # Label 2 densities:
+        #  2, 2, 0.5, 0.4
         #
-        # Horizon delta
-        # avg counts:
-        # [0, 0, 0], [0, 0, 0], [0.33, 0, 0.33], [0.5, 0, 0.25]
-        # avg amounts:
-        # [0, 0, 0], [0, 0, 0], [0.66, 0, 0.33], [1.0, 0, 0.25]
+        # Amounts 0 densities:
+        #  0, 4, 1, 2.4
+        # Amounts 1 densities:
+        #  0, 0, 1.5, 1.2
+        # Amounts 2 densities:
+        #  2, 2, 0.5, 0.4
         #
-        # + Apply sorting by probability.
-        probs_gt = [[0.5, 0.0, 0.0, 0.0, 0.0, 0.0], [0.25, 0.25, 0.0, 0.5, 0.25, 0.0]]
+        # Horizon 1 (same as horizon 2 - horizon 1)
+        # avg counts:
+        # [0, 0, 2], [2, 0, 2], [0.5, 0.5, 0.5], [0.8, 0.4, 0.4]
+        # avg amounts:
+        # [0, 0, 2], [4, 0, 2], [1, 1.5, 0.5], [2.4, 1.2, 0.4]
+        #
+        # Sorting order (index 1):
+        # 0, 2, 1
+        # Sorting order (index 3):
+        # 0, 1, 2
+        counts_gt = [[2.0, 2.0, 0.0, 2.0, 2.0, 0.0], [0.8, 0.4, 0.4, 0.8, 0.4, 0.4]]
+        probs_gt = [[1.0, 1.0, 0.0, 1.0, 1.0, 0.0], [0.8, 0.4, 0.4, 0.8, 0.4, 0.4]]
         timestamps_gt = [[1.5, 1.5, 1.5, 2.5, 2.5, 2.5], [3.5, 3.5, 3.5, 4.5, 4.5, 4.5]]
-        labels_gt = [[2, 0, 1, 0, 1, 2], [1, 2, 0, 0, 2, 1]]
-        amounts_gt = [[0.5, 0.0, 0.0, 0.0, 0.0, 0.0], [0.75, 0.25, 0.0, 1, 0.25, 0.0]]
-        self.assertEqual(sequences.payload[PRESENCE_PROB].squeeze().tolist(), probs_gt)
+        labels_gt = [[0, 2, 1, 0, 2, 1], [0, 1, 2, 0, 1, 2]]
+        amounts_gt = [[4.0, 2.0, 0.0, 4.0, 2.0, 0.0], [2.4, 1.2, 0.4, 2.4, 1.2, 0.4]]
+        self.assertTrue(sequences.payload[PRESENCE_PROB].squeeze().allclose(torch.tensor(probs_gt)))
         self.assertEqual(sequences.payload["timestamps"].squeeze().tolist(), timestamps_gt)
-        self.assertEqual(sequences.payload["labels"].squeeze().tolist(), labels_gt)
+        self.assertTrue(sequences.payload["labels"].squeeze().allclose(torch.tensor(labels_gt)))
         expected_amounts = sequences.payload[PRESENCE_PROB] * sequences.payload["amounts"]
-        self.assertEqual(expected_amounts.squeeze().tolist(), amounts_gt)
+        self.assertTrue(expected_amounts.squeeze().allclose(torch.tensor(amounts_gt)))
 
-        next_items = mh_module.predict_next(batch, None, None)  # (1, 4).
-        probs_gt = [0.0, 0.5, 1 / 3, 0.25]
+        next_items = hd_module.predict_next(batch, None, None)  # (1, 4).
+        probs_gt = [1.0, 1, 0.5, 0.8]
         timestamps_gt = [1.0, 1.5, 3.0, 3.5]
-        labels_gt = [0, 2, 2, 1]
-        amounts_gt = [0.0, 0.5, 1 / 3, 0.75]
+        labels_gt = [2, 0, 0, 0]
+        amounts_gt = [2, 4, 1, 2.4]
         self.assertTrue(next_items.payload[PRESENCE_PROB].squeeze().allclose(torch.tensor(probs_gt), atol=1e-6))
         self.assertEqual(next_items.payload["timestamps"].squeeze().tolist(), timestamps_gt)
         self.assertEqual(next_items.payload["labels"].squeeze().tolist(), labels_gt)

@@ -1,7 +1,11 @@
 from .base_module import BaseModule
-from .merge_history import MergeHistoryModule
+
+# Statistical baselines.
+from .history_density import HistoryDensityModule
+from .recent_history import RecentHistoryModule
+from .most_popular import MostPopularModule
+
+# Training modules.
 from .next_item import NextItemModule
 from .next_k import NextKModule
 from .hypro import HyproModule
-from .recent_history import RecentHistoryModule
-from .most_popular import MostPopularModule

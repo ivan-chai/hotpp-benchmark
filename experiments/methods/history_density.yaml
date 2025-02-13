@@ -2,11 +2,11 @@ defaults:
   - default
   - _self_
 
-name: merge_history
+name: history_density
 
 module:
-  _target_: hotpp.modules.MergeHistoryModule
-  horizons: [1, 3, 7]
+  _target_: hotpp.modules.HistoryDensityModule
+  horizons: ${history_density_horizons}
   num_classes: ${num_classes}
   seq_encoder:  # Unused.
     rnn_partial:

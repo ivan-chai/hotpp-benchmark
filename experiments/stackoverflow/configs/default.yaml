@@ -6,7 +6,7 @@ num_classes: 22
 max_time_delta: 15
 max_duration: 15
 time_smoothing: null  # Time is continuous.
-merge_history_horizons: [1, 2, 3, 5, 10]
+history_density_horizons: [1, 2, 3, 5, 10]
 
 rnn_hidden_size: 64
 rnn_inference_context: 101
