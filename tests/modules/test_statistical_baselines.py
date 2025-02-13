@@ -38,7 +38,7 @@ class TestStatisticalBaselines(TestCase):
         sequences = mp_module.generate_sequences(batch, indices)
         # Input deltas:
         # 0, 0.5, 1.5, 0.5
-        # Mean deltas: 0, 0.25, 2.166..., 0.625
+        # Mean deltas (ignoring the first one): 0, 0.5, 1, 2.5 / 3
         # Top labels: 2, 0, 0, 0
         # Timestamps: cumsum deltas + initial
         # 1.25 1.5
@@ -46,9 +46,9 @@ class TestStatisticalBaselines(TestCase):
         # Labels:
         # 0 0
         # 0 0
-        timestamps_gt = [[1.25, 1.5], [3.625, 4.25]]
+        timestamps_gt = [[1.5, 2.0], [3 + 2.5 / 3, 3 + 5 / 3]]
         labels_gt = [[0, 0], [0, 0]]
-        self.assertEqual(sequences.payload["timestamps"].squeeze().tolist(), timestamps_gt)
+        self.assertTrue(sequences.payload["timestamps"].squeeze().allclose(torch.tensor(timestamps_gt)))
         self.assertEqual(sequences.payload["labels"].squeeze().tolist(), labels_gt)
 
         # Test HistoryDensity.
