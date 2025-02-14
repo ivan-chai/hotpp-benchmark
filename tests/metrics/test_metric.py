@@ -4,7 +4,7 @@ from unittest import TestCase, main
 
 import torch
 
-from hotpp.metrics import NextItemMetric, TMAPMetric, OTDMetric, HorizonMetric, HorizonStatsMetric
+from hotpp.metrics import NextItemMetric, TMAPMetric, OTDMetric, HorizonMetric, HorizonBinaryTargetsMetric
 
 
 class TestMetrics(TestCase):
@@ -204,7 +204,7 @@ class TestMetrics(TestCase):
         result = metric.compute()
         self.assertAlmostEqual(result["optimal-transport-distance"], 0)
 
-    def test_horizon_stats(self):
+    def test_horizon_binary_targets(self):
         initial_times = torch.tensor([-1, 3.5])
         targets = [
             {"horizon": 1,
@@ -216,7 +216,7 @@ class TestMetrics(TestCase):
              "threshold": 2,
              "is_less": False}
         ]
-        metric = HorizonStatsMetric(targets)
+        metric = HorizonBinaryTargetsMetric(targets)
         metric.update(
             initial_times,
             self.seq_target_mask,
@@ -234,8 +234,8 @@ class TestMetrics(TestCase):
         # target 1: 1
         # MACRO: 0.5
         # WEIGHTED: 0.5
-        self.assertAlmostEqual(results["horizon-stats-roc-auc"], 0.5)
-        self.assertAlmostEqual(results["horizon-stats-roc-auc-weighted"], 0.5)
+        self.assertAlmostEqual(results["horizon-binary-targets-roc-auc"], 0.5)
+        self.assertAlmostEqual(results["horizon-binary-targets-roc-auc-weighted"], 0.5)
 
     def test_end_to_end(self):
         metric = HorizonMetric(self.horizon, horizon_evaluation_step=3,

@@ -3,7 +3,7 @@ from torch_linear_assignment import batch_linear_assignment
 from sklearn.metrics import roc_auc_score
 
 
-class HorizonStatsMetric:
+class HorizonBinaryTargetsMetric:
     """Average mAP metric among different time difference thresholds.
 
     Args:
@@ -86,6 +86,6 @@ class HorizonStatsMetric:
         is_less = torch.tensor([t["is_less"] for t in self.targets], dtype=torch.bool)[active_classes]
         scores[:, is_less] *= -1
         return {
-            "horizon-stats-roc-auc": roc_auc_score(targets, scores, average="macro"),
-            "horizon-stats-roc-auc-weighted": roc_auc_score(targets, scores, average="weighted")
+            "horizon-binary-targets-roc-auc": roc_auc_score(targets, scores, average="macro"),
+            "horizon-binary-targets-roc-auc-weighted": roc_auc_score(targets, scores, average="weighted")
         }

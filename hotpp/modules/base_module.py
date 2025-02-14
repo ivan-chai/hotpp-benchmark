@@ -254,7 +254,7 @@ class BaseModule(pl.LightningModule):
             kwargs = {}
             if metric.need_amount:
                 if self._amounts_field is None:
-                    raise ValueError("Need amount field name to compute the horizon stats metric")
+                    raise ValueError("Need amount field for the specified metric")
                 kwargs["amounts"] = features.payload[self._amounts_field]
                 kwargs["seq_predicted_amounts"] = sequences.payload[self._amounts_field]
             metric.update_horizon(features.seq_lens,

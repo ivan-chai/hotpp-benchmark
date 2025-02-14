@@ -3,8 +3,8 @@ test/T-mAP: 0.06307969242334366
 test/T-mAP-weighted: 0.3334231376647949
 test/horizon-max-accuracy-weighted: 0.5122242569923401
 test/horizon-mean-time-step: 0.5837425589561462
-test/horizon-stats-roc-auc: 0.7930593490600586
-test/horizon-stats-roc-auc-weighted: 0.7873193621635437
+test/horizon-binary-targets-rog-auc: 0.7930593490600586
+test/horizon-binary-targets-rog-auc-weighted: 0.7873193621635437
 test/loss: 3.635495185852051
 test/loss_labels: 2.248076915740967
 test/loss_log_amount: 0.8218029141426086
@@ -25,8 +25,8 @@ val/T-mAP: 0.06373678892850876
 val/T-mAP-weighted: 0.3345015347003937
 val/horizon-max-accuracy-weighted: 0.5110763311386108
 val/horizon-mean-time-step: 0.584475040435791
-val/horizon-stats-roc-auc: 0.7958898544311523
-val/horizon-stats-roc-auc-weighted: 0.7919167876243591
+val/horizon-binary-targets-rog-auc: 0.7958898544311523
+val/horizon-binary-targets-rog-auc-weighted: 0.7919167876243591
 val/loss: 3.612666606903076
 val/loss_labels: 2.2298967838287354
 val/loss_log_amount: 0.8173536658287048

@@ -1,6 +1,6 @@
 defaults:
   - downstream@downstream
-  - stats_targets@metric.stats_targets
+  - horizon_binary_targets@metric.horizon_binary_targets
   - _self_
 
 seed_everything: 42
