@@ -1,4 +1,5 @@
 from hotpp.data import PaddedBatch
+from ..fields import LABELS_LOGITS
 from .base_module import BaseModule
 
 
@@ -56,5 +57,5 @@ class NextItemModule(BaseModule):
             outputs = self._head(hiddens)  # (B, L, D).
             return self.predict_next(None, outputs, states,
                                      predict_delta=True,
-                                     logits_fields_mapping={self._labels_field: self._labels_logits_field})  # (B, L).
+                                     logits_fields_mapping={self._labels_field: LABELS_LOGITS})  # (B, L).
         return self._seq_encoder.generate(x, indices, predict_fn, n_steps)  # (B, I, N).

@@ -10,6 +10,7 @@ num_classes: 205
 max_time_delta: 8
 max_duration: 8
 time_smoothing: 1  # Convert discrete time to a continuos variable during loss computation.
+history_density_horizons: [3, 7]
 
 rnn_hidden_size: 512
 rnn_inference_context: 1200

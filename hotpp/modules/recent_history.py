@@ -1,7 +1,7 @@
 import torch
 from hotpp.data import PaddedBatch
 from hotpp.utils.torch import deterministic
-from ..nn import Head
+from ..fields import LABELS_LOGITS
 from .base_module import BaseModule
 
 
@@ -143,5 +143,5 @@ class RecentHistoryModule(BaseModule):
         outputs = PaddedBatch(outputs.payload.take_along_dim(indices.payload.unsqueeze(2), 1),
                               indices.seq_lens)  # (B, I, D).
         states = states.take_along_dim(indices.payload[None, :, :, None], 2)  # (N, B, I, D).
-        sequences = self.predict_next_k(init_times, outputs, states, logits_fields_mapping={self._labels_field: self._labels_logits_field})  # (B, I, K) or (B, I, K, C).
+        sequences = self.predict_next_k(init_times, outputs, states, logits_fields_mapping={self._labels_field: LABELS_LOGITS})  # (B, I, K) or (B, I, K, C).
         return sequences  # (B, I, K) or (B, I, K, C).

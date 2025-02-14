@@ -1,0 +1,5 @@
+defaults:
+  - most_popular_distribution_otd_base
+  - _self_
+
+max_time_delta: 2

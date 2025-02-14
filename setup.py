@@ -15,7 +15,7 @@ if not os.environ.get("HOTPP_PUBLISH", False):
 
 setuptools.setup(
     name="hotpp-benchmark",
-    version="0.3.0",
+    version="0.4.0",
     author="Ivan Karpukhin",
     author_email="karpuhini@yandex.ru",
     description="Evaluate generative event sequence models on the long horizon prediction task.",

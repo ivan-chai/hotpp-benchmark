@@ -1,9 +1,10 @@
 import torch
 
 from ..data import PaddedBatch
-from .tmap import TMAPMetric
+from .horizon_binary_targets import HorizonBinaryTargetsMetric
 from .next_item import NextItemMetric
 from .otd import OTDMetric, batch_bincount
+from .tmap import TMAPMetric
 
 
 class HorizonMetric:
@@ -19,10 +20,13 @@ class HorizonMetric:
         otd_steps: The number of steps for optimal transport distance evaluation.
         otd_insert_cost: OTD insert cost.
         otd_delete_cost: OTD delete cost.
+        horizon_binary_targets: Horizon targets in the form of dictionaries with "horizon", "label", "threshold", and "is_less" fields.
+        log_amount: Set this flag if input amount is processed with log(1 + x).
     """
     def __init__(self, horizon, horizon_evaluation_step=1, max_time_delta=None,
                  map_deltas=None, map_target_length=None,
-                 otd_steps=None, otd_insert_cost=None, otd_delete_cost=None):
+                 otd_steps=None, otd_insert_cost=None, otd_delete_cost=None,
+                 horizon_binary_targets=None, log_amount=False):
         self.horizon = horizon
         self.horizon_evaluation_step = horizon_evaluation_step
 
@@ -31,7 +35,8 @@ class HorizonMetric:
             if map_target_length is None:
                 raise ValueError("Need the max target sequence length for mAP computation")
             self.map_target_length = map_target_length
-            self.tmap = TMAPMetric(time_delta_thresholds=map_deltas)
+            self.tmap = TMAPMetric(horizon=horizon,
+                                   time_delta_thresholds=map_deltas)
         else:
             self.map_target_length = None
             self.tmap = None
@@ -45,7 +50,16 @@ class HorizonMetric:
             self.otd_steps = None
             self.otd = None
 
+        if horizon_binary_targets is not None:
+            self.horizon_binary_targets = HorizonBinaryTargetsMetric(horizon_binary_targets, log_amount=log_amount)
+        else:
+            self.horizon_binary_targets = None
+
         self.reset()
+
+    @property
+    def need_amount(self):
+        return self.horizon_binary_targets is not None
 
     @property
     def horizon_prediction(self):
@@ -62,6 +76,8 @@ class HorizonMetric:
             self.tmap.reset()
         if self.otd is not None:
             self.otd.reset()
+        if self.horizon_binary_targets is not None:
+            self.horizon_binary_targets.reset()
 
     def select_horizon_indices(self, seq_lens):
         """Select indices for horizon metrics evaluation."""
@@ -101,7 +117,8 @@ class HorizonMetric:
     def update_horizon(self, seq_lens, timestamps, labels,
                        indices, indices_lens,
                        seq_predicted_timestamps, seq_predicted_labels, seq_predicted_labels_logits,
-                       seq_predicted_weights=None):
+                       seq_predicted_mask=None, seq_predicted_probabilities=None,
+                       amounts=None, seq_predicted_amounts=None):
         """Update sequence metrics with new observations.
 
         NOTE: Timestamps and labels must be provided without offset w.r.t. predictions, i.e. input features.
@@ -115,52 +132,77 @@ class HorizonMetric:
             seq_predicted_timestamps: Predicted timestamps with shape (B, I, N).
             seq_predicted_labels: Predicted labels with shape (B, I, N).
             seq_predicted_labels_logits: Predicted labels logits with shape (B, I, N, C).
-            seq_predicted_weights (optional): Choose > 0 during OTD computation and use top-K if > 0 doesn't produce the required number of events.
+            seq_predicted_mask (optional): Mask of predicted events with shape (B, I, N).
+            seq_predicted_probabilities (optional): Occurrence probabilities for each prediction with shape (B, I, N).
+                By default all probabilities are equal to one. If probabilities are provided, they are used in T-mAP
+                computation instead of seq_predicted_mask.
+            amounts: Dataset amounts with shape (B, T).
+            seq_predicted_amounts (optional): Predicted amount values for the horizon binary targets metric with shape (B, I, N).
         """
-        features = PaddedBatch({"timestamps": timestamps, "labels": labels}, seq_lens)
+        b, l, n = seq_predicted_timestamps.shape
+        device = seq_predicted_timestamps.device
+        features = {"timestamps": timestamps, "labels": labels}
+        if amounts is not None:
+            features["amounts"] = amounts
+        features = PaddedBatch(features, seq_lens)
         indices = PaddedBatch(indices, indices_lens)
-        predictions = {"timestamps": seq_predicted_timestamps,
-                       "labels": seq_predicted_labels,
-                       "labels_logits": seq_predicted_labels_logits}
-        if seq_predicted_weights is not None:
-            predictions["_weights"] = seq_predicted_weights
-        predictions = PaddedBatch(predictions, indices_lens)
         if not features.seq_len_mask.take_along_dim(indices.payload, 1).masked_select(indices.seq_len_mask).all():
             raise ValueError("Some indices are out of sequence lengths")
 
-        initial_timestamps = features.payload["timestamps"].take_along_dim(indices.payload, 1)  # (B, I).
+        # Extract target windows.
+        seq_initial_timestamps = features.payload["timestamps"].take_along_dim(indices.payload, 1)  # (B, I).
         targets = self._extract_target_sequences(features, indices)  # (B, I, K).
         if targets.seq_lens.sum() == 0:
             return
+        if (indices_lens < targets.seq_lens).any():
+            raise ValueError("Some predictions are missing.")
 
-        # Align lengths.
-        lengths = torch.minimum(targets.seq_lens, predictions.seq_lens)  # (B).
-        targets = PaddedBatch(targets.payload, lengths)
-        predictions = PaddedBatch(predictions.payload, lengths)
+        # Extract valid evaluation positions.
         seq_mask = targets.seq_len_mask.bool()  # (B, I).
-
-        # Apply horizon.
-        targets_mask = self._get_horizon_mask(initial_timestamps, targets)  # (B, I, K).
-        horizon_predictions_mask = self._get_horizon_mask(initial_timestamps, predictions)  # (B, I, N).
-        if seq_predicted_weights is not None:
-            predictions_mask = horizon_predictions_mask.logical_and(seq_predicted_weights > 0)
+        v = seq_mask.sum().item()
+        initial_timestamps = seq_initial_timestamps[:, :l][seq_mask]  # (V).
+        target_timestamps = targets.payload["timestamps"][seq_mask]  # (V, K).
+        target_labels = targets.payload["labels"][seq_mask]  # (V, K).
+        if "amounts" in targets.payload:
+            target_amounts = targets.payload["amounts"][seq_mask]
         else:
-            predictions_mask = horizon_predictions_mask
-        self._target_lengths.append(targets_mask[seq_mask].sum(1).cpu().flatten())  # (V).
-        self._predicted_lengths.append(predictions_mask[seq_mask].sum(1).cpu().flatten())  # (BI).
+            target_amounts = None
+        predicted_timestamps = seq_predicted_timestamps[:, :l][seq_mask]  # (V, N).
+        predicted_labels = seq_predicted_labels[:, :l][seq_mask]  # (V, N).
+        predicted_labels_logits = seq_predicted_labels_logits[:, :l][seq_mask]  # (V, N, C).
+        if seq_predicted_mask is None:
+            seq_predicted_mask = torch.ones(b, l, n, dtype=torch.bool, device=device)  # (B, I, N).
+        predicted_mask = seq_predicted_mask[:, :l][seq_mask]  # (V, N)
+        if seq_predicted_probabilities is None:
+            predicted_probabilities = None
+        else:
+            predicted_probabilities = seq_predicted_probabilities[:, :l][seq_mask]  # (V, N).
+        if seq_predicted_amounts is None:
+            predicted_amounts = None
+        else:
+            predicted_amounts = seq_predicted_amounts[:, :l][seq_mask]  # (V, N).
+
+        # Compute simple horizon metrics.
+        horizon_targets_mask = target_timestamps - initial_timestamps.unsqueeze(1) < self.horizon  # (V, N).
+        horizon_predicted_mask = torch.logical_and(predicted_timestamps - initial_timestamps.unsqueeze(1) < self.horizon,
+                                                   predicted_mask)  # (V, N).
+        self._target_lengths.append(horizon_targets_mask.sum(1).cpu().flatten())  # (V).
+        self._predicted_lengths.append(horizon_predicted_mask.sum(1).cpu().flatten())  # (BI).
 
         # Update deltas stats.
-        predicted_timestamps = predictions.payload["timestamps"][seq_mask]  # (V, N).
-        predicted_labels = predictions.payload["labels"][seq_mask]  # (V, N).
         if (len(predicted_timestamps) > 0) and (predicted_timestamps.shape[1] >= 2):
             deltas = predicted_timestamps[:, 1:] - predicted_timestamps[:, :-1]
             self._horizon_predicted_deltas_sums.append(deltas.float().mean().cpu() * deltas.numel())
             self._horizon_n_predicted_deltas += deltas.numel()
 
         # Update entropies.
-        not_event = predicted_labels.max().item() + 1
-        predicted_labels_masked = predictions.payload["labels"].masked_fill(~predictions_mask, not_event).flatten(1, 2)  # (B, IN).
-        assert predicted_labels_masked.ndim == 2
+        if seq_predicted_mask.sum() > 0:
+            not_event = seq_predicted_labels[seq_predicted_mask].max().item() + 1
+        else:
+            not_event = 0
+        horizon_seq_predicted_mask = torch.logical_and(torch.logical_and(seq_predicted_mask, seq_mask.unsqueeze(2)),
+                                                       seq_predicted_timestamps - seq_initial_timestamps.unsqueeze(2) < self.horizon)
+        predicted_labels_masked = seq_predicted_labels.masked_fill(~horizon_seq_predicted_mask, not_event).flatten(1, 2)  # (B, IN).
         counts = batch_bincount(predicted_labels_masked, not_event + 1)[:, :-1]  # (B, C).
         probs = (counts / counts.sum(dim=1, keepdim=True).clip(min=1))
         entropies = -(probs * probs.clip(min=1e-6).log()).sum(1)  # (B).
@@ -168,36 +210,59 @@ class HorizonMetric:
 
         # Update T-mAP.
         if self.tmap is not None:
+            tmap_predicted_labels_scores = predicted_labels_logits
+            tmap_predicted_mask = predicted_mask
+            if predicted_probabilities is not None:
+                predicted_logprobs = predicted_probabilities.log().clip(min=-100)  # (V, N).
+                tmap_predicted_labels_scores = tmap_predicted_labels_scores + predicted_logprobs.unsqueeze(2)  # (V, N, C).
+                tmap_predicted_mask = torch.ones_like(tmap_predicted_mask)
             self.tmap.update(
-                target_mask=targets_mask[seq_mask][:, :self.map_target_length],  # (V, K).
-                target_times=targets.payload["timestamps"][seq_mask][:, :self.map_target_length],  # (V, K).
-                target_labels=targets.payload["labels"][seq_mask][:, :self.map_target_length],  # (V, K).
-                predicted_mask=horizon_predictions_mask[seq_mask],  # (V, N).
+                initial_times=initial_timestamps,
+                target_mask=torch.ones(v, self.map_target_length, dtype=torch.bool, device=initial_timestamps.device),  # (V, K).
+                target_times=target_timestamps[:, :self.map_target_length],  # (V, K).
+                target_labels=target_labels[:, :self.map_target_length],  # (V, K).
+                predicted_mask=tmap_predicted_mask,  # (V, N).
                 predicted_times=predicted_timestamps,  # (V, N).
-                predicted_labels_scores=predictions.payload["labels_logits"][seq_mask],  # (V, N, C).
+                predicted_labels_scores=tmap_predicted_labels_scores  # (V, N, C).
             )
 
         # Update OTD.
         if self.otd is not None:
             if predicted_timestamps.shape[-1] < self.otd_steps:
                 raise RuntimeError("Need more predicted events for OTD evaluation.")
-            if seq_predicted_weights is not None:
-                otd_weights = predictions.payload["_weights"][seq_mask]  # (V, S).
-                otd_mask = otd_weights > 0  # (V, S).
-                otd_mask.logical_and_(otd_mask.cumsum(1) <= self.otd_steps)
-                not_enough = otd_mask.sum(1) < self.otd_steps  # (V).
-                top_indices = otd_weights[not_enough].topk(self.otd_steps, dim=1)[1]  # (E, R).
+            otd_mask = torch.logical_and(predicted_mask, predicted_mask.cumsum(1) <= self.otd_steps)  # (V, N).
+            not_enough = otd_mask.sum(1) < self.otd_steps  # (V).
+            if not_enough.any():
+                if predicted_probabilities is None:
+                    raise ValueError("Not enough predictions for OTD, need predicted probabilities to select predictions")
+                top_indices = predicted_probabilities[not_enough].topk(self.otd_steps, dim=1)[1]  # (E, R).
+                otd_mask[not_enough] = False
                 otd_mask[not_enough] = otd_mask[not_enough].scatter(1, top_indices, torch.full_like(top_indices, True, dtype=torch.bool))
-                otd_predicted_timestamps = predicted_timestamps[otd_mask].reshape(-1, self.otd_steps)  # (V, S).
-                otd_predicted_labels = predicted_labels[otd_mask].reshape(-1, self.otd_steps)  # (V, S).
-            else:
-                otd_predicted_timestamps = predicted_timestamps[:, :self.otd_steps]  # (V, S).
-                otd_predicted_labels = predicted_labels[:, :self.otd_steps]  # (V, S).
+            otd_predicted_timestamps = predicted_timestamps[otd_mask].reshape(v, self.otd_steps)  # (V, S).
+            otd_predicted_labels = predicted_labels[otd_mask].reshape(v, self.otd_steps)  # (V, S).
             self.otd.update(
                 target_times=targets.payload["timestamps"][seq_mask][:, :self.otd_steps],  # (V, S).
                 target_labels=targets.payload["labels"][seq_mask][:, :self.otd_steps],  # (V, S).
                 predicted_times=otd_predicted_timestamps,  # (V, S).
                 predicted_labels=otd_predicted_labels,  # (V, S).
+            )
+
+        # Update horizon binary targets classification.
+        if self.horizon_binary_targets is not None:
+            if predicted_probabilities is not None:
+                binary_targets_predicted_probabilities = predicted_probabilities
+            else:
+                binary_targets_predicted_probabilities = predicted_mask.float()
+            self.horizon_binary_targets.update(
+                initial_times=initial_timestamps,
+                target_mask=torch.ones(*target_timestamps.shape, dtype=torch.bool, device=target_timestamps.device),  # (V, K).
+                target_times=target_timestamps,  # (V, K).
+                target_labels=target_labels,  # (V, K).
+                target_amounts=target_amounts,  # (V, K).
+                predicted_probabilities=binary_targets_predicted_probabilities,  # (V, K).
+                predicted_times=predicted_timestamps,  # (V, N).
+                predicted_labels_logits=predicted_labels_logits,  # (V, N, C).
+                predicted_amounts=predicted_amounts,  # (V, K).
             )
 
     def compute(self):
@@ -217,11 +282,14 @@ class HorizonMetric:
             values.update(self.tmap.compute())
         if self.otd is not None:
             values.update(self.otd.compute())
+        if self.horizon_binary_targets is not None:
+            values.update(self.horizon_binary_targets.compute())
         return values
 
     def _extract_target_sequences(self, features, indices):
         """Extract target sequence for each index."""
         b, i = indices.shape
+        # TODO: remove dependencies between metrics computation.
         n = max(self.map_target_length or 0, self.otd_steps or 0)
         # Each sequence starts from the next item.
         offsets = torch.arange(1, n + 1, device=features.device)  # (N).
@@ -236,7 +304,3 @@ class HorizonMetric:
                                  for k, v in features.payload.items()},
                                 lengths)
         return sequences
-
-    def _get_horizon_mask(self, initial_timestamps, features):
-        offsets = features.payload["timestamps"] - initial_timestamps.unsqueeze(2)  # (B, L, N).
-        return torch.logical_and(features.seq_len_mask.unsqueeze(2), offsets < self.horizon)  # (B, L, N).

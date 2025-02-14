@@ -1,0 +1,20 @@
+defaults:
+  - default
+  - _self_
+
+name: history_density
+
+module:
+  _target_: hotpp.modules.HistoryDensityModule
+  horizons: ${history_density_horizons}
+  num_classes: ${num_classes}
+  time_aggregation: median
+  seq_encoder:  # Unused.
+    rnn_partial:
+      _target_: hotpp.nn.GRU
+      _partial_: true
+      hidden_size: ${rnn_hidden_size}
+  head_partial: ${head}
+
+trainer:
+  max_epochs: 0
