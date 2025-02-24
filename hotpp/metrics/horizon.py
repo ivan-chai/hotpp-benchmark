@@ -274,9 +274,10 @@ class HorizonMetric:
             values.update({
                 "mean-target-length": target_lengths.sum().item() / target_lengths.numel(),
                 "mean-predicted-length": predicted_lengths.sum().item() / predicted_lengths.numel(),
-                "horizon-mean-time-step": torch.stack(self._horizon_predicted_deltas_sums).sum().item() / self._horizon_n_predicted_deltas,
                 "sequence-labels-entropy": sequence_labels_entropies.mean().item()
             })
+            if self._horizon_n_predicted_deltas > 0:
+                values["horizon-mean-time-step"] = torch.stack(self._horizon_predicted_deltas_sums).sum().item() / self._horizon_n_predicted_deltas
         values.update(self.next_item.compute())
         if self.tmap is not None:
             values.update(self.tmap.compute())
