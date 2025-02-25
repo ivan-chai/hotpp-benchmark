@@ -51,3 +51,4 @@ module:
     max_time_delta: ${max_time_delta}
     loss_step: 1
     generation_steps: ${diffusion_steps}
+  max_predictions: ${max_predictions}

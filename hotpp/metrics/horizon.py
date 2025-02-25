@@ -71,6 +71,7 @@ class HorizonMetric:
         self._horizon_predicted_deltas_sums = []
         self._horizon_n_predicted_deltas = 0
         self._sequence_labels_entropies = []
+        self._target_sequence_labels_entropies = []
         self.next_item.reset()
         if self.tmap is not None:
             self.tmap.reset()
@@ -196,17 +197,13 @@ class HorizonMetric:
             self._horizon_n_predicted_deltas += deltas.numel()
 
         # Update entropies.
-        if seq_predicted_mask.sum() > 0:
-            not_event = seq_predicted_labels[seq_predicted_mask].max().item() + 1
-        else:
-            not_event = 0
-        horizon_seq_predicted_mask = torch.logical_and(torch.logical_and(seq_predicted_mask, seq_mask.unsqueeze(2)),
-                                                       seq_predicted_timestamps - seq_initial_timestamps.unsqueeze(2) < self.horizon)
-        predicted_labels_masked = seq_predicted_labels.masked_fill(~horizon_seq_predicted_mask, not_event).flatten(1, 2)  # (B, IN).
-        counts = batch_bincount(predicted_labels_masked, not_event + 1)[:, :-1]  # (B, C).
-        probs = (counts / counts.sum(dim=1, keepdim=True).clip(min=1))
-        entropies = -(probs * probs.clip(min=1e-6).log()).sum(1)  # (B).
-        self._sequence_labels_entropies.append(entropies.cpu())
+        predicted_entropies = self._eval_entropies(seq_initial_timestamps,
+                                                   torch.logical_and(seq_predicted_mask, seq_mask.unsqueeze(2)),
+                                                   seq_predicted_timestamps, seq_predicted_labels).cpu()
+        self._sequence_labels_entropies.append(predicted_entropies)
+        target_entropies = self._eval_entropies(seq_initial_timestamps, seq_mask.unsqueeze(2).expand(*targets.payload["timestamps"].shape),
+                                                targets.payload["timestamps"], targets.payload["labels"]).cpu()
+        self._target_sequence_labels_entropies.append(target_entropies)
 
         # Update T-mAP.
         if self.tmap is not None:
@@ -271,12 +268,15 @@ class HorizonMetric:
             target_lengths = torch.cat(self._target_lengths)
             predicted_lengths = torch.cat(self._predicted_lengths)
             sequence_labels_entropies = torch.cat(self._sequence_labels_entropies)
+            target_sequence_labels_entropies = torch.cat(self._target_sequence_labels_entropies)
             values.update({
                 "mean-target-length": target_lengths.sum().item() / target_lengths.numel(),
                 "mean-predicted-length": predicted_lengths.sum().item() / predicted_lengths.numel(),
-                "horizon-mean-time-step": torch.stack(self._horizon_predicted_deltas_sums).sum().item() / self._horizon_n_predicted_deltas,
-                "sequence-labels-entropy": sequence_labels_entropies.mean().item()
+                "sequence-labels-entropy": sequence_labels_entropies.mean().item(),
+                "target-sequence-labels-entropy": target_sequence_labels_entropies.mean().item()
             })
+            if self._horizon_n_predicted_deltas > 0:
+                values["horizon-mean-time-step"] = torch.stack(self._horizon_predicted_deltas_sums).sum().item() / self._horizon_n_predicted_deltas
         values.update(self.next_item.compute())
         if self.tmap is not None:
             values.update(self.tmap.compute())
@@ -304,3 +304,16 @@ class HorizonMetric:
                                  for k, v in features.payload.items()},
                                 lengths)
         return sequences
+
+    def _eval_entropies(self, seq_initial_timestamps, seq_mask, seq_timestamps, seq_labels):
+        if seq_mask.sum() > 0:
+            not_event = seq_labels[seq_mask].max().item() + 1
+        else:
+            not_event = 0
+        horizon_seq_mask = torch.logical_and(seq_mask,
+                                             seq_timestamps - seq_initial_timestamps.unsqueeze(2) < self.horizon)
+        labels_masked = seq_labels.masked_fill(~horizon_seq_mask, not_event).flatten(1, 2)  # (B, IN).
+        counts = batch_bincount(labels_masked, not_event + 1)[:, :-1]  # (B, C).
+        probs = (counts / counts.sum(dim=1, keepdim=True).clip(min=1))
+        entropies = -(probs * probs.clip(min=1e-6).log()).sum(1)  # (B).
+        return entropies

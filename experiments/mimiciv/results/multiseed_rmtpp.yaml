@@ -1,74 +1,86 @@
-date: '2024-09-18 14:23:28'
+date: '2025-02-19 18:36:50'
 num_seeds: 5
-test/T-mAP (mean): 0.21083297431468964
-test/T-mAP (std): 0.0029439671244786696
-test/T-mAP-micro (mean): 0.2647286057472229
-test/T-mAP-micro (std): 0.004609702684168275
-test/horizon-mean-time-step (mean): 2.4282809257507325
-test/horizon-mean-time-step (std): 0.11302060830635827
-test/loss (mean): 5.215683364868164
-test/loss (std): 1.105795576974774
-test/loss_labels (mean): 1.1541744709014892
-test/loss_labels (std): 0.0005913868561786068
-test/loss_timestamps (mean): 4.061508750915527
-test/loss_timestamps (std): 1.1055564534351499
-test/mean-predicted-length (mean): 10.029881858825684
-test/mean-predicted-length (std): 0.2121320008514808
-test/mean-target-length (mean): 8.947009086608887
-test/mean-target-length (std): 0.0
-test/next-item-accuracy (mean): 0.5833083271980286
-test/next-item-accuracy (std): 0.00021401480240548597
-test/next-item-mae (mean): 3.8883641242980955
-test/next-item-mae (std): 0.03374163064825896
-test/next-item-map (mean): 0.4623738706111908
-test/next-item-map (std): 0.011754306229507391
-test/next-item-map-micro (mean): 0.5843505501747132
-test/next-item-map-micro (std): 0.0005386323293343615
-test/next-item-mean-time-step (mean): 27.656488800048827
-test/next-item-mean-time-step (std): 0.005694108460002087
-test/next-item-rmse (mean): 8.946587562561035
-test/next-item-rmse (std): 0.02109687610268513
-test/next-k-label-distribution-delta (mean): 3.9872427940368653
-test/next-k-label-distribution-delta (std): 0.028295467231942702
-test/optimal-transport-distance (mean): 13.712325096130371
-test/optimal-transport-distance (std): 0.030060185821049735
-test/timestamps-bias-mean (mean): 2.6726352691650392
-test/timestamps-bias-mean (std): 0.05991620249638031
-test/timestamps-current_influence (mean): -0.00880033876746893
-test/timestamps-current_influence (std): 0.0006222288224568078
-val/T-mAP (mean): 0.2149187445640564
-val/T-mAP (std): 0.003058531581832195
-val/T-mAP-micro (mean): 0.2677104413509369
-val/T-mAP-micro (std): 0.005309291155634886
-val/horizon-mean-time-step (mean): 2.4242130756378173
-val/horizon-mean-time-step (std): 0.11476541512695378
-val/loss (mean): 7.1170378684997555
-val/loss (std): 2.381658387055415
-val/loss_labels (mean): 1.1515183448791504
-val/loss_labels (std): 0.0007690352646041128
-val/loss_timestamps (mean): 5.965518951416016
-val/loss_timestamps (std): 2.381103139446298
-val/mean-predicted-length (mean): 10.016977119445801
-val/mean-predicted-length (std): 0.2020683507025776
-val/mean-target-length (mean): 9.00789737701416
-val/mean-target-length (std): 0.0
-val/next-item-accuracy (mean): 0.5840739369392395
-val/next-item-accuracy (std): 0.00029022827307166783
-val/next-item-mae (mean): 3.8372454166412355
-val/next-item-mae (std): 0.032461518727252996
-val/next-item-map (mean): 0.45351030230522155
-val/next-item-map (std): 0.0006324760565266903
-val/next-item-map-micro (mean): 0.5847935557365418
-val/next-item-map-micro (std): 0.00036741242622624685
-val/next-item-mean-time-step (mean): 26.943029403686523
-val/next-item-mean-time-step (std): 0.005349174798054276
-val/next-item-rmse (mean): 8.883127784729004
-val/next-item-rmse (std): 0.020164588492458776
-val/next-k-label-distribution-delta (mean): 3.9648129463195803
-val/next-k-label-distribution-delta (std): 0.026117789959444814
-val/optimal-transport-distance (mean): 13.636432456970216
-val/optimal-transport-distance (std): 0.027847051119106056
-val/timestamps-bias-mean (mean): 2.700758123397827
-val/timestamps-bias-mean (std): 0.060012744374011655
-val/timestamps-current_influence (mean): -0.008800339326262474
-val/timestamps-current_influence (std): 0.0006222293060856046
+test/T-mAP: 0.21616272032260894
+test/T-mAP-micro: 0.2664810121059418
+test/T-mAP-micro-std: 0.004599158353291854
+test/T-mAP-std: 0.0029115176442925657
+test/horizon-max-accuracy-micro: 0.5381728172302246
+test/horizon-max-accuracy-micro-std: 0.0013353544279153375
+test/horizon-mean-time-step: 2.4154512882232666
+test/horizon-mean-time-step-std: 0.07867309359751777
+test/loss: 4.669810676574707
+test/loss-std: 1.947479090787217
+test/loss_labels: 1.1608601808547974
+test/loss_labels-std: 0.01041023624102574
+test/loss_timestamps: 3.5089498206973078
+test/loss_timestamps-std: 1.9565672369303089
+test/mean-predicted-length: 9.832950592041016
+test/mean-predicted-length-std: 0.08404503149925208
+test/mean-target-length: 8.947009086608887
+test/mean-target-length-std: 0.0
+test/next-item-accuracy: 0.5823521256446839
+test/next-item-accuracy-std: 0.0013523450028002692
+test/next-item-mae: 3.9308245182037354
+test/next-item-mae-std: 0.034713594736635496
+test/next-item-map: 0.45620580315589904
+test/next-item-map-micro: 0.5818888306617737
+test/next-item-map-micro-std: 0.0036616620527724214
+test/next-item-map-std: 0.012808803430507634
+test/next-item-max-accuracy: 0.6246186256408691
+test/next-item-max-accuracy-std: 0.0013913552160863118
+test/next-item-mean-time-step: 27.669182586669923
+test/next-item-mean-time-step-std: 0.012537920140729268
+test/next-item-rmse: 8.96884536743164
+test/next-item-rmse-std: 0.022604892113301578
+test/next-k-label-distribution-delta: 3.982135534286499
+test/next-k-label-distribution-delta-std: 0.029980957461481498
+test/optimal-transport-distance: 13.761879348754883
+test/optimal-transport-distance-std: 0.05570925943911266
+test/sequence-labels-entropy: 1.4606930494308472
+test/sequence-labels-entropy-std: 0.004649687353831196
+test/timestamps-bias-mean: 2.590049076080322
+test/timestamps-bias-mean-std: 0.10762563017460285
+test/timestamps-current_influence: -0.009343740902841092
+test/timestamps-current_influence-std: 0.000822086463565954
+val/T-mAP: 0.22004086673259735
+val/T-mAP-micro: 0.2696462571620941
+val/T-mAP-micro-std: 0.004581881001486055
+val/T-mAP-std: 0.002819265518604433
+val/horizon-max-accuracy-micro: 0.5390708327293396
+val/horizon-max-accuracy-micro-std: 0.0011310780839342716
+val/horizon-mean-time-step: 2.4120986461639404
+val/horizon-mean-time-step-std: 0.07785952605371685
+val/loss: 4.155394506454468
+val/loss-std: 2.092006539259554
+val/loss_labels: 1.1583678007125855
+val/loss_labels-std: 0.010591701286795176
+val/loss_timestamps: 2.997026187181473
+val/loss_timestamps-std: 2.1011740457650476
+val/mean-predicted-length: 9.831004524230957
+val/mean-predicted-length-std: 0.08878131719224433
+val/mean-target-length: 9.00789737701416
+val/mean-target-length-std: 0.0
+val/next-item-accuracy: 0.5831642985343933
+val/next-item-accuracy-std: 0.0016072863113989573
+val/next-item-mae: 3.8775935649871824
+val/next-item-mae-std: 0.034710636182246575
+val/next-item-map: 0.44975305199623106
+val/next-item-map-micro: 0.5822368264198303
+val/next-item-map-micro-std: 0.003656984261351522
+val/next-item-map-std: 0.005008138531513721
+val/next-item-max-accuracy: 0.6251345157623291
+val/next-item-max-accuracy-std: 0.001205861937845877
+val/next-item-mean-time-step: 26.956113815307617
+val/next-item-mean-time-step-std: 0.011850467296402547
+val/next-item-rmse: 8.903398704528808
+val/next-item-rmse-std: 0.023358433409103038
+val/next-k-label-distribution-delta: 3.9590566635131834
+val/next-k-label-distribution-delta-std: 0.029751345531849493
+val/optimal-transport-distance: 13.685492897033692
+val/optimal-transport-distance-std: 0.05351254486785367
+val/sequence-labels-entropy: 1.4673616886138916
+val/sequence-labels-entropy-std: 0.005165784264362379
+val/timestamps-bias-mean: 2.6192814826965334
+val/timestamps-bias-mean-std: 0.1081336197892054
+val/timestamps-current_influence: -0.009343739971518517
+val/timestamps-current_influence-std: 0.0008220856765637993

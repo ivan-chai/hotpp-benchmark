@@ -6,7 +6,7 @@ name: most_popular
 
 module:
   _target_: hotpp.modules.MostPopularModule
-  k: ${max_predictions}
+  k: ${next_k}
   num_classes: ${num_classes}
   seq_encoder:  # Unused.
     rnn_partial:
