@@ -12,12 +12,12 @@ max_duration: 8
 time_smoothing: 1  # Convert discrete time to a continuos variable during loss computation.
 history_density_horizons: [1, 3, 7]
 
-rnn_hidden_size: 1024
+rnn_hidden_size: 256
 rnn_inference_context: 1200
 rnn_inference_context_step: 200
 
 transformer_context: 128
-transformer_hidden_size: 512
+transformer_hidden_size: 256
 transformer_heads: 4
 transformer_layers: 2
 transformer_positions: 1232  # max_predictions + data_module.max_length
@@ -46,7 +46,6 @@ downstream_report: results/downstream_${name}.yaml
 data_module:
   _target_: hotpp.data.HotppDataModule
   batch_size: 128
-  min_length: 1000
   max_length: 1200
   num_workers: 4
   min_required_length: 2
@@ -76,13 +75,13 @@ metric:
 head:
   _target_: hotpp.nn.Head
   _partial_: true
-  hidden_dims: [512, 256]
+  hidden_dims: [128]
   use_batch_norm: true
 
 conditional_head:
   _target_: hotpp.nn.ConditionalHead
   _partial_: true
-  hidden_dims: [512, 256]
+  hidden_dims: [128]
   use_batch_norm: true
 
 module:
