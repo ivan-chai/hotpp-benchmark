@@ -9,7 +9,7 @@ module:
     match_weights:
       _presence: 3
       timestamps: 0.35
-      labels: 0.43
+      labels: 1.0
       channel_type: 0.2
       currency: 0.2
       trx_category: 0.43

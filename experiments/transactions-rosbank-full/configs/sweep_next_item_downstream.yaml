@@ -1,0 +1,52 @@
+project: hotpp-sweep-rosbank-full
+run_cap: 100
+name: next-item
+command:
+  - ${env}
+  - python3
+  - -m
+  - hotpp.train
+  - --config-dir
+  - configs
+  - --config-name
+  - next_item
+  - ~seed_everything
+  - ~model_path
+  - ~report
+  - ~downstream_report
+  - ~trainer.model_selection
+  - +test_downstream=true
+  - ${args_no_hyphens}
+method: bayes
+metric:
+  name: val/downstream
+  goal: maximize
+parameters:
+  trainer.max_epochs:
+    min: 10
+    max: 120
+  rnn_hidden_size:
+    min: 128
+    max: 2048
+  module.optimizer_partial.lr:
+    distribution: log_uniform_values
+    min: 0.00001
+    max: 0.01
+  module.lr_scheduler_partial.gamma:
+    min: 0.1
+    max: 1.0
+  module.loss.losses.timestamps.grad_scale:
+    min: 0.0
+    max: 1.0
+  module.loss.losses.currency.grad_scale:
+    min: 0.0
+    max: 1.0
+  module.loss.losses.channel_type.grad_scale:
+    min: 0.0
+    max: 1.0
+  module.loss.losses.trx_category.grad_scale:
+    min: 0.0
+    max: 1.0
+  module.loss.losses.log_amount.grad_scale:
+    min: 0.0
+    max: 1.0
