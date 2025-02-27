@@ -73,6 +73,3 @@ report:
     auroc: 
       float_format: "{:.3f}"
       split_columns: true
-    accuracy:
-      float_format: "{:.3f}"
-      split_columns: true
