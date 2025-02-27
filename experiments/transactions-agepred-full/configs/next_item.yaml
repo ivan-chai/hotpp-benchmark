@@ -21,9 +21,11 @@ module:
         _target_: hotpp.losses.TimeMAELoss
         max_delta: ${max_time_delta}
         smoothing: ${time_smoothing}
+        grad_scale: null
       labels:
         _target_: hotpp.losses.CrossEntropyLoss
         num_classes: ${num_classes}
       log_amount:
         _target_: hotpp.losses.MAELoss
+        grad_scale: null
   autoreg_max_steps: ${max_predictions}
