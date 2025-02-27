@@ -1,8 +1,8 @@
-date: '2025-02-27 13:55:42'
+date: '2025-02-27 14:25:30'
 test/T-mAP: 0.024614108726382256
 test/T-mAP-weighted: 0.2239089161157608
-test/downstream: 0.741
-test/downstream-std: 0.006
+test/downstream: 0.812
+test/downstream-std: 0.003
 test/horizon-max-f-score: 0.043392613530159
 test/horizon-max-f-score-weighted: 0.2903657555580139
 test/horizon-mean-time-step: 0.45229411125183105
@@ -29,8 +29,8 @@ test/sequence-labels-entropy: 0.13888691365718842
 test/target-sequence-labels-entropy: 0.8565772175788879
 val/T-mAP: 0.026044679805636406
 val/T-mAP-weighted: 0.23187345266342163
-val/downstream: 0.746
-val/downstream-std: 0.013
+val/downstream: 0.819
+val/downstream-std: 0.009
 val/horizon-max-f-score: 0.04149819165468216
 val/horizon-max-f-score-weighted: 0.28560224175453186
 val/horizon-mean-time-step: 0.43423908948898315

@@ -21,18 +21,23 @@ module:
         _target_: hotpp.losses.TimeMAELoss
         max_delta: ${max_time_delta}
         smoothing: ${time_smoothing}
+        grad_scale: null
       labels:
         _target_: hotpp.losses.CrossEntropyLoss
         num_classes: ${num_classes}
       currency:
         _target_: hotpp.losses.CrossEntropyLoss
         num_classes: 68
+        grad_scale: null
       channel_type:
         _target_: hotpp.losses.CrossEntropyLoss
         num_classes: 7
+        grad_scale: null
       trx_category:
         _target_: hotpp.losses.CrossEntropyLoss
         num_classes: 11
+        grad_scale: null
       log_amount:
         _target_: hotpp.losses.MAELoss
+        grad_scale: null
   autoreg_max_steps: ${max_predictions}
