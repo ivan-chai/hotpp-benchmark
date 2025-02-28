@@ -10,15 +10,15 @@ from random import Random
 
 
 TRANSACTIONS_FILES = [
-    "transactions_train",
-    "transactions_test"
+    "train",
+    "test"
 ]
-
-TARGET_FILE = "train_target"
 
 SEED = 42
 VAL_SIZE = 0.05
 TEST_SIZE = 0.1
+
+TARGET_FILE = "train"
 
 
 def parse_args():
@@ -36,18 +36,38 @@ def dataset2spark(dataset, name, cache_dir):
 
 
 def get_transactions(cache_dir):
+    spark = SparkSession.builder.getOrCreate()
+    spark.conf.set("spark.sql.session.timeZone", "UTC+3")
+
     dataset = None
     for name in TRANSACTIONS_FILES:
         print(f"Load {name}")
-        part = load_dataset("dllllb/age-group-prediction", name, cache_dir=cache_dir)
+        part = load_dataset("dllllb/rosbank-churn", name, cache_dir=cache_dir)
         assert len(part.keys()) == 1
         key = next(iter(part.keys()))
         part = dataset2spark(part[key], name, cache_dir)
+        part = part.select("cl_id", "TRDATETIME", "MCC", "channel_type", "currency", "trx_category", "amount")
         dataset = dataset.union(part) if dataset is not None else part
-    dataset = dataset.selectExpr("client_id as id",
-                                 "trans_date as timestamps",
-                                 "small_group as labels",
-                                 "amount_rur as amount")
+
+    # Extract timestamp.
+    dataset = dataset.na.fill({"channel_type": "unknown"})
+    
+    dataset = dataset.withColumn("_et_day", F.substring(F.col("TRDATETIME"), 1, 7))
+    dataset = dataset.withColumn("_et_day", F.unix_timestamp("_et_day", "ddMMMyy"))
+    dataset = dataset.withColumn("_et_time", F.substring(F.col("TRDATETIME"), 9, 8))
+    dataset = dataset.withColumn("_et_time", F.unix_timestamp("_et_time", "HH:mm:ss"))
+    dataset = dataset.withColumn("timestamps", (F.col("_et_day") + F.col("_et_time")) / (24 * 60 * 60))
+    dataset = dataset.drop("_et_day", "_et_time")
+
+    # Select fields.
+    dataset = dataset.selectExpr("cl_id as id",
+                                 "timestamps",
+                                 "MCC as labels",
+                                 "channel_type",
+                                 "currency",
+                                 "trx_category",
+                                 "amount")
+
     # Add log_amount.
     udf = F.udf(lambda x: math.log(abs(x) + 1), FloatType())
     dataset = dataset.withColumn("log_amount", udf(F.col("amount")))
@@ -56,13 +76,18 @@ def get_transactions(cache_dir):
 
 def get_targets(cache_dir):
     print(f"Load targets")
-    dataset = load_dataset("dllllb/age-group-prediction", TARGET_FILE, cache_dir=cache_dir)
+    dataset = load_dataset("dllllb/rosbank-churn", TARGET_FILE, cache_dir=cache_dir)
     assert len(dataset.keys()) == 1
     key = next(iter(dataset.keys()))
     dataset = dataset2spark(dataset[key], "targets", cache_dir)
-    dataset = dataset.selectExpr("client_id as id",
-                                 "bins as target")
-    return dataset
+
+    targets = dataset.groupby("cl_id").agg(
+        F.first("target_flag").cast("int").alias("target_flag"),
+        F.first("target_sum").cast("float").alias("target_sum")
+    )
+    return targets.selectExpr("cl_id as id",
+                              "target_flag",
+                              "target_sum")
 
 
 def train_val_test_split(transactions, targets):
@@ -106,8 +131,8 @@ def main(args):
         col_id="id",
         col_event_time="timestamps",
         event_time_transformation="none",
-        cols_category=["labels"],
-        category_transformation="none"
+        cols_category=["labels", "channel_type", "currency", "trx_category"],
+        category_transformation="frequency"
     )
     transactions = preprocessor.fit_transform(transactions).persist()
     transactions = transactions.join(targets, on="id", how="left")

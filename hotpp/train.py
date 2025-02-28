@@ -31,6 +31,10 @@ def train(conf):
         model.load_state_dict(torch.load(conf.model_path))
     else:
         trainer = get_trainer(conf)
+        if conf.get("init_from_checkpoint", None):
+            if resume_from_checkpoint:
+                raise ValueError("Can't mix resume_from_checkpoint with init_from_checkpoint")
+            model.load_state_dict(torch.load(conf["init_from_checkpoint"]))
         trainer.fit(model, dm, ckpt_path=resume_from_checkpoint)
 
         checkpoint_callback = trainer.checkpoint_callback

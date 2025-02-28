@@ -23,20 +23,18 @@ class InferenceModule(pl.LightningModule):
         self.id_field = id_field
 
     def forward(self, batch):
-        data, targets = batch
+        data, _ = batch
         embeddings = self.model.embed(data)  # (B, D).
         assert embeddings.ndim == 2
         # Embeddings: (B, D).
         ids = data.payload[self.id_field]  # (B).
-        targets = {name: value for name, value in targets.payload.items()
-                   if name not in targets.seq_names}  # Keep only global targets.
-        return embeddings, ids, targets
+        return embeddings, ids
 
 
 class InferenceDataModule(pl.LightningDataModule):
     def __init__(self, data, split):
         super().__init__()
-        self.data = data
+        self.data = data.with_test_parameters()
         self.split = split
 
     def predict_dataloader(self):
@@ -55,59 +53,45 @@ class InferenceDataModule(pl.LightningDataModule):
         )
 
 
-def extract_embeddings(conf, model=None):
-    # Use validation dataset parameters for all splits.
-    conf = copy.deepcopy(conf)
-    OmegaConf.set_struct(conf, False)
-    dataset_params = conf.data_module.test_params if "test_params" in conf.data_module else None
-    conf.data_module.train_params = dataset_params
-    conf.data_module.val_params = dataset_params
-    conf.data_module.test_params = dataset_params
+def extract_embeddings(trainer, datamodule, model, splits=None):
+    """Extract embeddings for dataloaders.
 
-    # Disable logging.
-    conf.pop("logger", None)
+    Args:
+      loaders: Mapping from a split name to a dataloader.
 
-    # Instantiate.
-    if model is None:
-        model = hydra.utils.instantiate(conf.module)
-        model.load_state_dict(torch.load(conf.model_path))
-    dm = hydra.utils.instantiate(conf.data_module)
-    model = InferenceModule(model,
-                            id_field=dm.id_field)
-    trainer = get_trainer(conf)
+    Returns:
+      Mapping from a split name to a tuple of ids and embeddings tensor (CPU).
+    """
+    model = InferenceModule(model, id_field=datamodule.id_field)
+    by_split = {}
+    if splits is None:
+        splits = datamodule.splits
+    for split in splits:
+        split_datamodule = InferenceDataModule(datamodule, split=split)
+        split_embeddings, split_ids = zip(*trainer.predict(model, split_datamodule))  # (B, D), (B).
+        split_embeddings = torch.cat(split_embeddings).cpu()
+        split_ids = torch.cat(split_ids).cpu().tolist()
+        by_split[split] = (split_ids, split_embeddings)
+    return by_split
 
-    # Compute embeddings.
-    embeddings = []
-    ids = []
-    splits = []
-    targets = defaultdict(list)
-    for split in dm.splits:
-        split_dm = InferenceDataModule(dm, split=split)
-        split_embeddings, split_ids, split_targets = zip(*trainer.predict(model, split_dm))  # (B, D), (B).
-        embeddings.extend(split_embeddings)
-        if isinstance(split_ids, torch.Tensor):
-            split_ids = split_ids.cpu()
-        ids.extend(split_ids)
-        splits.extend([split] * (sum(map(len, split_embeddings))))
-        for target in split_targets:
-            for name, value in target.items():
-                targets[name].append(value)
-    embeddings = torch.cat(embeddings).cpu().numpy()
-    ids = np.concatenate(ids)
-    if len(np.unique(ids)) != len(ids):
-        raise RuntimeError("Duplicate ids")
-    targets = {name: torch.cat(values).cpu().numpy() for name, values in targets.items()}
-    for name, values in targets.items():
-        if len(values) != len(ids):
-            raise RuntimeError(f"Some targets are missing for some IDs ({name}).")
 
-    # Convert to Pandas DataFrame.
-    columns = {dm.id_field: ids}
+def embeddings_to_pandas(id_field, by_split):
+    all_ids = []
+    all_splits = []
+    all_embeddings = []
+    for split, (ids, embeddings) in by_split.items():
+        assert len(ids) == len(embeddings)
+        assert embeddings.ndim == 2
+        all_ids.extend(ids)
+        all_splits.extend([split] * len(ids))
+        all_embeddings.append(embeddings)
+    all_embeddings = torch.cat(all_embeddings).numpy()
+
+    columns = {id_field: all_ids,
+               "split": all_splits}
     for i in range(embeddings.shape[1]):
-        columns[f"emb_{i:04}"] = embeddings[:, i]
-    targets[dm.id_field] = ids
-    targets["split"] = splits
-    return pd.DataFrame(columns).set_index(dm.id_field), pd.DataFrame(targets).set_index(dm.id_field)
+        columns[f"emb_{i:06}"] = all_embeddings[:, i]
+    return pd.DataFrame(columns).set_index(id_field)
 
 
 @hydra.main(version_base=None)
@@ -117,8 +101,14 @@ def main(conf):
         raise RuntimeError("Please, provide 'embeddings_path'.")
     if not embeddings_path.endswith(".parquet"):
         raise RuntimeError("Embeddings path must have the '.parquet' extension.")
-    embeddings, _ = extract_embeddings(conf)
-    embeddings.reset_index().to_parquet(embeddings_path)
+
+    trainer = get_trainer(conf)
+    datamodule = hydra.utils.instantiate(conf.data_module)
+    model = hydra.utils.instantiate(conf.module)
+    model.load_state_dict(torch.load(conf.model_path))
+
+    embeddings = extract_embeddings(trainer, datamodule, model)
+    embeddings_to_pandas(dm.id_field, embeddings).reset_index().to_parquet(embeddings_path)
 
 
 if __name__ == "__main__":
