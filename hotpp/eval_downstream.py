@@ -112,8 +112,11 @@ def eval_downstream(downstream_config, trainer, datamodule, model):
     downstream_config = copy.deepcopy(downstream_config)
     OmegaConf.set_struct(downstream_config, False)
     with maybe_temporary_directory(downstream_config.get("root", None)) as root:
-        embeddings = extract_embeddings(trainer, datamodule, model)
+        splits = downstream_config.get("data_splits", datamodule.splits)
+        embeddings = extract_embeddings(trainer, datamodule, model, splits=splits)
         embeddings = embeddings_to_pandas(datamodule.id_field, embeddings)
+        if len(embeddings.index.unique()) != len(embeddings):
+            raise ValueError("Duplicate ids")
         target_names, targets = extract_targets(datamodule)
         targets = targets_to_pandas(datamodule.id_field, target_names, targets)
 
