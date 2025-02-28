@@ -82,6 +82,8 @@ def extract_embeddings(conf, model=None):
     splits = []
     targets = defaultdict(list)
     for split in dm.splits:
+        if split in conf.get("drop_downstream_splits", []):
+            continue
         split_dm = InferenceDataModule(dm, split=split)
         split_embeddings, split_ids, split_targets = zip(*trainer.predict(model, split_dm))  # (B, D), (B).
         embeddings.extend(split_embeddings)
