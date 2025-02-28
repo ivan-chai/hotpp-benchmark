@@ -9,7 +9,6 @@ import torch
 from omegaconf import OmegaConf
 
 from .common import get_trainer, dump_report
-from .eval_downstream import eval_downstream
 
 logger = logging.getLogger(__name__)
 
@@ -28,8 +27,9 @@ def test(conf, model, dm):
         test_metrics = {}
     metrics = dict(**val_metrics, **test_metrics)
     if conf.get("test_downstream", False):
+        from .eval_downstream import eval_downstream
         downstream_metrics = {}
-        for split, (mean, std) in eval_downstream(conf, model=model).items():
+        for split, (mean, std) in eval_downstream(conf.downstream, trainer, dm, model).items():
             downstream_metrics[f"{split}/downstream"] = mean
             downstream_metrics[f"{split}/downstream-std"] = std
         metrics.update(downstream_metrics)

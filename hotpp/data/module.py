@@ -39,6 +39,12 @@ class HotppDataModule(pl.LightningDataModule):
                  **params
                  ):
         super().__init__()
+        self._train_path = train_path
+        self._val_path = val_path
+        self._test_path = test_path
+        self._test_params = test_params
+        self._params = params
+
         if train_path is not None:
             train_params = dict(params, **(train_params or {}))
             self.train_loader_params = pop_loader_params(train_params)
@@ -69,6 +75,18 @@ class HotppDataModule(pl.LightningDataModule):
         if id_field is None:
             raise ValueError("No datasets provided.")
         self.id_field = id_field
+
+    def with_test_parameters(self):
+        """Return new datamodule with all datasets having test parameters."""
+        return HotppDataModule(
+            train_path=self._train_path,
+            train_params=self._test_params,
+            val_path=self._val_path,
+            val_params=self._test_params,
+            test_path=self._test_path,
+            test_params=self._test_params,
+            **self._params
+        )
 
     @property
     def splits(self):
