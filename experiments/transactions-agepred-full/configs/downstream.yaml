@@ -1,4 +1,4 @@
-num_workers: 4
+workers: 5
 environment:
   work_dir: _
 target:
@@ -41,8 +41,8 @@ models:
       min_child_samples: null
       num_leaves: 50
       random_state: 42
-      n_jobs: ${downstream.num_workers}
-    cpu_count: ${downstream.num_workers}
+      n_jobs: 4
+    cpu_count: 5
     preprocessing:
       - _target_: sklearn.preprocessing.MaxAbsScaler
 
