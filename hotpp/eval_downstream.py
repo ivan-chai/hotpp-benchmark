@@ -31,10 +31,12 @@ def maybe_temporary_directory(root=None):
             yield root
 
 
-def extract_targets(datamodule):
+def extract_targets(datamodule, splits=None):
     target_names = datamodule.train_data.global_target_fields
+    if splits is None:
+        splits = datamodule.splits
     by_split = {}
-    for split in datamodule.splits:
+    for split in splits:
         split_datamodule = InferenceDataModule(datamodule, split=split)
         ids = []
         targets = []
@@ -117,7 +119,7 @@ def eval_downstream(downstream_config, trainer, datamodule, model):
         embeddings = embeddings_to_pandas(datamodule.id_field, embeddings)
         if len(embeddings.index.unique()) != len(embeddings):
             raise ValueError("Duplicate ids")
-        target_names, targets = extract_targets(datamodule)
+        target_names, targets = extract_targets(datamodule, splits=splits)
         targets = targets_to_pandas(datamodule.id_field, target_names, targets)
 
         index = embeddings.index.name

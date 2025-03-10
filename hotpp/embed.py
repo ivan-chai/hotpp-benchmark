@@ -108,7 +108,7 @@ def main(conf):
     model.load_state_dict(torch.load(conf.model_path))
 
     embeddings = extract_embeddings(trainer, datamodule, model)
-    embeddings_to_pandas(dm.id_field, embeddings).reset_index().to_parquet(embeddings_path)
+    embeddings_to_pandas(datamodule.id_field, embeddings).reset_index().to_parquet(embeddings_path)
 
 
 if __name__ == "__main__":
