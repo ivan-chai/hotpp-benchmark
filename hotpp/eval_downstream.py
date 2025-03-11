@@ -77,8 +77,8 @@ def targets_to_pandas(id_field, target_names, by_split):
 
 def eval_embeddings(conf):
     OmegaConf.set_struct(conf, False)
-    conf.workers = conf.get("workers", 1)
-    conf.total_cpu_count = conf.get("total_cpu_count", conf.workers)
+    conf["workers"] = conf.get("workers", 1)
+    conf["total_cpu_count"] = conf.get("total_cpu_count", conf.workers)
 
     task = ReportCollect(
         conf=Config.get_conf(conf),
