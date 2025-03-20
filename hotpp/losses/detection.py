@@ -466,6 +466,7 @@ class DetectionLoss(NextKLoss):
         device = outputs.device
         b, l = outputs.shape
         n_targets = targets.payload[next(iter(targets.seq_names))].shape[2] - 1  # T.
+        assert n_targets > 0
         lengths, lengths_mask = outputs.seq_lens, outputs.seq_len_mask
         targets, outputs = targets.payload, outputs.payload
         tails_mask = ~lengths_mask.bool()  # (B, L).
@@ -557,12 +558,13 @@ class DetectionLoss(NextKLoss):
 
         # Subset outputs and targets.
         indices = self.get_loss_indices(inputs)
-        target_windows = self.select_subset(target_windows, indices)  # (B, I, k + 1).
+        target_windows = self.select_subset(target_windows, indices)  # (B, I, K + 1).
         outputs = self.select_subset(outputs, indices)  # (B, I, K, P).
 
         # Compute matching and return.
         l = outputs.shape[1]
-        if l == 0:
+        n_targets = target_windows.payload[next(iter(target_windows.seq_names))].shape[2] - 1  # K.
+        if (l == 0) or (n_targets == 0):
             matching = PaddedBatch(torch.full([b, l, self._k], -1, dtype=torch.long, device=inputs.device),
                                    target_windows.seq_lens)
             return indices, matching, {}, {}
