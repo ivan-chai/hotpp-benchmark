@@ -120,22 +120,25 @@ def train_val_test_split(transactions, train_targets, test_targets):
 
     train_ids = list(sorted({row["id"] for row in train_targets.select("id").distinct().collect()}))
     test_ids = list(sorted({row["id"] for row in test_targets.select("id").distinct().collect()}))
-    print("TRAIN IDS", len(train_ids))
-    print("TEST IDS", len(test_ids))
 
     Random(SEED).shuffle(train_ids)
     n_clients_val = int(len(train_ids) * VAL_SIZE)
     val_ids = set(train_ids[-n_clients_val:])
     train_ids = set(train_ids[:-n_clients_val])
 
+    print("TRAIN LABELED IDS", len(train_ids))
+    print("VAL IDS", len(val_ids))
+    print("TEST IDS", len(test_ids))
+
     train_ids = make_index(train_ids)
     val_ids = make_index(val_ids)
     test_ids = make_index(test_ids)
+    no_train_ids = val_ids.union(test_ids)
 
     print("Filter")
     testset = transactions.join(test_ids, on="id", how="inner")
     valset = transactions.join(val_ids, on="id", how="inner")
-    trainset = transactions.join(train_ids, on="id", how="inner")
+    trainset = transactions.join(no_train_ids, on="id", how="left anti")  # Both labeled and unlabeled.
     return trainset.persist(), valset.persist(), testset.persist()
 
 
