@@ -1,0 +1,16 @@
+defaults:
+  - detection_base
+  - _self_
+
+module:
+  loss:
+    loss_subset: 0.25
+    prefetch_factor: 1
+    match_weights:
+      _presence: 3
+      timestamps: 0.35
+      labels: 1.0
+      channel_type: 0.2
+      currency: 0.2
+      trx_category: 0.43
+      log_amount: 0.4
