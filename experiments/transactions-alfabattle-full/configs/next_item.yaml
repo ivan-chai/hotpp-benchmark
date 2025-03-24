@@ -54,7 +54,7 @@ module:
         num_classes: 26
       city:
         _target_: hotpp.losses.CrossEntropyLoss
-        num_classes: 170  # ?
+        num_classes: 170
       mcc_category:
         _target_: hotpp.losses.CrossEntropyLoss
         num_classes: 30
