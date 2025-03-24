@@ -5,7 +5,7 @@ defaults:
 seed_everything: 42
 num_evaluation_seeds: 5
 
-max_predictions: 32
+max_predictions: 64
 num_classes: 109
 max_time_delta: 30
 max_duration: 500
@@ -34,7 +34,7 @@ hypro_loss_step: 64
 
 logger:
   _target_: pytorch_lightning.loggers.WandbLogger
-  project: hotpp-rosbank-full
+  project: hotpp-alfabattle-full
   name: ${name}
   save_dir: lightning_logs
 model_path: checkpoints/${name}.ckpt
@@ -76,13 +76,13 @@ data_module:
 metric:
   _target_: hotpp.metrics.HorizonMetric
   max_time_delta: ${max_time_delta}
-  horizon: 61  # Two months
+  horizon: 31  # Month.
   horizon_evaluation_step: 64
-  map_deltas: [7]
+  map_deltas: [4]
   map_target_length: 16
   otd_steps: 5
-  otd_insert_cost: 3
-  otd_delete_cost: 3
+  otd_insert_cost: 2
+  otd_delete_cost: 2
   log_amount: true
 
 head:

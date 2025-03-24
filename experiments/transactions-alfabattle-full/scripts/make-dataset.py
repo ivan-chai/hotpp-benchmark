@@ -138,7 +138,7 @@ def train_val_test_split(transactions, train_targets, test_targets):
     print("Filter")
     testset = transactions.join(test_ids, on="id", how="inner")
     valset = transactions.join(val_ids, on="id", how="inner")
-    trainset = transactions.join(no_train_ids, on="id", how="left anti")  # Both labeled and unlabeled.
+    trainset = transactions.join(no_train_ids, on="id", how="left_anti")  # Both labeled and unlabeled.
     return trainset.persist(), valset.persist(), testset.persist()
 
 

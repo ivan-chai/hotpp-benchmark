@@ -28,45 +28,59 @@ module:
       currency:
         _target_: hotpp.losses.CrossEntropyLoss
         num_classes: 13
+        grad_scale: null
       operation_kind:
         _target_: hotpp.losses.CrossEntropyLoss
         num_classes: 9
+        grad_scale: null
       card_type:
         _target_: hotpp.losses.CrossEntropyLoss
         num_classes: 177
+        grad_scale: null
       operation_type:
         _target_: hotpp.losses.CrossEntropyLoss
         num_classes: 24
+        grad_scale: null
       operation_type_group:
         _target_: hotpp.losses.CrossEntropyLoss
         num_classes: 6
+        grad_scale: null
       ecommerce_flag:
         _target_: hotpp.losses.CrossEntropyLoss
         num_classes: 5
+        grad_scale: null
       payment_system:
         _target_: hotpp.losses.CrossEntropyLoss
         num_classes: 9
+        grad_scale: null
       income_flag:
         _target_: hotpp.losses.CrossEntropyLoss
         num_classes: 5
+        grad_scale: null
       country:
         _target_: hotpp.losses.CrossEntropyLoss
         num_classes: 26
+        grad_scale: null
       city:
         _target_: hotpp.losses.CrossEntropyLoss
         num_classes: 170
+        grad_scale: null
       mcc_category:
         _target_: hotpp.losses.CrossEntropyLoss
         num_classes: 30
+        grad_scale: null
       day_of_week:
         _target_: hotpp.losses.CrossEntropyLoss
         num_classes: 9
+        grad_scale: null
       hour:
         _target_: hotpp.losses.CrossEntropyLoss
         num_classes: 25
+        grad_scale: null
       weekofyear:
         _target_: hotpp.losses.CrossEntropyLoss
         num_classes: 55
+        grad_scale: null
       log_amount:
         _target_: hotpp.losses.MAELoss
         grad_scale: null
