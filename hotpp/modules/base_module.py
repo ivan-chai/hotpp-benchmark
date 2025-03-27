@@ -201,14 +201,14 @@ class BaseModule(pl.LightningModule):
         if self._val_metric is not None:
             metrics = self._val_metric.compute()
             for k, v in metrics.items():
-                self.log(f"val/{k}", v, prog_bar=True)
+                self.log(f"val/{k}", v, prog_bar=True, sync_dist=True)
             self._val_metric.reset()
 
     def on_test_epoch_end(self):
         if self._test_metric is not None:
             metrics = self._test_metric.compute()
             for k, v in metrics.items():
-                self.log(f"test/{k}", v, prog_bar=True)
+                self.log(f"test/{k}", v, prog_bar=True, sync_dist=True)
             self._test_metric.reset()
 
     def configure_optimizers(self):
