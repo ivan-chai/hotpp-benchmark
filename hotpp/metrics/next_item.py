@@ -68,12 +68,12 @@ class NextItemMetric(torch.nn.Module):
         aps = aps.cpu()
         max_f_scores = max_f_scores.cpu()
         return {
-            "next-item-mean-time-step": torch.stack(self._delta_sums).sum() / self._n_deltas,
-            "next-item-mae": torch.stack(self._ae_sums).sum() / self._n_labels,
-            "next-item-rmse": (torch.stack(self._se_sums).sum() / self._n_labels).sqrt(),
+            "next-item-mean-time-step": torch.stack(self._delta_sums).sum().item() / self._n_deltas,
+            "next-item-mae": torch.stack(self._ae_sums).sum().item() / self._n_labels,
+            "next-item-rmse": (torch.stack(self._se_sums).sum() / self._n_labels).sqrt().item(),
             "next-item-accuracy": self._n_correct_labels / self._n_labels,
-            "next-item-max-f-score": max_f_scores.mean(),
-            "next-item-max-f-score-weighted": (max_f_scores * micro_weights).sum(),
-            "next-item-map": aps.mean(),
-            "next-item-map-weighted": (aps * micro_weights).sum()
+            "next-item-max-f-score": max_f_scores.mean().item(),
+            "next-item-max-f-score-weighted": (max_f_scores * micro_weights).sum().item(),
+            "next-item-map": aps.mean().item(),
+            "next-item-map-weighted": (aps * micro_weights).sum().item()
         }
