@@ -89,9 +89,11 @@ class Embedder(torch.nn.Module):
           or a list of multiple encoders.
         use_batch_norm: Whether to apply batch norm to numeric features embedding or not.
         categorical_noise: The level of additive normal noise added to categorical embeddings, added to embeddings.
+        projection_partial: FC block to project output embeddings. Accepts the embedding dimension.
     """
     def __init__(self, embeddings=None, numeric_values=None,
-                 use_batch_norm=True, categorical_noise=0):
+                 use_batch_norm=True, categorical_noise=0,
+                 projection_partial=None):
         super().__init__()
         encoders = {}
         for name, spec in (embeddings or {}).items():
@@ -110,6 +112,7 @@ class Embedder(torch.nn.Module):
         self.embeddings_order = list(embeddings or {})
         self.numeric_order = list(numeric_values or {})
         self.categorical_noise = categorical_noise
+        self.projection = projection_partial(sum([encoder.output_size for encoder in self.embeddings.values()])) if projection_partial is not None else None
 
         if use_batch_norm:
             custom_embedding_size = sum([encoders[name].output_size for name in self.numeric_order])
@@ -117,7 +120,10 @@ class Embedder(torch.nn.Module):
 
     @property
     def output_size(self):
-        return sum([encoder.output_size for encoder in self.embeddings.values()])
+        if self.projection is not None:
+            return self.projection.output_size
+        else:
+            return sum([encoder.output_size for encoder in self.embeddings.values()])
 
     def forward(self, batch):
         embeddings = []
@@ -140,7 +146,10 @@ class Embedder(torch.nn.Module):
                 custom_embedding = self.custom_embedding_batch_norm(custom_embedding)
             embeddings.append(custom_embedding.payload)
         payload = torch.cat(embeddings, -1)  # (B, L, D).
-        return PaddedBatch(payload, batch.seq_lens)
+        embeddings = PaddedBatch(payload, batch.seq_lens)
+        if self.projection is not None:
+            embeddings = self.projection(embeddings)
+        return embeddings
 
     def clamp(self, embeddings):
         """Map categorical embeddings to nearest centroids.
@@ -149,6 +158,8 @@ class Embedder(torch.nn.Module):
         Zhou, Wang-Tao, et al. "Non-autoregressive diffusion-based temporal point processes
         for continuous-time long-term event prediction." Expert Systems with Applications, 2025.
         """
+        if self.projection is not None:
+            raise RuntimeError("Can't use clamp with embeddings projection")
         result = []
         offset = 0
         for name in self.embeddings_order:
