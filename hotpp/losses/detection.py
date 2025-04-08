@@ -505,17 +505,6 @@ class DetectionLoss(NextKLoss):
 
         # Compute matching.
         b, l, k, t = costs.shape
-        # DEBUG.
-        if (costs.numel() == 0) or not costs.isfinite().all():
-            print("BAD COSTS")
-            print("Max cost", max_cost)
-            torch.save(out_horizon_mask, "dump-out-horizon-mask.pth")
-            torch.save(costs, "dump-costs.pth")
-            import pickle as pkl
-            with open("dump-outputs.pkl", "wb") as fp:
-                pkl.dump(outputs, fp)
-            with open("dump-targets.pkl", "wb") as fp:
-                pkl.dump(targets, fp)
         matches = batch_linear_assignment(costs.reshape(b * l, k, t)).reshape(b, l, k)  # (B, L, K).
 
         # Replace out-of-horizon matches with -1.
