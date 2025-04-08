@@ -137,6 +137,12 @@ To run tests, use the following command:
 pytest tests
 ```
 
+# Known issues
+If downstream evaluation hangs during LightGBM or CatBoost training, try setting the following environment variable:
+```sh
+OMP_NUM_THREADS=1 python3 -m hotpp.evaluate --config-dir configs --config-name <model>
+```
+
 # Citation
 If you use [HoTPP](https://arxiv.org/pdf/2406.14341) in your project, please cite the following paper:
 ```

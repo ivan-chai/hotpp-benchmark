@@ -1,0 +1,28 @@
+defaults:
+  - detection_base
+  - _self_
+
+module:
+  loss:
+    loss_subset: 0.25
+    prefetch_factor: 1
+    match_weights:
+      _presence: 3
+      timestamps: 0.35
+      labels: 1.0
+      log_amount: 0.4
+      log_hour_diff: 0.4
+      mcc_category: 0.4
+      currency: 0.2
+      operation_kind: 0.2
+      card_type: 0.2
+      operation_type: 0.2
+      operation_type_group: 0.2
+      ecommerce_flag: 0.2
+      payment_system: 0.2
+      income_flag: 0.2
+      country: 0.2
+      city: 0.2
+      day_of_week: 0.2
+      hour: 0.2
+      weekofyear: 0.2

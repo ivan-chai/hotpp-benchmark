@@ -85,7 +85,7 @@ def embeddings_to_pandas(id_field, by_split):
         all_ids.extend(ids)
         all_splits.extend([split] * len(ids))
         all_embeddings.append(embeddings)
-    all_embeddings = torch.cat(all_embeddings).numpy()
+    all_embeddings = torch.cat(all_embeddings).float().numpy()
 
     columns = {id_field: all_ids,
                "split": all_splits}
