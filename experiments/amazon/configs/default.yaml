@@ -12,7 +12,7 @@ rnn_hidden_size: 64
 rnn_inference_context: 94
 rnn_inference_context_step: 30
 
-transformer_context: 128
+transformer_context: 126
 transformer_hidden_size: 32
 transformer_heads: 2
 transformer_layers: 1
