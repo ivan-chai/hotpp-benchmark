@@ -4,7 +4,7 @@ for k in 1 2 3 4; do
     horizon=$(( 7 * $k ))
     otd=$(( 5 * $k ))
     for method in next_item next_item_transformer rmtpp nhp ode; do
-        python3 -m hotpp.evaluate --config-dir configs --config-name ${method} metric.otd_steps=$otd metric.horizon=$horizon max_predictions=$max_predictions name=${method}_longer_$k model_path=checkpoints/${method}.ckpt
+        python3 -m hotpp.evaluate --config-dir configs --config-name ${method} metric.otd_steps=$otd metric.horizon=$horizon max_predictions=$max_predictions name=${method}_longer_$k data_module.batch_size=8 model_path=checkpoints/${method}.ckpt
     done
 done
 for k in 1 2 3 4; do
@@ -12,6 +12,6 @@ for k in 1 2 3 4; do
     horizon=$(( 7 * $k ))
     otd=$(( 5 * $k ))
     for method in detection_hybrid diffusion_gru; do
-        python3 -m hotpp.evaluate --config-dir configs --config-name ${method} metric.otd_steps=$otd metric.horizon=$horizon max_predictions=$max_predictions name=${method}_longer_$k model_path=checkpoints/${method}.ckpt data_module.batch_size=16 +module.recurrent_steps=$k
+        python3 -m hotpp.evaluate --config-dir configs --config-name ${method} metric.otd_steps=$otd metric.horizon=$horizon max_predictions=$max_predictions name=${method}_longer_$k model_path=checkpoints/${method}.ckpt data_module.batch_size=4 +module.recurrent_steps=$k
     done
 done
