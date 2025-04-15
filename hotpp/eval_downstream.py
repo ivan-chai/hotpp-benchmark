@@ -110,17 +110,35 @@ def parse_result(path):
     return scores
 
 
-def eval_downstream(downstream_config, trainer, datamodule, model):
+def eval_downstream(downstream_config, trainer, datamodule, model,
+                    precomputed_embeddings=None,
+                    precomputed_targets=None):
     downstream_config = copy.deepcopy(downstream_config)
     OmegaConf.set_struct(downstream_config, False)
     with maybe_temporary_directory(downstream_config.get("root", None)) as root:
         splits = downstream_config.get("data_splits", datamodule.splits)
-        embeddings = extract_embeddings(trainer, datamodule, model, splits=splits)
-        embeddings = embeddings_to_pandas(datamodule.id_field, embeddings)
+        if precomputed_embeddings is not None:
+            if isinstance(precomputed_embeddings, str):
+                embeddings = pd.read_parquet(precomputed_embeddings).set_index("id")
+            elif isinstance(precomputed_embeddings, pd.DataFrame):
+                embeddings = precomputed_embeddings
+            else:
+                raise ValueError(f"Unexpected embeddings type: {type(precomputed_embeddings)}")
+        else:
+            embeddings = extract_embeddings(trainer, datamodule, model, splits=splits)
+            embeddings = embeddings_to_pandas(datamodule.id_field, embeddings)
         if len(embeddings.index.unique()) != len(embeddings):
             raise ValueError("Duplicate ids")
-        target_names, targets = extract_targets(datamodule, splits=splits)
-        targets = targets_to_pandas(datamodule.id_field, target_names, targets)
+        if precomputed_targets is not None:
+            if isinstance(precomputed_targets, str):
+                targets = pd.read_parquet(precomputed_targets).set_index("id")
+            elif isinstance(precomputed_targets, pd.DataFrame):
+                targets = precomputed_targets
+            else:
+                raise ValueError(f"Unexpected targets type: {type(precomputed_targets)}")
+        else:
+            target_names, targets = extract_targets(datamodule, splits=splits)
+            targets = targets_to_pandas(datamodule.id_field, target_names, targets)
 
         index = embeddings.index.name
 
@@ -162,7 +180,8 @@ def main(conf):
     model = hydra.utils.instantiate(conf.module)
     model.load_state_dict(torch.load(conf.model_path))
 
-    scores = eval_downstream(conf.downstream, trainer, dm, model)
+    scores = eval_downstream(conf.downstream, trainer, dm, model,
+                             precomputed_embeddings=conf.get("precomputed_embeddings_path", None))
     result = {}
     for split, (mean, std) in scores.items():
         result[f"{split}/{conf.downstream.target.col_target} (mean)"] = mean

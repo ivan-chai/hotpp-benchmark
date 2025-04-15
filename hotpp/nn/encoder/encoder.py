@@ -175,8 +175,12 @@ class Encoder(BaseEncoder):
 
         outputs = defaultdict(list)
         for i in range(n_steps):
-            truncated_embeddings = PaddedBatch(embeddings.payload[:, :l + i], embeddings.seq_lens)
-            truncated_times = PaddedBatch(times.payload[:, :l + i], times.seq_lens)
+            if self.max_context is not None:
+                start = max(l + i - self.max_context, 0)
+            else:
+                start = 0
+            truncated_embeddings = PaddedBatch(embeddings.payload[:, start:l + i], embeddings.seq_lens - start)
+            truncated_times = PaddedBatch(times.payload[:, start:l + i], times.seq_lens - start)
             model_outputs, _ = self.model(truncated_embeddings, truncated_times, return_states=False)  # (B, L', D).
             last_outputs = model_outputs.payload.take_along_dim((model_outputs.seq_lens - 1).clip(min=0)[:, None, None], dim=1)  # (B, 1, D).
             last_outputs = PaddedBatch(last_outputs, lengths1)
