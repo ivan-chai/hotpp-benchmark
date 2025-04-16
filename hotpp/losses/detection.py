@@ -93,8 +93,7 @@ class DetectionLoss(NextKLoss):
         matching = matching.payload[matching.seq_len_mask]  # (V, K).
         if len(matching) > 0:
             means = (matching >= 0).float().mean(0)  # (K).
-            self._matching_priors *= (1 - self._momentum)
-            self._matching_priors += self._momentum * means
+            matching_priors = self._matching_priors * (1 - self._momentum) + means * self._momentum
 
         presence_logits = presence_logits.payload[presence_logits.seq_len_mask]  # (V, K).
         if len(presence_logits) > 0:
@@ -105,8 +104,18 @@ class DetectionLoss(NextKLoss):
             bottom_quantiles = presence_logits.take_along_dim(bottom_indices[None], 0).squeeze(0)  # (K).
             up_quantiles = presence_logits.take_along_dim(up_indices[None], 0).squeeze(0)  # (K).
             quantiles = 0.5 * (bottom_quantiles + up_quantiles)
-            self._matching_thresholds *= (1 - self._momentum)
-            self._matching_thresholds += self._momentum * quantiles
+            matching_thresholds = self._matching_thresholds * (1 - self._momentum) + quantiles * self._momentum
+
+        if torch.distributed.is_initialized():
+            world_size = torch.distributed.get_world_size()
+            torch.distributed.all_reduce(matching_priors, torch.distributed.ReduceOp.SUM)
+            matching_priors /= world_size
+            assert (matching_priors <= 1).all(), "Distributed reduction failed."
+            torch.distributed.all_reduce(matching_thresholds, torch.distributed.ReduceOp.SUM)
+            matching_thresholds /= world_size
+
+        self._matching_priors.copy_(matching_priors)
+        self._matching_thresholds.copy_(matching_thresholds)
 
     @property
     def num_events(self):

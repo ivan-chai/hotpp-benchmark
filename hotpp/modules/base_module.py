@@ -149,16 +149,13 @@ class BaseModule(pl.LightningModule):
         loss = sum(losses.values())
 
         # Log statistics.
-        for k, v in losses.items():
-            self.log(f"train/loss_{k}", v)
-        for k, v in metrics.items():
-            self.log(f"train/{k}", v)
-        self.log("train/loss", loss, prog_bar=True)
-        self.log("sequence_length", x.seq_lens.float().mean(), prog_bar=True)
         if batch_idx == 0:
             with torch.no_grad():
-                for k, v in self._compute_single_batch_metrics(x, outputs, states).items():
-                    self.log(f"train/{k}", v, batch_size=len(x))
+                single_batch_metrics = self._compute_single_batch_metrics(x, outputs, states)
+        else:
+            single_batch_metrics = None
+        mean_seq_len = x.seq_lens.float().mean()
+        self._log_metrics("train", len(x), loss, losses, metrics, single_batch_metrics, mean_seq_len)
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -167,17 +164,15 @@ class BaseModule(pl.LightningModule):
         losses, metrics = self.compute_loss(x, outputs, states)
         loss = sum(losses.values())
 
-        # Log statistics.
-        for k, v in losses.items():
-            self.log(f"val/loss_{k}", v, batch_size=len(x))
-        for k, v in metrics.items():
-            self.log(f"val/{k}", v, batch_size=len(x))
-        self.log("val/loss", loss, batch_size=len(x), prog_bar=True)
         if self._val_metric is not None:
             self._update_metric(self._val_metric, x, outputs, states)
+
+        # Log statistics.
         if batch_idx == 0:
-            for k, v in self._compute_single_batch_metrics(x, outputs, states).items():
-                self.log(f"val/{k}", v, batch_size=len(x))
+            single_batch_metrics = self._compute_single_batch_metrics(x, outputs, states)
+        else:
+            single_batch_metrics = None
+        self._log_metrics("val", len(x), loss, losses, metrics, single_batch_metrics)
 
     def test_step(self, batch, batch_idx):
         x, _ = batch
@@ -185,30 +180,28 @@ class BaseModule(pl.LightningModule):
         losses, metrics = self.compute_loss(x, outputs, states)
         loss = sum(losses.values())
 
-        # Log statistics.
-        for k, v in losses.items():
-            self.log(f"test/loss_{k}", v, batch_size=len(x))
-        for k, v in metrics.items():
-            self.log(f"test/{k}", v, batch_size=len(x))
-        self.log("test/loss", loss, batch_size=len(x), prog_bar=True)
         if self._test_metric is not None:
             self._update_metric(self._test_metric, x, outputs, states)
+
+        # Log statistics.
         if batch_idx == 0:
-            for k, v in self._compute_single_batch_metrics(x, outputs, states).items():
-                self.log(f"test/{k}", v, batch_size=len(x))
+            single_batch_metrics = self._compute_single_batch_metrics(x, outputs, states)
+        else:
+            single_batch_metrics = None
+        self._log_metrics("test", len(x), loss, losses, metrics, single_batch_metrics)
 
     def on_validation_epoch_end(self):
         if self._val_metric is not None:
             metrics = self._val_metric.compute()
-            for k, v in metrics.items():
-                self.log(f"val/{k}", v, prog_bar=True, sync_dist=True)
+            metrics = {f"val/{k}": v for k, v in metrics.items()}
+            self.log_dict(metrics, prog_bar=True, sync_dist=True)
             self._val_metric.reset()
 
     def on_test_epoch_end(self):
         if self._test_metric is not None:
             metrics = self._test_metric.compute()
-            for k, v in metrics.items():
-                self.log(f"test/{k}", v, prog_bar=True, sync_dist=True)
+            metrics = {f"test/{k}": v for k, v in metrics.items()}
+            self.log_dict(metrics, prog_bar=True, sync_dist=True)
             self._test_metric.reset()
 
     def configure_optimizers(self):
@@ -226,6 +219,26 @@ class BaseModule(pl.LightningModule):
 
     def on_before_optimizer_step(self, optimizer=None, optimizer_idx=None):
         self.log("grad_norm", self._get_grad_norm(), prog_bar=True)
+
+    def _log_metrics(self, split, batch_size, loss, losses, metrics, single_batch_metrics=None, mean_seq_len=None):
+        log_values = {}
+        # Sorting fixes distributed aggregation errors.
+        for k, v in sorted(losses.items()):
+            log_values[f"{split}/loss_{k}"] = v
+        for k, v in sorted(metrics.items()):
+            log_values[f"{split}/{k}"] = v
+        if single_batch_metrics is not None:
+            for k, v in sorted(single_batch_metrics.items()):
+                log_values[f"{split}/{k}"] = v
+
+        log_values_bar = {
+            f"{split}/loss": loss
+        }
+        if mean_seq_len is not None:
+            log_values_bar["sequence_length"] = mean_seq_len
+
+        self.log_dict(log_values, batch_size=batch_size, sync_dist=True)
+        self.log_dict(log_values_bar, batch_size=batch_size, sync_dist=True, prog_bar=True)
 
     @torch.autocast("cuda", enabled=False)
     def _update_metric(self, metric, features, outputs, states):

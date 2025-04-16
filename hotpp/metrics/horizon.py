@@ -1,4 +1,5 @@
 import torch
+from torchmetrics.aggregation import MeanMetric
 
 from ..data import PaddedBatch
 from .horizon_binary_targets import HorizonBinaryTargetsMetric
@@ -7,7 +8,7 @@ from .otd import OTDMetric, batch_bincount
 from .tmap import TMAPMetric
 
 
-class HorizonMetric:
+class HorizonMetric(torch.nn.Module):
     """A common interface to all future prediction metrics.
 
     Args:
@@ -26,17 +27,26 @@ class HorizonMetric:
     def __init__(self, horizon, horizon_evaluation_step=1, max_time_delta=None,
                  map_deltas=None, map_target_length=None,
                  otd_steps=None, otd_insert_cost=None, otd_delete_cost=None,
-                 horizon_binary_targets=None, log_amount=False):
+                 horizon_binary_targets=None, log_amount=False,
+                 compute_on_cpu=False):
+        super().__init__()
         self.horizon = horizon
         self.horizon_evaluation_step = horizon_evaluation_step
 
-        self.next_item = NextItemMetric(max_time_delta=max_time_delta)
+        self._target_lengths = MeanMetric(compute_on_cpu=compute_on_cpu)
+        self._predicted_lengths = MeanMetric(compute_on_cpu=compute_on_cpu)
+        self._horizon_predicted_deltas = MeanMetric(compute_on_cpu=compute_on_cpu)
+        self._sequence_labels_entropies = MeanMetric(compute_on_cpu=compute_on_cpu)
+        self._target_sequence_labels_entropies = MeanMetric(compute_on_cpu=compute_on_cpu)
+
+        self.next_item = NextItemMetric(max_time_delta=max_time_delta, compute_on_cpu=compute_on_cpu)
         if map_deltas is not None:
             if map_target_length is None:
                 raise ValueError("Need the max target sequence length for mAP computation")
             self.map_target_length = map_target_length
             self.tmap = TMAPMetric(horizon=horizon,
-                                   time_delta_thresholds=map_deltas)
+                                   time_delta_thresholds=map_deltas,
+                                   compute_on_cpu=compute_on_cpu)
         else:
             self.map_target_length = None
             self.tmap = None
@@ -45,7 +55,8 @@ class HorizonMetric:
                 raise ValueError("Need insertion and deletion costs for the OTD metric.")
             self.otd_steps = otd_steps
             self.otd = OTDMetric(insert_cost=otd_insert_cost,
-                                 delete_cost=otd_delete_cost)
+                                 delete_cost=otd_delete_cost,
+                                 compute_on_cpu=compute_on_cpu)
         else:
             self.otd_steps = None
             self.otd = None
@@ -66,12 +77,12 @@ class HorizonMetric:
         return (self.tmap is not None) or (self.otd is not None)
 
     def reset(self):
-        self._target_lengths = []
-        self._predicted_lengths = []
-        self._horizon_predicted_deltas_sums = []
-        self._horizon_n_predicted_deltas = 0
-        self._sequence_labels_entropies = []
-        self._target_sequence_labels_entropies = []
+        self._target_lengths.reset()
+        self._predicted_lengths.reset()
+        self._horizon_predicted_deltas.reset()
+        self._sequence_labels_entropies.reset()
+        self._target_sequence_labels_entropies.reset()
+
         self.next_item.reset()
         if self.tmap is not None:
             self.tmap.reset()
@@ -187,23 +198,22 @@ class HorizonMetric:
         horizon_targets_mask = target_timestamps - initial_timestamps.unsqueeze(1) < self.horizon  # (V, N).
         horizon_predicted_mask = torch.logical_and(predicted_timestamps - initial_timestamps.unsqueeze(1) < self.horizon,
                                                    predicted_mask)  # (V, N).
-        self._target_lengths.append(horizon_targets_mask.sum(1).cpu().flatten())  # (V).
-        self._predicted_lengths.append(horizon_predicted_mask.sum(1).cpu().flatten())  # (BI).
+        self._target_lengths.update(horizon_targets_mask.sum(1))  # (V).
+        self._predicted_lengths.update(horizon_predicted_mask.sum(1).flatten())  # (BI).
 
         # Update deltas stats.
         if (len(predicted_timestamps) > 0) and (predicted_timestamps.shape[1] >= 2):
             deltas = predicted_timestamps[:, 1:] - predicted_timestamps[:, :-1]
-            self._horizon_predicted_deltas_sums.append(deltas.float().mean().cpu() * deltas.numel())
-            self._horizon_n_predicted_deltas += deltas.numel()
+            self._horizon_predicted_deltas.update(deltas.float())
 
         # Update entropies.
         predicted_entropies = self._eval_entropies(seq_initial_timestamps,
                                                    torch.logical_and(seq_predicted_mask, seq_mask.unsqueeze(2)),
-                                                   seq_predicted_timestamps, seq_predicted_labels).cpu()
-        self._sequence_labels_entropies.append(predicted_entropies)
+                                                   seq_predicted_timestamps, seq_predicted_labels)
+        self._sequence_labels_entropies.update(predicted_entropies)
         target_entropies = self._eval_entropies(seq_initial_timestamps, seq_mask.unsqueeze(2).expand(*targets.payload["timestamps"].shape),
-                                                targets.payload["timestamps"], targets.payload["labels"]).cpu()
-        self._target_sequence_labels_entropies.append(target_entropies)
+                                                targets.payload["timestamps"], targets.payload["labels"])
+        self._target_sequence_labels_entropies.update(target_entropies)
 
         # Update T-mAP.
         if self.tmap is not None:
@@ -264,19 +274,17 @@ class HorizonMetric:
 
     def compute(self):
         values = {}
-        if self._target_lengths:
-            target_lengths = torch.cat(self._target_lengths)
-            predicted_lengths = torch.cat(self._predicted_lengths)
-            sequence_labels_entropies = torch.cat(self._sequence_labels_entropies)
-            target_sequence_labels_entropies = torch.cat(self._target_sequence_labels_entropies)
+        target_length = self._target_lengths.compute()
+        if not target_length.isnan():
             values.update({
-                "mean-target-length": target_lengths.sum().item() / target_lengths.numel(),
-                "mean-predicted-length": predicted_lengths.sum().item() / predicted_lengths.numel(),
-                "sequence-labels-entropy": sequence_labels_entropies.mean().item(),
-                "target-sequence-labels-entropy": target_sequence_labels_entropies.mean().item()
+                "mean-target-length": target_length,
+                "mean-predicted-length": self._predicted_lengths.compute(),
+                "sequence-labels-entropy": self._sequence_labels_entropies.compute(),
+                "target-sequence-labels-entropy": self._target_sequence_labels_entropies.compute()
             })
-            if self._horizon_n_predicted_deltas > 0:
-                values["horizon-mean-time-step"] = torch.stack(self._horizon_predicted_deltas_sums).sum().item() / self._horizon_n_predicted_deltas
+            mean_time_step = self._horizon_predicted_deltas.compute()
+            if not mean_time_step.isnan():
+                values["horizon-mean-time-step"] = mean_time_step
         values.update(self.next_item.compute())
         if self.tmap is not None:
             values.update(self.tmap.compute())
