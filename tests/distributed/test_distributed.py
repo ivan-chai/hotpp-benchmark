@@ -51,7 +51,7 @@ def train_worker(output_queue, root, data_path, model, batch_size, num_workers, 
         check_val_every_n_epoch=5,
         num_sanity_val_steps=0,
         sync_batchnorm=True,
-        logger=pl.loggers.TensorBoardLogger(root)
+        logger=pl.loggers.CSVLogger(root)
     )
     trainer.fit(model, data)
     metrics = dict(trainer.callback_metrics)
