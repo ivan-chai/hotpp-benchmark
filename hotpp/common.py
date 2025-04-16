@@ -22,6 +22,10 @@ def dump_report(metrics, fp):
 
 def get_trainer(conf, **trainer_params_additional):
     trainer_params = conf.trainer
+    if (trainer_params.get("accelerator", "default") != "cpu"
+        and ("sync_batchnorm" not in trainer_params)):
+        logging.info("Force batchnorm synchronization. Use explicit 'cpu' device to disable it.")
+        trainer_params["sync_batchnorm"] = True
     model_selection = trainer_params.get("model_selection", None)
 
     if "callbacks" in trainer_params:

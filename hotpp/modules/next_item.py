@@ -52,6 +52,8 @@ class NextItemModule(BaseModule):
             Predicted sequences with shape (B, I, N).
         """
         if n_steps is None:
+            if self._autoreg_max_steps is None:
+                raise ValueError("The maximum number of autoregression steps must be provided to init.")
             n_steps = self._autoreg_max_steps
         def predict_fn(hiddens, states):
             outputs = self._head(hiddens)  # (B, L, D).

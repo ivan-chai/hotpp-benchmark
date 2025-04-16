@@ -1,4 +1,6 @@
 import torch
+from torchmetrics import Metric
+from torchmetrics.utilities import dim_zero_cat
 from torch_linear_assignment import batch_linear_assignment
 
 
@@ -12,7 +14,7 @@ def batch_bincount(x, minlength=0):
     return counts
 
 
-class OTDMetric:
+class OTDMetric(Metric):
     """Optimal Transport Distance (OTD) for event sequences.
 
     See the original paper for details:
@@ -26,9 +28,11 @@ class OTDMetric:
     """
 
     def __init__(self, insert_cost, delete_cost):
+        super().__init__(compute_on_cpu=True)
         self.insert_cost = insert_cost
         self.delete_cost = delete_cost
-        self.reset()
+        self.add_state("_costs", default=[], dist_reduce_fx="cat")
+        self.add_state("_label_distribution_deltas", default=[], dist_reduce_fx="cat")
 
     @torch.no_grad()
     def update(self, target_times, target_labels, predicted_times, predicted_labels):
@@ -47,22 +51,18 @@ class OTDMetric:
         infinity = self.insert_cost + self.delete_cost
         costs = (predicted_times[:, :, None] - target_times[:, None, :]).abs().float().clip(max=infinity)  # (B, N, N).
         costs.masked_fill_(predicted_labels[:, :, None] != target_labels[:, None, :], infinity)
-        self._costs.append(self._get_min_distance(costs).cpu())  # (B).
+        self._costs.append(self._get_min_distance(costs))  # (B).
 
         max_labels = max(target_labels.max().item(), predicted_labels.max().item()) + 1
         target_counts = batch_bincount(target_labels, max_labels)
         predicted_counts = batch_bincount(predicted_labels, max_labels)
         self._label_distribution_deltas.append((target_counts - predicted_counts).abs().sum(1))  # (B).
 
-    def reset(self):
-        self._costs = []
-        self._label_distribution_deltas = []
-
     def compute(self):
-        if len(self._costs) == 0:
+        costs = dim_zero_cat(self._costs)
+        if len(costs) == 0:
             return {}
-        costs = torch.cat(self._costs)
-        label_distribution_deltas = torch.cat(self._label_distribution_deltas)
+        label_distribution_deltas = dim_zero_cat(self._label_distribution_deltas)
 
         return {
             "optimal-transport-distance": costs.mean().item(),

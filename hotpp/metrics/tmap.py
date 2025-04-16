@@ -1,4 +1,6 @@
 import torch
+from torchmetrics import Metric
+from torchmetrics.utilities import dim_zero_cat
 from torch_linear_assignment import batch_linear_assignment
 
 
@@ -22,8 +24,8 @@ def compute_map(targets, scores, device=None, cuda_buffer_size=10**7):
         return torch.zeros([c], device=device), torch.zeros([c], device=device)
     if targets.dtype != torch.bool:
         if targets.dtype.is_floating_point() or (targets > 1).any() or (targets < 0).any():
-            raise ValueError("Expected boolean target on 0-1 values.")
-        targets = targets.bool()
+            raise ValueError("Expected boolean target or 0-1 values.")
+        targets = targets.round().bool()
     if device.type == "cuda":
         # Compute large tasks step-by-step.
         batch_size = max(cuda_buffer_size // int(b), 1) if cuda_buffer_size is not None else c
@@ -55,7 +57,7 @@ def compute_map(targets, scores, device=None, cuda_buffer_size=10**7):
     return aps, f_scores
 
 
-class TMAPMetric:
+class TMAPMetric(Metric):
     """Average mAP metric among different time difference thresholds.
 
     Args:
@@ -63,9 +65,21 @@ class TMAPMetric:
         time_delta_thresholds: A list of time difference thresholds to average metric for.
     """
     def __init__(self, horizon, time_delta_thresholds):
+        super().__init__(compute_on_cpu=True)
         self.horizon = horizon
         self.time_delta_thresholds = time_delta_thresholds
-        self.reset()
+        self._device = torch.device("cpu")
+
+        # The total number of targets of the specified class. A list of tensors, each with shape (C).
+        self.add_state("_total_targets", default=[], dist_reduce_fx="cat")
+        # For each delta: a list of tensor, each with shape (C), containing the number of unmatched targets for each label.
+        for i in range(len(time_delta_thresholds)):
+            self.add_state(f"_n_unmatched_targets_delta_{i}", default=[], dist_reduce_fx="cat")
+        # Scores of matched predictions for each class. A list of tensors, each with shape (B, C).
+        self.add_state("_matched_scores", default=[], dist_reduce_fx="cat")
+        # For each delta: a list of tensors, each with shape (B, C), containing the mask of matched predictions for each class.
+        for i in range(len(time_delta_thresholds)):
+            self.add_state(f"_matched_delta_{i}", default=[], dist_reduce_fx="cat")
 
     def update(self, initial_times, target_mask, target_times, target_labels, predicted_mask, predicted_times, predicted_labels_scores):
         """Update metric statistics.
@@ -129,39 +143,28 @@ class TMAPMetric:
             matching.masked_fill_(matching_costs > valid_cost_threshold, -1)
             n_unmatched_targets = target_labels_counts - (matching.masked_select(predicted_mask.unsqueeze(2)).reshape(n_valid, c) >= 0).sum(0)  # (C).
             predicted_targets = matching.masked_select(predicted_mask.unsqueeze(2)).reshape(n_valid, c) >= 0  # (V, C).
-            self._n_unmatched_targets_by_delta[i].append(n_unmatched_targets.cpu())  # (C).
-            self._matched_by_delta[i].append(predicted_targets.cpu())  # (V, C).
-        self._total_targets.append(target_labels_counts.cpu())  # (C).
-        self._matched_scores.append(predicted_scores.cpu())  # (V, C).
+            getattr(self, f"_n_unmatched_targets_delta_{i}").append(n_unmatched_targets[None])  # (1, C).
+            getattr(self, f"_matched_delta_{i}").append(predicted_targets)  # (V, C).
+        self._total_targets.append(target_labels_counts[None])  # (1, C).
+        self._matched_scores.append(predicted_scores)  # (V, C).
         self._device = device
 
-    def reset(self):
-        self._device = "cpu"
-        # The total number of targets of the specified class. A list of tensors, each with shape (C).
-        self._total_targets = []
-        # For each delta: a list of tensor, each with shape (C), containing the number of unmatched targets for each label.
-        self._n_unmatched_targets_by_delta = [list() for _ in self.time_delta_thresholds]
-        # Scores of matched predictions for each class. A list of tensors, each with shape (B, C).
-        self._matched_scores = []
-        # For each delta: a list of tensors, each with shape (B, C), containing the mask of matched predictions for each class.
-        self._matched_by_delta = [list() for _ in self.time_delta_thresholds]
-
     def compute(self):
-        if len(self._total_targets) == 0:
+        total_targets = dim_zero_cat(self._total_targets)
+        if len(total_targets) == 0:
             return {}
-
-        # Fix zero-length predictions.
-        c = max(map(len, self._total_targets))
-        total_targets = torch.stack([v.reshape(c) for v in self._total_targets]).sum(0)  # (C).
+        total_targets = total_targets.sum(0)  # (C).
+        c = len(total_targets)
+        matched_scores = dim_zero_cat(self._matched_scores)  # (B, C).
         micro_weights = total_targets / total_targets.sum()  # (C).
-        matched_scores = torch.cat([v.reshape(len(v), c) for v in self._matched_scores])  # (B, C).
+
         maps = []
         micro_maps = []
         f_scores = []
         micro_f_scores = []
         for i in range(len(self.time_delta_thresholds)):
-            n_unmatched_targets = torch.stack([v.reshape(c) for v in self._n_unmatched_targets_by_delta[i]]).sum(0)  # (C).
-            matched_targets = torch.cat([v.reshape(v.shape[0], c) for v in self._matched_by_delta[i]])  # (B, C).
+            n_unmatched_targets = dim_zero_cat(getattr(self, f"_n_unmatched_targets_delta_{i}")).sum(0)  # (C).
+            matched_targets = dim_zero_cat(getattr(self, f"_matched_delta_{i}"))  # (B, C).
             max_recalls = 1 - n_unmatched_targets / total_targets.clip(min=1)
             assert (max_recalls >= 0).all() and (max_recalls <= 1).all()
             label_mask = torch.logical_and(~matched_targets.all(0), matched_targets.any(0))  # (C).
