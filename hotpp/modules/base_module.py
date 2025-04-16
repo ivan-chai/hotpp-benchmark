@@ -193,14 +193,14 @@ class BaseModule(pl.LightningModule):
     def on_validation_epoch_end(self):
         if self._val_metric is not None:
             metrics = self._val_metric.compute()
-            metrics = {f"val/{k}" for k, v in metrics.items()}
+            metrics = {f"val/{k}": v for k, v in metrics.items()}
             self.log_dict(metrics, prog_bar=True, sync_dist=True)
             self._val_metric.reset()
 
     def on_test_epoch_end(self):
         if self._test_metric is not None:
             metrics = self._test_metric.compute()
-            metrics = {f"test/{k}" for k, v in metrics.items()}
+            metrics = {f"test/{k}": v for k, v in metrics.items()}
             self.log_dict(metrics, prog_bar=True, sync_dist=True)
             self._test_metric.reset()
 
