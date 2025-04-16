@@ -131,14 +131,14 @@ class TestEncoder(TestCase):
         #    [8, 21, 55]
         times_gt = torch.tensor([
             [0, 0, 0],
-            [2, 5, 13],
-            [13, 34, 89],
+            [2, 5, 12],
+            [13, 31, 75],
             [0, 0, 0]
         ]).reshape(2, 2, 3).float()  # (2, 2, 3).
         labels_gt = torch.tensor([
             [0, 0, 0],
-            [1, 2, 4],
-            [2, 4, 8],
+            [1, 2, 3],
+            [2, 3, 5],
             [0, 0, 0]
         ]).reshape(2, 2, 3)  # (2, 2, 3).
         self.assertTrue(sequences.payload["timestamps"][mask].allclose(times_gt[mask]))
