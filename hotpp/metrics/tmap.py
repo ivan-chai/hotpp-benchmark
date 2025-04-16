@@ -64,8 +64,8 @@ class TMAPMetric(Metric):
         horizon: Prediction horizon.
         time_delta_thresholds: A list of time difference thresholds to average metric for.
     """
-    def __init__(self, horizon, time_delta_thresholds):
-        super().__init__(compute_on_cpu=True)
+    def __init__(self, horizon, time_delta_thresholds, compute_on_cpu=False):
+        super().__init__(compute_on_cpu=compute_on_cpu)
         self.horizon = horizon
         self.time_delta_thresholds = time_delta_thresholds
         self._device = torch.device("cpu")
@@ -155,6 +155,7 @@ class TMAPMetric(Metric):
             return {}
         total_targets = total_targets.sum(0)  # (C).
         c = len(total_targets)
+        device = total_targets.device
         matched_scores = dim_zero_cat(self._matched_scores)  # (B, C).
         micro_weights = total_targets / total_targets.sum()  # (C).
 
@@ -171,12 +172,12 @@ class TMAPMetric(Metric):
             aps, max_f_scores = compute_map(matched_targets[:, label_mask],
                                             matched_scores[:, label_mask],
                                             device=self._device)  # (C').
-            aps = torch.zeros(c).masked_scatter_(label_mask, aps.cpu())
+            aps = torch.zeros(c, device=device).masked_scatter_(label_mask, aps.to(device))
             aps *= max_recalls
             maps.append(aps.sum().item() / c)
             micro_maps.append((aps * micro_weights).sum().item())
 
-            max_f_scores = torch.zeros(c).masked_scatter_(label_mask, max_f_scores.cpu())
+            max_f_scores = torch.zeros(c, device=device).masked_scatter_(label_mask, max_f_scores.to(device))
             f_scores.append(max_f_scores.sum().item() / c)
             micro_f_scores.append((max_f_scores * micro_weights).sum().item())
         return {

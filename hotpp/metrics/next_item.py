@@ -7,8 +7,8 @@ from .tmap import compute_map
 class NextItemMetric(Metric):
     """Next item (event) prediction evaluation metrics."""
 
-    def __init__(self, max_time_delta=None):
-        super().__init__(compute_on_cpu=True)
+    def __init__(self, max_time_delta=None, compute_on_cpu=False):
+        super().__init__(compute_on_cpu=compute_on_cpu)
         self.max_time_delta = max_time_delta
         self._device = torch.device("cpu")
 
@@ -34,10 +34,11 @@ class NextItemMetric(Metric):
             predicted_labels: Predicted labels with shape (B, L).
             predicted_labels_logits: Predicted class logits with shape (B, L, C).
         """
+        device = mask.device
         is_correct = predicted_labels == target_labels  # (B, L).
         is_correct = is_correct.masked_select(mask)  # (V).
-        self._n_correct_labels.append(torch.tensor([is_correct.sum()]))
-        self._n_labels.append(torch.tensor([is_correct.numel()]))
+        self._n_correct_labels.append(torch.tensor([is_correct.sum()], device=device))
+        self._n_labels.append(torch.tensor([is_correct.numel()], device=device))
         self._scores.append(predicted_labels_logits[mask])  # (V, C).
         self._labels.append(target_labels[mask])  # (V).
 
@@ -53,7 +54,7 @@ class NextItemMetric(Metric):
         deltas = deltas.clip(min=0)
         deltas = deltas.masked_select(torch.logical_and(mask[:, 1:], mask[:, :-1]))  # (V).
         self._delta_sums.append(deltas.float().mean(0, keepdim=True) * deltas.numel())
-        self._n_deltas.append(torch.tensor([deltas.numel()]))
+        self._n_deltas.append(torch.tensor([deltas.numel()], device=device))
 
         self._device = mask.device
 
@@ -61,6 +62,7 @@ class NextItemMetric(Metric):
         delta_sums = dim_zero_cat(self._delta_sums)
         if len(delta_sums) == 0:
             return {}
+        device = delta_sums.device
         ae_sums = dim_zero_cat(self._ae_sums)
         se_sums = dim_zero_cat(self._se_sums)
         scores = dim_zero_cat(self._scores)
@@ -73,8 +75,8 @@ class NextItemMetric(Metric):
         one_hot_labels = torch.nn.functional.one_hot(labels.long(), nc).bool()  # (B, C).
         micro_weights = one_hot_labels.sum(0) / one_hot_labels.sum()  # (C).
         aps, max_f_scores = compute_map(one_hot_labels, scores, device=self._device)  # (C).
-        aps = aps.cpu()
-        max_f_scores = max_f_scores.cpu()
+        aps = aps.to(device)
+        max_f_scores = max_f_scores.to(device)
         return {
             "next-item-mean-time-step": delta_sums.sum().item() / n_deltas,
             "next-item-mae": ae_sums.sum().item() / n_labels,

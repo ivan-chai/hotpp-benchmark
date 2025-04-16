@@ -27,8 +27,8 @@ class OTDMetric(Metric):
         delete_cost: The cost of deleting an event from the prediction.
     """
 
-    def __init__(self, insert_cost, delete_cost):
-        super().__init__(compute_on_cpu=True)
+    def __init__(self, insert_cost, delete_cost, compute_on_cpu=False):
+        super().__init__(compute_on_cpu=compute_on_cpu)
         self.insert_cost = insert_cost
         self.delete_cost = delete_cost
         self.add_state("_costs", default=[], dist_reduce_fx="cat")
