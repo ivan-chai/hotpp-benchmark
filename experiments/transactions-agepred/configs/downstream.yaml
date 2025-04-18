@@ -1,4 +1,6 @@
-workers: 5
+workers: 2
+total_cpu_count: 8
+log_level: ERROR
 environment:
   work_dir: _
 target:
@@ -41,8 +43,9 @@ models:
       min_child_samples: null
       num_leaves: 50
       random_state: 42
-      n_jobs: 4
-    cpu_count: 5
+      n_jobs: 8
+      verbosity: 0
+    cpu_count: 8
     preprocessing:
       - _target_: sklearn.preprocessing.MaxAbsScaler
 

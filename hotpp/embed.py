@@ -42,8 +42,7 @@ class InferenceDataModule(pl.LightningDataModule):
         loader_params = getattr(self.data, f"{self.split}_loader_params")
 
         num_workers = loader_params.get("num_workers", 0)
-        dataset = ShuffledDistributedDataset(dataset,
-                                             num_workers=num_workers)
+        dataset = ShuffledDistributedDataset(dataset)
         return torch.utils.data.DataLoader(
             dataset=dataset,
             collate_fn=dataset.dataset.collate_fn,
@@ -63,9 +62,9 @@ def extract_embeddings(trainer, datamodule, model, splits=None):
       Mapping from a split name to a tuple of ids and embeddings tensor (CPU).
     """
     model = InferenceModule(model, id_field=datamodule.id_field)
-    by_split = {}
     if splits is None:
         splits = datamodule.splits
+    by_split = {}
     for split in splits:
         split_datamodule = InferenceDataModule(datamodule, split=split)
         split_embeddings, split_ids = zip(*trainer.predict(model, split_datamodule))  # (B, D), (B).
@@ -85,7 +84,7 @@ def embeddings_to_pandas(id_field, by_split):
         all_ids.extend(ids)
         all_splits.extend([split] * len(ids))
         all_embeddings.append(embeddings)
-    all_embeddings = torch.cat(all_embeddings).float().numpy()
+    all_embeddings = torch.cat(all_embeddings).float().cpu().numpy()
 
     columns = {id_field: all_ids,
                "split": all_splits}

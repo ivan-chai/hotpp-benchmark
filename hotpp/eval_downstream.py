@@ -8,6 +8,7 @@ from contextlib import contextmanager
 import hydra
 import luigi
 import pandas as pd
+import pytorch_lightning as pl
 import torch
 from omegaconf import OmegaConf
 
@@ -31,28 +32,32 @@ def maybe_temporary_directory(root=None):
             yield root
 
 
-def extract_targets(datamodule, splits=None):
+class TargetsInferenceModule(pl.LightningModule):
+    def __init__(self, id_field, target_names):
+        super().__init__()
+        self.id_field = id_field
+        self.target_names = target_names
+
+    def forward(self, batch):
+        x, y = batch
+        # Embeddings: (B, D).
+        ids = x.payload[self.id_field]  # (B).
+        targets = torch.stack([y.payload[name] for name in self.target_names], -1)  # (B, T).
+        return targets, ids
+
+
+def extract_targets(trainer, datamodule, splits=None):
     target_names = datamodule.train_data.global_target_fields
+    model = TargetsInferenceModule(datamodule.id_field, target_names)
     if splits is None:
         splits = datamodule.splits
     by_split = {}
     for split in splits:
         split_datamodule = InferenceDataModule(datamodule, split=split)
-        ids = []
-        targets = []
-        for x, y in split_datamodule.predict_dataloader():
-            x_ids = x.payload[datamodule.id_field]
-            if isinstance(x_ids, torch.Tensor):
-                x_ids = x_ids.cpu().tolist()
-            elif isinstance(x_ids, np.ndarray):
-                x_ids = x_ids.tolist()
-            elif not isinstance(x_ids, list):
-                raise ValueError(f"Unknown ids type: {type(x_ids)}")
-            ids.extend(x_ids)
-            targets.append(torch.stack([y.payload[name] for name in target_names], -1).cpu())  # (B, T).
-        targets = torch.cat(targets)
-        assert len(ids) == len(targets)
-        by_split[split] = (ids, targets)
+        split_targets, split_ids = zip(*trainer.predict(model, split_datamodule))  # (B, D), (B).
+        split_targets = torch.cat(split_targets).cpu()
+        split_ids = torch.cat(split_ids).cpu().tolist()
+        by_split[split] = (split_ids, split_targets)
     return target_names, by_split
 
 
@@ -65,7 +70,7 @@ def targets_to_pandas(id_field, target_names, by_split):
         all_ids.extend(ids)
         all_splits.extend([split] * len(ids))
         all_targets.append(targets)
-    all_targets = torch.cat(all_targets).numpy()
+    all_targets = torch.cat(all_targets).cpu().numpy()
 
     columns = {id_field: all_ids,
                "split": all_splits}
@@ -137,7 +142,7 @@ def eval_downstream(downstream_config, trainer, datamodule, model,
             else:
                 raise ValueError(f"Unexpected targets type: {type(precomputed_targets)}")
         else:
-            target_names, targets = extract_targets(datamodule, splits=splits)
+            target_names, targets = extract_targets(trainer, datamodule, splits=splits)
             targets = targets_to_pandas(datamodule.id_field, target_names, targets)
 
         index = embeddings.index.name

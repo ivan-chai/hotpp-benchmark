@@ -13,10 +13,11 @@ from .common import get_trainer, dump_report
 logger = logging.getLogger(__name__)
 
 
-def test(conf, model, dm):
+def test(conf, model, dm, trainer=None):
     pl.seed_everything(42)
 
-    trainer = get_trainer(conf, devices=1, precision=32)
+    if trainer is None:
+        trainer = get_trainer(conf, precision=32)
     if "val" in dm.splits:
         val_metrics = trainer.validate(model, dm)[0]
     else:
