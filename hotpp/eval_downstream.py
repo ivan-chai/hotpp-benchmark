@@ -18,7 +18,7 @@ try:
 except ImportError:
     raise ImportError("Please, install embeddings_validation or hotpp-benchmark[downstream]")
 from .common import get_trainer, dump_report
-from .embed import InferenceDataModule, extract_embeddings, embeddings_to_pandas
+from .embed import distributed_predict, extract_embeddings, embeddings_to_pandas
 
 
 @contextmanager
@@ -32,7 +32,7 @@ def maybe_temporary_directory(root=None):
             yield root
 
 
-class TargetsInferenceModule(pl.LightningModule):
+class TargetsModule(pl.LightningModule):
     def __init__(self, id_field, target_names):
         super().__init__()
         self.id_field = id_field
@@ -43,21 +43,14 @@ class TargetsInferenceModule(pl.LightningModule):
         # Embeddings: (B, D).
         ids = x.payload[self.id_field]  # (B).
         targets = torch.stack([y.payload[name] for name in self.target_names], -1)  # (B, T).
-        return targets, ids
+        return ids, targets
 
 
 def extract_targets(trainer, datamodule, splits=None):
     target_names = datamodule.train_data.global_target_fields
-    model = TargetsInferenceModule(datamodule.id_field, target_names)
-    if splits is None:
-        splits = datamodule.splits
-    by_split = {}
-    for split in splits:
-        split_datamodule = InferenceDataModule(datamodule, split=split)
-        split_targets, split_ids = zip(*trainer.predict(model, split_datamodule))  # (B, D), (B).
-        split_targets = torch.cat(split_targets).cpu()
-        split_ids = torch.cat(split_ids).cpu().tolist()
-        by_split[split] = (split_ids, split_targets)
+    model = TargetsModule(datamodule.id_field, target_names)
+    by_split = distributed_predict(trainer, datamodule, model, 2, splits=splits)
+    by_split = {split: (ids.cpu().tolist(), targets) for split, (ids, targets) in by_split.items()}
     return target_names, by_split
 
 
@@ -145,6 +138,8 @@ def eval_downstream(downstream_config, trainer, datamodule, model,
             target_names, targets = extract_targets(trainer, datamodule, splits=splits)
             targets = targets_to_pandas(datamodule.id_field, target_names, targets)
 
+        assert len(embeddings) == len(targets), "Embeddings and targets mismatch."
+
         index = embeddings.index.name
 
         embeddings_path = os.path.join(root, "embeddings.pickle")
@@ -168,6 +163,13 @@ def eval_downstream(downstream_config, trainer, datamodule, model,
 
         if os.path.exists(downstream_config.report_file):
             os.remove(downstream_config.report_file)
+
+        try:
+            is_main_process = trainer.global_rank == 0
+        except Exception as e:
+            is_main_process = True
+        if not is_main_process:
+            return None
         eval_embeddings(downstream_config)
 
         scores = parse_result(downstream_config.report_file)
@@ -187,12 +189,14 @@ def main(conf):
 
     scores = eval_downstream(conf.downstream, trainer, dm, model,
                              precomputed_embeddings=conf.get("precomputed_embeddings_path", None))
-    result = {}
-    for split, (mean, std) in scores.items():
-        result[f"{split}/{conf.downstream.target.col_target} (mean)"] = mean
-        result[f"{split}/{conf.downstream.target.col_target} (std)"] = std
-    with open(downstream_report, "w") as fp:
-        dump_report(result, fp)
+    if scores is not None:
+        # The main process.
+        result = {}
+        for split, (mean, std) in scores.items():
+            result[f"{split}/{conf.downstream.target.col_target} (mean)"] = mean
+            result[f"{split}/{conf.downstream.target.col_target} (std)"] = std
+        with open(downstream_report, "w") as fp:
+            dump_report(result, fp)
 
 
 if __name__ == "__main__":

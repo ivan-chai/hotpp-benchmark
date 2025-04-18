@@ -9,6 +9,8 @@ import pandas as pd
 import pytorch_lightning as pl
 import torch
 from omegaconf import OmegaConf
+from torchmetrics import Metric
+from torchmetrics.utilities import dim_zero_cat
 
 from .common import get_trainer
 from .data import ShuffledDistributedDataset
@@ -16,7 +18,91 @@ from .data import ShuffledDistributedDataset
 logger = logging.getLogger(__name__)
 
 
+class GatherMetric(Metric):
+    """Gather predictions across all processes."""
+    def __init__(self, n_values, compute_on_cpu=False):
+        super().__init__(compute_on_cpu=compute_on_cpu)
+        self.n_values = n_values
+        for i in range(n_values):
+            self.add_state(f"_out_{i}", default=[], dist_reduce_fx="cat")
+
+    def update(self, *args):
+        if len(args) != self.n_values:
+            raise ValueError(f"Wrong number of inputs: {len(args)} != {self.n_values}")
+        for i, v in enumerate(args):
+            getattr(self, f"_out_{i}").append(v)
+
+    def compute(self):
+        results = []
+        for i in range(self.n_values):
+            try:
+                values = dim_zero_cat(getattr(self, f"_out_{i}"))
+                results.append(values)
+            except ValueError:
+                # Empty list.
+                return None
+        return results
+
+
 class InferenceModule(pl.LightningModule):
+    def __init__(self, model, n_outputs, compute_on_cpu=False):
+        super().__init__()
+        self.model = model
+        self.n_outputs = n_outputs
+        self.gather = GatherMetric(n_outputs, compute_on_cpu=compute_on_cpu)
+        self.result = None
+
+    def forward(self, batch):
+        return self.model(batch)
+
+    def test_step(self, batch):
+        result = self(batch)
+        assert len(result) == self.n_outputs
+        self.gather.update(*result)
+
+    def on_test_epoch_end(self):
+        self.result = self.gather.compute()
+
+
+class InferenceDataModule(pl.LightningDataModule):
+    def __init__(self, data, split, rank, world_size):
+        super().__init__()
+        self.data = data.with_test_parameters()
+        self.split = split
+        self.rank = rank
+        self.world_size = world_size
+
+    def test_dataloader(self):
+        dataset = getattr(self.data, f"{self.split}_data")
+        loader_params = getattr(self.data, f"{self.split}_loader_params")
+
+        num_workers = loader_params.get("num_workers", 0)
+        dataset = ShuffledDistributedDataset(dataset, rank=self.rank, world_size=self.world_size)
+        return torch.utils.data.DataLoader(
+            dataset=dataset,
+            collate_fn=dataset.dataset.collate_fn,
+            shuffle=False,
+            num_workers=num_workers,
+            batch_size=loader_params.get("batch_size", 1)
+        )
+
+
+def distributed_predict(trainer, datamodule, model, n_outputs, splits=None):
+    model = InferenceModule(model, n_outputs=n_outputs)
+    if splits is None:
+        splits = datamodule.splits
+    by_split = {}
+    for split in splits:
+        model.gather.reset()
+        split_datamodule = InferenceDataModule(datamodule, split=split,
+                                               rank=trainer.local_rank,
+                                               world_size=trainer.world_size)
+        trainer.test(model, split_datamodule)
+        by_split[split] = model.result
+    return by_split
+
+
+class EmbedderModule(pl.LightningModule):
     def __init__(self, model, id_field):
         super().__init__()
         self.model = model
@@ -28,28 +114,7 @@ class InferenceModule(pl.LightningModule):
         assert embeddings.ndim == 2
         # Embeddings: (B, D).
         ids = data.payload[self.id_field]  # (B).
-        return embeddings, ids
-
-
-class InferenceDataModule(pl.LightningDataModule):
-    def __init__(self, data, split):
-        super().__init__()
-        self.data = data.with_test_parameters()
-        self.split = split
-
-    def predict_dataloader(self):
-        dataset = getattr(self.data, f"{self.split}_data")
-        loader_params = getattr(self.data, f"{self.split}_loader_params")
-
-        num_workers = loader_params.get("num_workers", 0)
-        dataset = ShuffledDistributedDataset(dataset)
-        return torch.utils.data.DataLoader(
-            dataset=dataset,
-            collate_fn=dataset.dataset.collate_fn,
-            shuffle=False,
-            num_workers=num_workers,
-            batch_size=loader_params.get("batch_size", 1)
-        )
+        return ids, embeddings
 
 
 def extract_embeddings(trainer, datamodule, model, splits=None):
@@ -61,16 +126,9 @@ def extract_embeddings(trainer, datamodule, model, splits=None):
     Returns:
       Mapping from a split name to a tuple of ids and embeddings tensor (CPU).
     """
-    model = InferenceModule(model, id_field=datamodule.id_field)
-    if splits is None:
-        splits = datamodule.splits
-    by_split = {}
-    for split in splits:
-        split_datamodule = InferenceDataModule(datamodule, split=split)
-        split_embeddings, split_ids = zip(*trainer.predict(model, split_datamodule))  # (B, D), (B).
-        split_embeddings = torch.cat(split_embeddings).cpu()
-        split_ids = torch.cat(split_ids).cpu().tolist()
-        by_split[split] = (split_ids, split_embeddings)
+    model = EmbedderModule(model, id_field=datamodule.id_field)
+    by_split = distributed_predict(trainer, datamodule, model, 2, splits=splits)
+    by_split = {split: (ids.cpu().tolist(), embeddings) for split, (ids, embeddings) in by_split.items()}
     return by_split
 
 

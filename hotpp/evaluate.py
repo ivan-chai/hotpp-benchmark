@@ -29,12 +29,15 @@ def test(conf, model, dm, trainer=None):
     metrics = dict(**val_metrics, **test_metrics)
     if conf.get("test_downstream", False):
         from .eval_downstream import eval_downstream
-        downstream_metrics = {}
-        for split, (mean, std) in eval_downstream(conf.downstream, trainer, dm, model).items():
-            downstream_metrics[f"{split}/downstream"] = mean
-            downstream_metrics[f"{split}/downstream-std"] = std
-        metrics.update(downstream_metrics)
-        trainer.logger.log_metrics(downstream_metrics)
+        scores = eval_downstream(conf.downstream, trainer, dm, model)
+        if scores is not None:
+            # The main process.
+            downstream_metrics = {}
+            for split, (mean, std) in scores.items():
+                downstream_metrics[f"{split}/downstream"] = mean
+                downstream_metrics[f"{split}/downstream-std"] = std
+            metrics.update(downstream_metrics)
+            trainer.logger.log_metrics(downstream_metrics)
 
     if "report" in conf:
         with open(conf["report"], "w") as fp:
