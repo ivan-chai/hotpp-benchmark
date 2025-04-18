@@ -29,6 +29,7 @@ def train(conf):
             raise ValueError("Need model_path for a model initialization")
         logger.info(f"Load weights from '{conf.model_path}'")
         model.load_state_dict(torch.load(conf.model_path))
+        trainer = None
     else:
         trainer = get_trainer(conf)
         if conf.get("init_from_checkpoint", None):
@@ -50,7 +51,7 @@ def train(conf):
             torch.save(model.state_dict(), conf.model_path)
             logger.info(f"Model weights saved to '{conf.model_path}'")
 
-    metrics = test(conf, model, dm)
+    metrics = test(conf, model, dm, trainer=trainer)
     return model, metrics
 
 
