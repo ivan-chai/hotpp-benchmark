@@ -90,6 +90,11 @@ To run multiseed training and evaluation:
 python3 -m hotpp.train_multiseed --config-dir configs --config-name <model>
 ```
 
+To run multi-GPU training on 2 GPUs:
+```sh
+mpirun -np 2 python3 -m hotpp.train --config-dir configs --config-name <model> ++trainer.devices=2 ++trainer.strategy=ddp
+```
+
 # Evaluation results
 All evaluation results can be found in the experiments folder.
 
