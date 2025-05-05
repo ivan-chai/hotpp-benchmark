@@ -73,7 +73,7 @@ class BaseModule(pl.LightningModule):
 
         self._loss = loss
         self._seq_encoder = seq_encoder
-        self._seq_encoder.is_reduce_sequence = False
+        self._seq_encoder.is_reduce_sequence = False  # PyTorch Lifestream compatibility.
         self._val_metric = val_metric
         self._test_metric = test_metric
         self._optimizer_partial = optimizer_partial
