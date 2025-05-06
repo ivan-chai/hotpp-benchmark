@@ -71,6 +71,7 @@ class SimpleTransformer(torch.nn.Module):
     """
     def __init__(self, input_size, n_positions=1024, n_embd=768, n_layer=12, n_head=12,
                  n_inner=None, dropout=0.1, causal=False,
+                 activation=torch.nn.functional.relu,
                  pos_type="pos-angular", max_duration=None, min_time_step=None):
         super().__init__()
         n_inner = n_inner if n_inner is not None else 4 * n_embd
@@ -89,6 +90,7 @@ class SimpleTransformer(torch.nn.Module):
         layer = torch.nn.TransformerEncoderLayer(d_model=n_embd,
                                                  nhead=n_head,
                                                  dim_feedforward=n_inner,
+                                                 activation=activation,
                                                  dropout=dropout,
                                                  norm_first=True,
                                                  batch_first=True)
