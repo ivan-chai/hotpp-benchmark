@@ -143,6 +143,9 @@ class Embedder(torch.nn.Module):
         if custom_embeddings:
             custom_embedding = PaddedBatch(torch.cat(custom_embeddings, -1), batch.seq_lens)
             if self.use_batch_norm:
+                # Workaround to fix half precision for some distributed backends.
+                dtype = next(iter(self.custom_embedding_batch_norm.parameters())).dtype
+                custom_embedding.payload = custom_embedding.payload.to(dtype)
                 custom_embedding = self.custom_embedding_batch_norm(custom_embedding)
             embeddings.append(custom_embedding.payload)
         payload = torch.cat(embeddings, -1)  # (B, L, D).

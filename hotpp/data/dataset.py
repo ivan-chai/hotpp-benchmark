@@ -222,10 +222,9 @@ class HotppDataset(torch.utils.data.IterableDataset):
 
 
 class ShuffledDistributedDataset(torch.utils.data.IterableDataset):
-    def __init__(self, dataset, num_workers=0, rank=None, world_size=None, cache_size=None, seed=0):
+    def __init__(self, dataset, rank=None, world_size=None, cache_size=None, seed=0):
         super().__init__()
         self.dataset = dataset
-        self.num_workers = max(num_workers, 1)
         self.rank = rank
         self.world_size = world_size
         self.cache_size = cache_size
@@ -236,23 +235,22 @@ class ShuffledDistributedDataset(torch.utils.data.IterableDataset):
         dataset = self.dataset
         rank = int(os.environ.get("RANK", self.rank if self.rank is not None else 0))
         world_size = int(os.environ.get("WORLD_SIZE", self.world_size if self.world_size is not None else 1))
-        total_workers = world_size * self.num_workers
         global_seed = self.seed + self.epoch
 
         worker_info = torch.utils.data.get_worker_info()
         if worker_info:
-            dataset = worker_info.dataset.dataset
-            if worker_info.num_workers != self.num_workers:
-                raise ValueError("Inconsistent number of workers.")
-            worker_id = rank * worker_info.num_workers + worker_info.id
-            local_seed = global_seed * total_workers + worker_info.seed
+            worker = worker_info.id
+            num_workers = worker_info.num_workers
         else:
-            local_seed = global_seed * world_size + rank
-            worker_id = None
-        return dataset, worker_id, total_workers, rank, world_size, global_seed, local_seed
+            worker = 0
+            num_workers = 1
+
+        total_workers = world_size * num_workers
+        worker_id = rank * num_workers + worker
+        return dataset, worker_id, total_workers, rank, world_size, global_seed
 
     def __iter__(self):
-        dataset, worker_id, total_workers, rank, world_size, global_seed, local_seed = self._get_context()
+        dataset, worker_id, total_workers, rank, world_size, global_seed = self._get_context()
         if (worker_id is None) and (total_workers == 1):
             worker_id = 0
         for i, item in enumerate(self._iter_shuffled(dataset, global_seed)):

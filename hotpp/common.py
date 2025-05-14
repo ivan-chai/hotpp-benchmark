@@ -1,3 +1,4 @@
+import copy
 import datetime
 import logging
 import yaml
@@ -21,7 +22,12 @@ def dump_report(metrics, fp):
 
 
 def get_trainer(conf, **trainer_params_additional):
-    trainer_params = conf.trainer
+    trainer_params = copy.deepcopy(conf.trainer)
+    OmegaConf.set_struct(trainer_params, False)
+    if (trainer_params.get("accelerator", "default") != "cpu"
+        and ("sync_batchnorm" not in trainer_params)):
+        logging.info("Force batchnorm synchronization. Use explicit 'cpu' device to disable it.")
+        trainer_params["sync_batchnorm"] = True
     model_selection = trainer_params.get("model_selection", None)
 
     if "callbacks" in trainer_params:

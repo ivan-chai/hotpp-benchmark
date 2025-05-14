@@ -4,6 +4,7 @@ from typing import Tuple, Optional
 
 from hotpp.data import PaddedBatch
 
+
 class HuggingFaceTransformer(torch.nn.Module):
     """Transformers interface."""
     def __init__(
@@ -39,7 +40,7 @@ class HuggingFaceTransformer(torch.nn.Module):
         """
         if return_states:
             raise ValueError("Transformers encoder doesn't support states return")
-        
+
         embeddings = self.input_projection(x.payload)
         outputs = self.model(inputs_embeds = embeddings, attention_mask = x.seq_len_mask)  # (B, L, D).
 

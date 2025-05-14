@@ -29,6 +29,7 @@ The HoTPP benchmark focuses on the long-horizon prediction of event sequences. E
 * Long-horizon prediction
 * Downstream classification
 * Working with heterogeneous input and output fields (general event sequences)
+* Distributed training
 * RNN and Transformer models (including HuggingFace causal models)
 * Discrete and continuous-time models
 * Improved TPP thinning algorithm
@@ -87,6 +88,11 @@ python3 -m hotpp.evaluate --config-dir configs --config-name <model>
 To run multiseed training and evaluation:
 ```sh
 python3 -m hotpp.train_multiseed --config-dir configs --config-name <model>
+```
+
+To run multi-GPU training on 2 GPUs:
+```sh
+mpirun -np 2 python3 -m hotpp.train --config-dir configs --config-name <model> ++trainer.devices=2 ++trainer.strategy=ddp
 ```
 
 # Evaluation results
