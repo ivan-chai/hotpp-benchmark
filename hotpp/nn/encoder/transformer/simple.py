@@ -37,7 +37,7 @@ class PositionalEncoding(torch.nn.Module):
                 raise NotImplementedError("Need an even embedding dimension.")
             if min_time_step is None:
                 min_time_step = max_duration / n_positions
-            pe = min_time_step * (5 * max_duration / min_time_step) ** torch.linspace(0, 1, n_embd // 2)
+            pe = torch.exp(torch.arange(0, n_embd, 2) * (-math.log(5 * max_duration / min_time_step) / n_embd)) / min_time_step  # (D // 2).
             self.register_buffer("pe", pe, persistent=False)
         elif pos_type != "none":
             raise ValueError(f"Unknown positional embedding type: {pos_type}")
@@ -54,8 +54,8 @@ class PositionalEncoding(torch.nn.Module):
                 raise ValueError("Need timestamps for the selected positional encoding scheme.")
             if self.pos_type == "time-angular-rel":
                 timestamps = timestamps - timestamps[:, :1]
-            args = timestamps.unsqueeze(-1) / self.pe  # (B, L, D).
-            embeddings = torch.cat([torch.sin(args), torch.cos(args)], -1)
+            args = timestamps.unsqueeze(-1) * self.pe  # (B, L, D).
+            embeddings = torch.stack([torch.sin(args), torch.cos(args)], -1).flatten(2, 3)  # (B, L, D).
         else:
             assert self.pos_type == "none"
         return self.dropout(x + embeddings)
