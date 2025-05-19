@@ -28,7 +28,7 @@ class PositionalEmbedding(torch.nn.Embedding):
 
     def forward(self, x, timestamps=None):
         b, l, _ = x.shape
-        return super().forward(self.pe[:x.shape[1]])[None].expand(b, l, self.pe.shape[-1])
+        return super().forward(self.pe[:x.shape[1]])[None].expand(b, l, self.weight.shape[1])
 
 
 class TimeAngularEmbedding(torch.nn.Module):
