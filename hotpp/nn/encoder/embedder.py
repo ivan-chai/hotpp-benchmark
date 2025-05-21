@@ -5,15 +5,28 @@ from ptls.nn.trx_encoder.batch_norm import RBatchNormWithLens
 
 
 class EmbeddingEncoder(torch.nn.Embedding):
-    def __init__(self, num_embeddings, embedding_dim, normalize=False):
+    """Extended embedder class.
+
+    Args:
+        cast: Cast to long.
+        normalize: Apply L2 normalization to embeddings. If number is provided, scale normalized embedding.
+        clip: If true, encoded large indices to the last embedding.
+    """
+    def __init__(self, num_embeddings, embedding_dim, cast=False, normalize=False, clip=False):
         super().__init__(num_embeddings, embedding_dim)
+        self.cast = cast
         self.normalize = normalize
+        self.clip = clip
 
     def forward(self, x):
         if x.payload.ndim != 2:
             raise ValueError(f"Expected tensor with shape (B, L), got {x.payload.shape}.")
         payload = x.payload
-        payload = super().forward(payload.clip(min=0, max=self.num_embeddings - 1))
+        if self.cast:
+            payload = payload.long()
+        if self.clip:
+            payload = payload.clip(min=0, max=self.num_embeddings - 1)
+        payload = super().forward(payload)
         if self.normalize:
             payload = torch.nn.functional.normalize(payload, dim=-1)
             if isinstance(self.normalize, (int, float)):
@@ -97,7 +110,10 @@ class Embedder(torch.nn.Module):
         super().__init__()
         encoders = {}
         for name, spec in (embeddings or {}).items():
-            encoders[name] = EmbeddingEncoder(spec["in"], spec["out"], normalize=spec.get("normalize", False))
+            encoders[name] = EmbeddingEncoder(spec["in"], spec["out"],
+                                              cast=spec.get("cast", False),
+                                              normalize=spec.get("normalize", False),
+                                              clip=spec.get("clip", False))
         for name, spec in (numeric_values or {}).items():
             if isinstance(spec, (str, torch.nn.Module)):
                 encoders[name] = self._make_encoder(spec)

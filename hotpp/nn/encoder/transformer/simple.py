@@ -4,6 +4,58 @@ import torch
 from hotpp.data import PaddedBatch
 
 
+class PositionalAngularEmbedding(torch.nn.Module):
+    def __init__(self, n_embd, n_positions, trainable=False):
+        super().__init__()
+        position = torch.arange(n_positions).unsqueeze(1)  # (L, 1).
+        div_term = torch.exp(torch.arange(0, n_embd, 2) * (-math.log(10000.0) / n_embd))  # (D // 2).
+        pe = torch.zeros(n_positions, n_embd)  # (L, D).
+        # Use interleave instead of concatenation to achieve correct processing with multiple attention heads.
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        if trainable:
+            self.pe = torch.nn.Parameter(pe)
+        else:
+            self.register_buffer("pe", pe, persistent=False)
+
+    def forward(self, x, timestamps=None):
+        b, l, _ = x.shape
+        return self.pe[:x.shape[1]][None].expand(b, l, self.pe.shape[-1])
+
+
+class PositionalEmbedding(torch.nn.Embedding):
+    def __init__(self, n_embd, n_positions):
+        super().__init__(n_positions, n_embd)
+        pe = torch.arange(n_positions)
+        self.register_buffer("pe", pe, persistent=False)
+
+    def forward(self, x, timestamps=None):
+        b, l, _ = x.shape
+        return super().forward(self.pe[:x.shape[1]])[None].expand(b, l, self.weight.shape[1])
+
+
+class TimeAngularEmbedding(torch.nn.Module):
+    def __init__(self, n_embd, n_positions, max_duration, min_time_step=None, relative=False, trainable=False):
+        super().__init__()
+        if min_time_step is None:
+            min_time_step = max_duration / n_positions
+        pe = torch.exp(torch.arange(0, n_embd, 2) * (-math.log(5 * max_duration / min_time_step) / n_embd)) / min_time_step  # (D // 2).
+        if trainable:
+            self.pe = torch.nn.Parameter(pe)
+        else:
+            self.register_buffer("pe", pe, persistent=False)
+        self.relative = relative
+
+    def forward(self, x, timestamps=None):
+        if timestamps is None:
+            raise ValueError("Need timestamps for the selected positional encoding scheme.")
+        if self.relative:
+            timestamps = timestamps - timestamps[:, :1]
+        args = timestamps.unsqueeze(-1) * self.pe  # (B, L, D).
+        # Use interleave instead of concatenation to achieve correct processing with multiple attention heads.
+        return torch.stack([torch.sin(args), torch.cos(args)], -1).flatten(2, 3)  # (B, L, D).
+
+
 class PositionalEncoding(torch.nn.Module):
     """Positional encoder.
 
@@ -11,7 +63,7 @@ class PositionalEncoding(torch.nn.Module):
     Mei H., Yang C., Eisner J. "Transformer embeddings of irregularly spaced events and their participants", ICLR 2021.
 
     Args:
-        pos_type: Either `pos-embedding`, `pos-angular`, `time-angular-abs`, `time-angular-rel`, or `none`.
+        pos_type: Either `pos-embedding`, `pos-angular[-train]`, `time-angular[-train]-abs`, `time-angular[-train]-rel`, or a list of values (probably, empty).
         max_duration: Must be provided if time encodings are used.
         min_time_step: The minimum time step (> 0). By default it is max_duration / n_positions.
     """
@@ -19,45 +71,32 @@ class PositionalEncoding(torch.nn.Module):
         super().__init__()
         self.dropout = torch.nn.Dropout(p=dropout)
         self.pos_type = pos_type
-        if pos_type == "pos-angular":
-            position = torch.arange(n_positions).unsqueeze(1)  # (L, 1).
-            div_term = torch.exp(torch.arange(0, n_embd, 2) * (-math.log(10000.0) / n_embd))  # (D // 2).
-            pe = torch.zeros(n_positions, n_embd)  # (L, D).
-            pe[:, 0::2] = torch.sin(position * div_term)
-            pe[:, 1::2] = torch.cos(position * div_term)
-            self.register_buffer("pe", pe, persistent=False)
-        elif pos_type == "pos-embedding":
-            pe = torch.arange(n_positions)
-            self.register_buffer("pe", pe, persistent=False)
-            self.embeddings = torch.nn.Embedding(n_positions, n_embd)
-        elif pos_type in ["time-angular-abs", "time-angular-rel"]:
-            if max_duration is None:
-                raise ValueError("Need max_duration for time embeddings.")
-            if n_embd % 2 != 0:
-                raise NotImplementedError("Need an even embedding dimension.")
-            if min_time_step is None:
-                min_time_step = max_duration / n_positions
-            pe = min_time_step * (5 * max_duration / min_time_step) ** torch.linspace(0, 1, n_embd // 2)
-            self.register_buffer("pe", pe, persistent=False)
-        elif pos_type != "none":
-            raise ValueError(f"Unknown positional embedding type: {pos_type}")
+        embedders = []
+        if isinstance(pos_type, str):
+            pos_type = [pos_type]
+        if n_embd % len(pos_type) != 0:
+            raise ValueError("The embedding size must be divisible by the number of positional embedders")
+        embedder_size = n_embd // len(pos_type)
+        for name in pos_type:
+            if name in ["pos-angular", "pos-angular-train"]:
+                embedders.append(PositionalAngularEmbedding(embedder_size, n_positions,
+                                                            trainable="-train" in name))
+            elif name == "pos-embedding":
+                embedders.append(PositionalEmbedding(embedder_size, n_positions))
+            elif name in {"time-angular-abs", "time-angular-train-abs", "time-angular-rel", "time-angular-train-rel"}:
+                embedders.append(TimeAngularEmbedding(embedder_size, n_positions, max_duration, min_time_step=min_time_step,
+                                                      relative="-rel" in name,
+                                                      trainable="-train" in name))
+            else:
+                raise ValueError(f"Unknown positional embedding type: {name}")
+        self.embedders = torch.nn.ModuleList(embedders)
 
     def forward(self, x, timestamps=None):
         # x: (B, L, D).
         # timestamps: (B, L).
-        if self.pos_type == "pos-angular":
-            embeddings = self.pe[:x.shape[1]]
-        elif self.pos_type == "pos-embedding":
-            embeddings = self.embeddings(self.pe[:x.shape[1]])
-        elif self.pos_type in ["time-angular-abs", "time-angular-rel"]:
-            if timestamps is None:
-                raise ValueError("Need timestamps for the selected positional encoding scheme.")
-            if self.pos_type == "time-angular-rel":
-                timestamps = timestamps - timestamps[:, :1]
-            args = timestamps.unsqueeze(-1) / self.pe  # (B, L, D).
-            embeddings = torch.cat([torch.sin(args), torch.cos(args)], -1)
-        else:
-            assert self.pos_type == "none"
+        embeddings = [embedder(x, timestamps) for embedder in self.embedders]  # N x (B, L, D / N).
+        # Use interleave instead of concatenation to achieve correct processing with multiple attention heads.
+        embeddings = torch.stack(embeddings, -1).flatten(2, 3)  # (B, L, D).
         return self.dropout(x + embeddings)
 
 
@@ -65,7 +104,7 @@ class SimpleTransformer(torch.nn.Module):
     """Simple transformer mimicing HuggingFace interface.
 
     Args:
-        pos_type: Either `pos-embedding`, `pos-angular`, `time-angular-abs`, `time-angular-rel`, or `none`.
+        pos_type: Either `pos-embedding`, `pos-angular`, `time-angular[-train]-abs`, `time-angular[-train]-rel`, or a list of values (probably, empty).
         max_duration: Must be provided if time encodings are used.
         min_time_step: The minimum time step (> 0). By default it is max_duration / n_positions.
     """
