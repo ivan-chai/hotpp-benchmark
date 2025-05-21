@@ -119,9 +119,7 @@ class ExtendedTransformer:
 
     @property
     def activations(self):
-        #return [layer.activation for layer in self.model.layers]
-        result = [layer.activation for layer in self.model.layers]
-        return result
+        return [layer.activation for layer in self.model.layers]
 
 
 @contextmanager
