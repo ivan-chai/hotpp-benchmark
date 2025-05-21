@@ -60,9 +60,7 @@ class BaseEncoder(torch.nn.Module):
                 or no states (either False, "last" or "full").
 
         Returns:
-            Dictionary with "outputs" and optional "states" keys.
-            Outputs is a PaddedBatch with shape (B, T, D).
-            States (if provided) is a PaddedBatch with shape (N, B, T, D).
+            Outputs is with shape (B, T, D) and states with shape (N, B, D) or (N, B, T, D) or None, if return_states is False.
         """
         pass
 
