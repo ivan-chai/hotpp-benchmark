@@ -1,5 +1,6 @@
 import math
 import torch
+from contextlib import contextmanager
 
 from hotpp.data import PaddedBatch
 
@@ -100,6 +101,43 @@ class PositionalEncoding(torch.nn.Module):
         return self.dropout(x + embeddings)
 
 
+class ExtendedLayer:
+    def __init__(self, layer):
+        self.layer = layer
+
+    def __call__(self, *args, **kwargs):
+        self.activation = self.layer(*args, **kwargs)
+        return self.activation
+
+
+class ExtendedTransformer:
+    def __init__(self, model, cache_hiddens=False):
+        self.model = model
+
+    def __call__(self, *args, **kwargs):
+        return self.model(*args, **kwargs)
+
+    @property
+    def activations(self):
+        #return [layer.activation for layer in self.model.layers]
+        result = [layer.activation for layer in self.model.layers]
+        return result
+
+
+@contextmanager
+def extended_transformer(transformer, cache_hiddens=False):
+    if not cache_hiddens:
+        yield transformer
+        return
+    layers = [ExtendedLayer(layer) for layer in transformer.layers]
+    backup_values = transformer.layers._modules.values
+    transformer.layers._modules.values = lambda: layers
+    try:
+        yield ExtendedTransformer(transformer)
+    finally:
+        transformer.layers._modules.values = backup_values
+
+
 class SimpleTransformer(torch.nn.Module):
     """Simple transformer mimicing HuggingFace interface.
 
@@ -161,21 +199,24 @@ class SimpleTransformer(torch.nn.Module):
             x: Batch with shape (B, L, D).
             timestamps: Inputs timestamps.
             states (unused): Initial states with shape (N, B, D), where N is the number of layers.
-            return_states: Whether to return final states with shape (B, D), full states with shape (B, T, D)
-                or no states (either False, "last" or "full"). Must be False. Added only for interface compatibility.
+            return_states: Whether to return states with shape (B, T, D) or not (either False or "full").
 
         Returns:
             Outputs with shape (B, L, D) and None (states are not supported).
         """
-        if return_states:
-            raise ValueError("Transformers encoder doesn't support states return")
+        if return_states not in {False, "full"}:
+            raise ValueError(f"Unknown states mode: {return_states}")
         embeddings = self.input_projection(x.payload)  # (B, L, D).
         embeddings = self.positional(embeddings, timestamps.payload)  # (B, L, D).
 
         b, l, d = embeddings.shape
-        outputs = self.encoder(embeddings,
-                               mask=self.sa_mask[:l, :l] if self.sa_mask is not None else None,
-                               src_key_padding_mask=~x.seq_len_mask.bool(),
-                               is_causal=self.causal)  # (B, L, D).
-        state = None
-        return PaddedBatch(outputs, x.seq_lens), state
+        with extended_transformer(self.encoder, cache_hiddens=(return_states == "full")) as encoder:
+            outputs = encoder(embeddings,
+                              mask=self.sa_mask[:l, :l] if self.sa_mask is not None else None,
+                              src_key_padding_mask=~x.seq_len_mask.bool(),
+                              is_causal=self.causal)  # (B, L, D).
+            if return_states == "full":
+                states = encoder.activations
+            else:
+                states = None
+        return PaddedBatch(outputs, x.seq_lens), states

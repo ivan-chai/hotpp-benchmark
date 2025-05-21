@@ -111,8 +111,8 @@ class BaseModule(pl.LightningModule):
         """Extract embeddings from the output of the sequential encoder."""
         if self._aggregator is None:
             raise ValueError("Need an aggregator for embeddings extraction.")
-        hiddens, _ = self._seq_encoder(x)  # (B, L, D).
-        embeddings = self._aggregator(hiddens)
+        hiddens, states = self._seq_encoder(x, return_states="full" if self._aggregator.need_states else False)  # (B, L, D).
+        embeddings = self._aggregator(hiddens, states)
         return embeddings
 
     @abstractmethod
