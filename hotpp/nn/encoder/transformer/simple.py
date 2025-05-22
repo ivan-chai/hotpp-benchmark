@@ -190,6 +190,19 @@ class SimpleTransformer(torch.nn.Module):
     def delta_time(self):
         return False
 
+    def transform(self, embeddings, return_states=False):
+        b, l = embeddings.shape
+        with extended_transformer(self.encoder, cache_hiddens=(return_states == "full")) as encoder:
+            outputs = encoder(embeddings.payload,
+                              mask=self.sa_mask[:l, :l] if self.sa_mask is not None else None,
+                              src_key_padding_mask=~embeddings.seq_len_mask.bool(),
+                              is_causal=self.causal)  # (B, L, D).
+            if return_states == "full":
+                states = encoder.activations
+            else:
+                states = None
+        return PaddedBatch(outputs, embeddings.seq_lens), states
+
     def forward(self, x, timestamps, states=None, return_states=False):
         """Apply Transformer.
 
@@ -204,17 +217,9 @@ class SimpleTransformer(torch.nn.Module):
         """
         if return_states not in {False, "full"}:
             raise ValueError(f"Unknown states mode: {return_states}")
+
         embeddings = self.input_projection(x.payload)  # (B, L, D).
         embeddings = self.positional(embeddings, timestamps.payload)  # (B, L, D).
-
-        b, l, d = embeddings.shape
-        with extended_transformer(self.encoder, cache_hiddens=(return_states == "full")) as encoder:
-            outputs = encoder(embeddings,
-                              mask=self.sa_mask[:l, :l] if self.sa_mask is not None else None,
-                              src_key_padding_mask=~x.seq_len_mask.bool(),
-                              is_causal=self.causal)  # (B, L, D).
-            if return_states == "full":
-                states = encoder.activations
-            else:
-                states = None
-        return PaddedBatch(outputs, x.seq_lens), states
+        embeddings = PaddedBatch(embeddings, x.seq_lens)
+        outputs, states = self.transform(embeddings)
+        return outputs, states

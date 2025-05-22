@@ -62,7 +62,7 @@ class TransformerEncoder(BaseEncoder):
             Outputs is with shape (B, T, D) and states with shape (N, B, D) or (N, B, T, D).
         """
         times = x[self._timestamps_field]  # (B, L).
-        embeddings = self.embed(x, compute_time_deltas=False)  # TODO: True?
+        embeddings = self.apply_embedder(x, compute_time_deltas=False)  # TODO: True?
         outputs, states = self.transformer(embeddings, times, return_states=return_states)  # (B, L, D), (N, B, L, D).
         if not return_states:
             states = None
@@ -172,7 +172,7 @@ class TransformerEncoder(BaseEncoder):
             # Convert predicted delta to absolute time for the next input.
             times.payload += features.payload[self._timestamps_field]
             features.payload[self._timestamps_field] = times.payload
-            embeddings = self.embed(features, compute_time_deltas=False)  # (B, 1, D).
+            embeddings = self.apply_embedder(features, compute_time_deltas=False)  # (B, 1, D).
             last_outputs, new_states = self.transformer.decode(embeddings, times, last_states)  # (B, 1, D), (N, B, 1, D).
             # Append to the beginning, since transformer doesn't take order into account.
             last_states = TransformerState(

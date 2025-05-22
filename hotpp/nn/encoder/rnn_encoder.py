@@ -66,7 +66,7 @@ class RnnEncoder(BaseEncoder):
         """
         x = self.compute_time_deltas(x)
         time_deltas = x[self._timestamps_field]
-        embeddings = self.embed(x, compute_time_deltas=False)
+        embeddings = self.apply_embedder(x, compute_time_deltas=False)
         outputs, states = self.rnn(embeddings, time_deltas, return_states=return_states)
         return outputs, states
 
@@ -140,7 +140,7 @@ class RnnEncoder(BaseEncoder):
 
         if self.num_layers != 1:
             raise NotImplementedError("Only single-layer RNN is supported.")
-        embeddings = self.embed(batch, compute_time_deltas=False)  # (B, T, D).
+        embeddings = self.apply_embedder(batch, compute_time_deltas=False)  # (B, T, D).
         next_states = apply_windows((embeddings, time_deltas),
                                     lambda xe, xt: PaddedBatch(self.rnn(xe, xt, return_states="full")[1].squeeze(0),
                                                                xe.seq_lens),
@@ -171,7 +171,7 @@ class RnnEncoder(BaseEncoder):
         outputs = defaultdict(list)
         for _ in range(n_steps):
             time_deltas = features[self._timestamps_field]
-            embeddings = self.embed(features, compute_time_deltas=False)  # (B, 1, D).
+            embeddings = self.apply_embedder(features, compute_time_deltas=False)  # (B, 1, D).
             embeddings, states = self.rnn(embeddings, time_deltas, states=states, return_states="last")  # (B, 1, D), (N, B, D).
             features = predict_fn(embeddings, states.unsqueeze(2))  # (B, 1).
             for k, v in features.payload.items():
