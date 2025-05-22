@@ -45,10 +45,15 @@ class BaseEncoder(torch.nn.Module):
         x.payload[field] = deltas
         return x
 
-    def embed(self, x, compute_time_deltas=True):
+    def apply_embedder(self, x, compute_time_deltas=True):
+        """Transform input features into embeddings."""
         if compute_time_deltas:
             x = self.compute_time_deltas(x)
         return self.embedder(x)
+
+    def embed(self, x):
+        """Extract embeddings with shape (B, D)."""
+        raise NotImplementedError("Encoder doesn't support embeddings extraction.")
 
     @abstractmethod
     def forward(self, x, return_states=False):

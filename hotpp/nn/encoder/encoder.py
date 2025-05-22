@@ -66,6 +66,14 @@ class Encoder(BaseEncoder):
     def hidden_size(self):
         return self.model.output_size
 
+    def embed(self, x):
+        """Extract embeddings with shape (B, D)."""
+        if not hasattr(self.model, "embed"):
+            raise NotImplementedError("The model doesn't support embeddings extraction.")
+        times = (self.compute_time_deltas(x) if self.model.delta_time else x)[self._timestamps_field]  # (B, L).
+        x = self.apply_embedder(x)
+        return self.model.embed(x, times)  # (B, D).
+
     def forward(self, x, return_states=False):
         """Apply the encoder network.
 
@@ -78,7 +86,7 @@ class Encoder(BaseEncoder):
             Outputs is with shape (B, T, D) and states with shape (N, B, D) or (N, B, T, D).
         """
         times = (self.compute_time_deltas(x) if self.model.delta_time else x)[self._timestamps_field]  # (B, L).
-        embeddings = self.embed(x)
+        embeddings = self.apply_embedder(x)
         outputs, states = self.model(embeddings, times, return_states=return_states)   # (B, L, D), (N, B, L, D).
         return outputs, states
 
@@ -161,7 +169,7 @@ class Encoder(BaseEncoder):
     def _generate_autoreg(self, prefixes, predict_fn, n_steps):
         # prefixes: (B, L).
         # predict_fn: (B, L, D), None -> (B, L).
-        embeddings = self.embed(prefixes)  # (B, L, D).
+        embeddings = self.apply_embedder(prefixes)  # (B, L, D).
         b, l, d = embeddings.payload.shape
         extra_space = torch.zeros(b, n_steps, d, dtype=embeddings.payload.dtype, device=embeddings.device)
         embeddings = PaddedBatch(torch.cat([embeddings.payload, extra_space], dim=1), embeddings.seq_lens.clone())  # (B, L + N, D).
@@ -197,7 +205,7 @@ class Encoder(BaseEncoder):
             times.seq_lens.add_(1)
 
             # The timestamps field at the model output already contains deltas.
-            new_embeddings = self.embed(features, compute_time_deltas=False)  # (B, 1, D).
+            new_embeddings = self.apply_embedder(features, compute_time_deltas=False)  # (B, 1, D).
             embeddings.payload.scatter_(1, embeddings.seq_lens[:, None, None].expand(b, 1, d), new_embeddings.payload)
             embeddings.seq_lens.add_(1)
 
