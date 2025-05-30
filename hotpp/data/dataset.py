@@ -100,7 +100,7 @@ class HotppDataset(torch.utils.data.IterableDataset):
             known_fields = [id_field, timestamps_field] + list(self.global_target_fields) + list(self.local_targets_fields)
             if local_targets_indices_field is not None:
                 known_fields = known_fields + [local_targets_indices_field]
-            fields = list(set(fields) | set(known_fields))
+            fields = list(sorted(set(fields) | set(known_fields)))
         self.fields = fields
 
     def shuffle_files(self, rnd=None):
