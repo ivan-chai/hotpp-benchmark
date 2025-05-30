@@ -474,7 +474,7 @@ class DetectionLoss(NextKLoss):
         assert (outputs.seq_lens == targets.seq_lens).all()
         device = outputs.device
         b, l = outputs.shape
-        n_targets = targets.payload[next(iter(targets.seq_names))].shape[2] - 1  # T.
+        n_targets = targets.payload[targets.seq_names[0]].shape[2] - 1  # T.
         assert n_targets > 0
         lengths, lengths_mask = outputs.seq_lens, outputs.seq_len_mask
         targets, outputs = targets.payload, outputs.payload
@@ -572,7 +572,7 @@ class DetectionLoss(NextKLoss):
 
         # Compute matching and return.
         l = outputs.shape[1]
-        n_targets = target_windows.payload[next(iter(target_windows.seq_names))].shape[2] - 1  # K.
+        n_targets = target_windows.payload[target_windows.seq_names[0]].shape[2] - 1  # K.
         if (l == 0) or (n_targets == 0):
             matching = PaddedBatch(torch.full([b, l, self._k], -1, dtype=torch.long, device=inputs.device),
                                    target_windows.seq_lens)

@@ -178,7 +178,7 @@ class SimpleTransformer(torch.nn.Module):
                                              dropout=dropout)
         if causal:
             sa_mask = torch.triu(torch.ones((n_positions, n_positions), dtype=torch.bool), diagonal=1)
-            self.register_buffer("sa_mask", sa_mask)
+            self.register_buffer("sa_mask", sa_mask, persistent=False)
         else:
             self.sa_mask = None
 
