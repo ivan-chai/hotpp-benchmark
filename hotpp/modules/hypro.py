@@ -132,7 +132,7 @@ class HyproModule(NextItemModule):
 
     def _compute_energies(self, x, indices, sequences):
         sequences = self._attach_prefixes(x, indices, sequences)  # (B, I, P + N).
-        b, i, n = sequences.payload[next(iter(sequences.seq_names))].shape[:3]
+        b, i, n = sequences.payload[sequences.seq_names[0]].shape[:3]
         lengths = sequences.seq_lens
         mask = sequences.seq_len_mask  # (B, I).
         payload = {k: v[mask].reshape(-1, n, *v.shape[3:]) for k, v in sequences.payload.items()
