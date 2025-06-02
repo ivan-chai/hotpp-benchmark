@@ -190,12 +190,28 @@ class SimpleTransformer(torch.nn.Module):
     def delta_time(self):
         return False
 
-    def transform(self, embeddings, return_states=False):
+    def transform(self, embeddings, return_states=False, attention_mask=None):
+        """Apply encoder after input projection and positional encoding.
+
+        Args:
+            attention_mask: Additional attention mask with shape (L, L) which contains True for masked connections.
+                The mask will be merged with causal mask if causal transformer is applied.
+
+        Returns:
+            Outputs and activations, if return_states is "full".
+        """
         b, l = embeddings.shape
+        if attention_mask is None:
+            attention_mask = self.sa_mask[:l, :l] if self.sa_mask is not None else None
+        elif self.sa_mask is not None:
+            attention_mask = torch.logical_or(attention_mask, self.sa_mask[:l, :l])
+        else:
+            attention_mask = None
+
         with extended_transformer(self.encoder, cache_hiddens=(return_states == "full")) as encoder:
             outputs = encoder(embeddings.payload,
-                              mask=self.sa_mask[:l, :l] if self.sa_mask is not None else None,
-                              src_key_padding_mask=~embeddings.seq_len_mask.bool(),
+                              mask=attention_mask,
+                              src_key_padding_mask=~embeddings.seq_len_mask.bool() if not self.causal else None,
                               is_causal=self.causal)  # (B, L, D).
             if return_states == "full":
                 states = encoder.activations
@@ -203,7 +219,7 @@ class SimpleTransformer(torch.nn.Module):
                 states = None
         return PaddedBatch(outputs, embeddings.seq_lens), states
 
-    def forward(self, x, timestamps, states=None, return_states=False):
+    def forward(self, x, timestamps, states=None, return_states=False, attention_mask=None):
         """Apply Transformer.
 
         Args:
@@ -211,6 +227,8 @@ class SimpleTransformer(torch.nn.Module):
             timestamps: Inputs timestamps.
             states (unused): Initial states with shape (N, B, D), where N is the number of layers.
             return_states: Whether to return states with shape (B, T, D) or not (either False or "full").
+            attention_mask: Additional attention mask with shape (L, L) which contains True for masked connections.
+                The mask will be merged with causal mask if causal transformer is applied.
 
         Returns:
             Outputs with shape (B, L, D) and None (states are not supported).
@@ -221,5 +239,5 @@ class SimpleTransformer(torch.nn.Module):
         embeddings = self.input_projection(x.payload)  # (B, L, D).
         embeddings = self.positional(embeddings, timestamps.payload)  # (B, L, D).
         embeddings = PaddedBatch(embeddings, x.seq_lens)
-        outputs, states = self.transform(embeddings)
+        outputs, states = self.transform(embeddings, attention_mask=attention_mask)
         return outputs, states
