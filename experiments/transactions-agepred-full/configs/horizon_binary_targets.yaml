@@ -1,0 +1,160 @@
+- horizon: 1
+  label: [1]
+  threshold: 13.11
+  is_less: true
+- horizon: 1
+  label: [2, 14, 55]
+  threshold: 47.288
+  is_less: true
+- horizon: 1
+  label: [3]
+  threshold: 43.127
+  is_less: false
+- horizon: 1
+  label: [4]
+  threshold: 14.613
+  is_less: true
+- horizon: 1
+  label: [9]
+  threshold: 4.226
+  is_less: false
+- horizon: 1
+  label: [11]
+  threshold: 21.067
+  is_less: false
+- horizon: 1
+  label: [12]
+  threshold: 5.046
+  is_less: false
+- horizon: 1
+  label: [15, 34]
+  threshold: 5.495
+  is_less: true
+- horizon: 1
+  label: [18]
+  threshold: 10.351
+  is_less: false
+- horizon: 1
+  label: [23, 24, 39, 43]
+  threshold: 104.959
+  is_less: true
+- horizon: 1
+  label: [25, 95]
+  threshold: 76.12
+  is_less: true
+- horizon: 1
+  label: [36]
+  threshold: 14.275
+  is_less: false
+- horizon: 1
+  label: [57, 61]
+  threshold: 85.443
+  is_less: false
+- horizon: 1
+  label: [82]
+  threshold: 9.113
+  is_less: false
+- horizon: 3
+  label: [1]
+  threshold: 44.013
+  is_less: false
+- horizon: 3
+  label: [2, 14, 55]
+  threshold: 68.418
+  is_less: false
+- horizon: 3
+  label: [3]
+  threshold: 13.204
+  is_less: true
+- horizon: 3
+  label: [4]
+  threshold: 21.204
+  is_less: true
+- horizon: 3
+  label: [9]
+  threshold: 21.564
+  is_less: true
+- horizon: 3
+  label: [11]
+  threshold: 6.038
+  is_less: false
+- horizon: 3
+  label: [12]
+  threshold: 11.86
+  is_less: false
+- horizon: 3
+  label: [15, 34]
+  threshold: 4.16
+  is_less: false
+- horizon: 3
+  label: [18]
+  threshold: 44.879
+  is_less: false
+- horizon: 3
+  label: [23, 24, 39, 43]
+  threshold: 38.815
+  is_less: false
+- horizon: 3
+  label: [25, 95]
+  threshold: 22.898
+  is_less: true
+- horizon: 3
+  label: [36]
+  threshold: 184.5
+  is_less: false
+- horizon: 3
+  label: [57, 61]
+  threshold: 124.838
+  is_less: false
+- horizon: 7
+  label: [1]
+  threshold: 113.737
+  is_less: true
+- horizon: 7
+  label: [2, 14, 55]
+  threshold: 34.502
+  is_less: true
+- horizon: 7
+  label: [3]
+  threshold: 22.898
+  is_less: false
+- horizon: 7
+  label: [4]
+  threshold: 8.919
+  is_less: false
+- horizon: 7
+  label: [9]
+  threshold: 12.822
+  is_less: false
+- horizon: 7
+  label: [11]
+  threshold: 16.898
+  is_less: false
+- horizon: 7
+  label: [12]
+  threshold: 44.551
+  is_less: false
+- horizon: 7
+  label: [15, 34]
+  threshold: 22.34
+  is_less: true
+- horizon: 7
+  label: [18]
+  threshold: 12.365
+  is_less: true
+- horizon: 7
+  label: [23, 24, 39, 43]
+  threshold: 91.544
+  is_less: false
+- horizon: 7
+  label: [25, 95]
+  threshold: 3.88
+  is_less: false
+- horizon: 7
+  label: [36]
+  threshold: 80.261
+  is_less: false
+- horizon: 7
+  label: [57, 61]
+  threshold: 215.983
+  is_less: true

@@ -1,0 +1,28 @@
+defaults:
+  - default
+  - _self_
+
+name: next_item_2layer
+
+module:
+  _target_: hotpp.modules.NextItemModule
+  seq_encoder:
+    _target_: hotpp.nn.Encoder
+    model_partial:
+      _target_: hotpp.nn.GRU
+      _partial_: true
+      hidden_size: ${rnn_hidden_size}
+      num_layers: 2
+    max_context: ${rnn_inference_context}
+  head_partial: ${head}
+  loss:
+    _target_: hotpp.losses.NextItemLoss
+    losses:
+      timestamps:
+        _target_: hotpp.losses.TimeMAELoss
+        max_delta: ${max_time_delta}
+        smoothing: ${time_smoothing}
+      labels:
+        _target_: hotpp.losses.CrossEntropyLoss
+        num_classes: ${num_classes}
+  autoreg_max_steps: ${max_predictions}

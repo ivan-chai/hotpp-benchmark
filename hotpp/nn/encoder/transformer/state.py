@@ -26,6 +26,18 @@ class TransformerState:
         self.index = index
         self.index_lens = index_lens
 
+    def to(self, type_or_device):
+        self.payload = self.payload.to(type_or_device)
+        device = self.payload.device
+        if self.times.device != device:
+            self.times = self.times.to(device)
+            self.seq_lens = self.seq_lens.to(device)
+            if self.index is not None:
+                self.index = self.index.to(device)
+            if self.index_lens is not None:
+                self.index_lens = self.index_lens.to(device)
+        return self
+
     def __len__(self):
         return self.shape[0]
 

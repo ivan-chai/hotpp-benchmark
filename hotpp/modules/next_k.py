@@ -1,4 +1,5 @@
 from hotpp.data import PaddedBatch
+from ..fields import LABELS_LOGITS
 from .base_module import BaseModule
 
 
@@ -16,16 +17,18 @@ class NextKModule(BaseModule):
     Parameters
         seq_encoder: Backbone model, which includes input encoder and sequential encoder.
         loss: Training loss.
-        timestamps_field: The name of the timestamps field.
-        labels_field: The name of the labels field.
-        head_partial: FC head model class which accepts input and output dimensions.
-        optimizer_partial:
-            optimizer init partial. Network parameters are missed.
-        lr_scheduler_partial:
-            scheduler init partial. Optimizer are missed.
-        val_metric: Validation set metric.
-        test_metric: Test set metric.
+        max_predicitions: Limit the maximum number of predictions.
     """
+    def __init__(self, seq_encoder, loss,
+                 max_predictions=None,
+                 **kwargs):
+
+        super().__init__(
+            seq_encoder=seq_encoder,
+            loss=loss,
+            **kwargs
+        )
+        self._max_predictions = max_predictions
 
     @property
     def delta_type(self):
@@ -57,12 +60,15 @@ class NextKModule(BaseModule):
         Returns:
             Predicted sequences with shape (B, I, N).
         """
-        hiddens, states = self.encode(x)  # (B, L, D), (N, B, L, D).
         init_times = x.payload[self._timestamps_field].take_along_dim(indices.payload, 1)  # (B, I).
         init_times = PaddedBatch({self._timestamps_field: init_times}, indices.seq_lens)
-        outputs = self.apply_head(hiddens)  # (B, L, D).
+        outputs, states = self(x, return_states="full" if self._need_states else False)  # (B, L, D), (N, B, L, D).
         outputs = PaddedBatch(outputs.payload.take_along_dim(indices.payload.unsqueeze(2), 1),
                               indices.seq_lens)  # (B, I, D).
-        states = states.take_along_dim(indices.payload[None, :, :, None], 2)  # (N, B, I, D).
-        sequences = self.predict_next_k(init_times, outputs, states, logits_fields_mapping={self._labels_field: self._labels_logits_field})  # (B, I, K) or (B, I, K, C).
+        states = states.take_along_dim(indices.payload[None, :, :, None], 2) if states is not None else states  # (N, B, I, D).
+        sequences = self.predict_next_k(init_times, outputs, states, logits_fields_mapping={self._labels_field: LABELS_LOGITS})  # (B, I, K) or (B, I, K, C).
+        if self._max_predictions is not None:
+            sequences = PaddedBatch({k: (v[:, :, :self._max_predictions] if k in sequences.seq_names else v)
+                                     for k, v in sequences.payload.items()},
+                                    sequences.seq_lens)
         return sequences  # (B, I, K) or (B, I, K, C).

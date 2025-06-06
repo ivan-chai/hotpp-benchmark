@@ -39,6 +39,12 @@ class HotppDataModule(pl.LightningDataModule):
                  **params
                  ):
         super().__init__()
+        self._train_path = train_path
+        self._val_path = val_path
+        self._test_path = test_path
+        self._test_params = test_params
+        self._params = params
+
         if train_path is not None:
             train_params = dict(params, **(train_params or {}))
             self.train_loader_params = pop_loader_params(train_params)
@@ -70,12 +76,31 @@ class HotppDataModule(pl.LightningDataModule):
             raise ValueError("No datasets provided.")
         self.id_field = id_field
 
+    def with_test_parameters(self):
+        """Return new datamodule with all datasets having test parameters."""
+        return HotppDataModule(
+            train_path=self._train_path,
+            train_params=self._test_params,
+            val_path=self._val_path,
+            val_params=self._test_params,
+            test_path=self._test_path,
+            test_params=self._test_params,
+            **self._params
+        )
+
+    @property
+    def splits(self):
+        splits = [split for split in ["test", "val", "train"]
+                  if getattr(self, f"{split}_data") is not None]
+        return splits
+
     def train_dataloader(self, rank=None, world_size=None):
+        rank = self.trainer.local_rank if rank is None else rank
+        world_size = self.trainer.world_size if world_size is None else world_size
         loader_params = {"drop_last": True,
                          "pin_memory": torch.cuda.is_available()}
         loader_params.update(self.train_loader_params)
         dataset = ShuffledDistributedDataset(self.train_data, rank=rank, world_size=world_size,
-                                             num_workers=loader_params.get("num_workers", 0),
                                              cache_size=loader_params.pop("cache_size", 4096),
                                              seed=loader_params.pop("seed", 0))
         loader = torch.utils.data.DataLoader(
@@ -87,10 +112,11 @@ class HotppDataModule(pl.LightningDataModule):
         return loader
 
     def val_dataloader(self, rank=None, world_size=None):
+        rank = self.trainer.local_rank if rank is None else rank
+        world_size = self.trainer.world_size if world_size is None else world_size
         loader_params = {"pin_memory": torch.cuda.is_available()}
         loader_params.update(self.val_loader_params)
-        dataset = ShuffledDistributedDataset(self.val_data, rank=rank, world_size=world_size,
-                                             num_workers=loader_params.get("num_workers", 0))  # Disable shuffle.
+        dataset = ShuffledDistributedDataset(self.val_data, rank=rank, world_size=world_size)  # Disable shuffle.
         loader = torch.utils.data.DataLoader(
             dataset=dataset,
             collate_fn=dataset.dataset.collate_fn,
@@ -99,10 +125,11 @@ class HotppDataModule(pl.LightningDataModule):
         return loader
 
     def test_dataloader(self, rank=None, world_size=None):
+        rank = self.trainer.local_rank if rank is None else rank
+        world_size = self.trainer.world_size if world_size is None else world_size
         loader_params = {"pin_memory": torch.cuda.is_available()}
         loader_params.update(self.test_loader_params)
-        dataset = ShuffledDistributedDataset(self.test_data, rank=rank, world_size=world_size,
-                                             num_workers=loader_params.get("num_workers", 0))
+        dataset = ShuffledDistributedDataset(self.test_data, rank=rank, world_size=world_size)
         loader = torch.utils.data.DataLoader(
             dataset=dataset,
             collate_fn=dataset.dataset.collate_fn,

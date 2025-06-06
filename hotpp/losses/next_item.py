@@ -21,6 +21,10 @@ class NextItemLoss(torch.nn.Module):
         self._interpolator = None
 
     @property
+    def need_interpolator(self):
+        return any([loss.need_interpolator for loss in self._losses.values()])
+
+    @property
     def interpolator(self):
         return self._interpolator
 
@@ -67,7 +71,7 @@ class NextItemLoss(torch.nn.Module):
         mask = inputs.seq_len_mask.bool() if (inputs.seq_lens != inputs.shape[1]).any() else None
         losses = {}
         metrics = {}
-        for name in set(inputs.payload) & set(outputs):
+        for name in sorted(set(inputs.payload) & set(outputs)):
             losses[name], loss_metrics = self._losses[name](inputs.payload[name], outputs[name], mask, reduction=reduction)
             for k, v in loss_metrics.items():
                 metrics[f"{name}-{k}"] = v

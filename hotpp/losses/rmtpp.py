@@ -44,6 +44,10 @@ class TimeRMTPPLoss(BaseLoss):
         # TODO: per-label parameter?
         self._hidden_current_influence = torch.nn.Parameter(torch.full([influence_dim], init_influence, dtype=torch.float))
 
+    @property
+    def need_interpolator(self):
+        return False
+
     def get_current_influence(self, l=None):
         """Get influence vector.
 

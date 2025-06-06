@@ -9,11 +9,10 @@ RUN pip install --no-cache-dir "hydra-core==1.3.2" "lightgbm==4.3.0" "numpy==1.2
                                "pyspark==3.4.2" "pytest" "scikit-learn==1.4.2" "scipy==1.13.0" "tqdm==4.66.4"
 RUN pip install --no-cache-dir "torch==2.0.1+cu117" --index-url https://download.pytorch.org/whl/cu117
 RUN pip install --no-cache-dir "pytorch-lightning==2.2.4"
-RUN pip install --no-cache-dir "datasets==2.19.0" "transformers==4.40.1" "easy-tpp==0.0.7.1" "wandb" "duckdb"
+RUN pip install --no-cache-dir "datasets==2.19.0" "transformers==4.40.1" "wandb" "duckdb"
 
 RUN pip install --no-cache-dir "ptls-validation @ git+https://git@github.com/dllllb/ptls-validation.git#egg=ptls-validation"
-RUN pip install --no-cache-dir "pytorch-lifestream @ git+https://git@github.com/dllllb/pytorch-lifestream.git#egg=pytorch-lifestream"
+RUN pip install --no-cache-dir "pytorch-lifestream==0.6.0"
 
 ENV TORCH_CUDA_ARCH_LIST="7.0 8.0 8.6"
-RUN git clone https://github.com/ivan-chai/torch-linear-assignment.git && cd torch-linear-assignment && \
-    pip install --no-cache-dir .
+RUN pip install --no-build-isolation torch-linear-assignment

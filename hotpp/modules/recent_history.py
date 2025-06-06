@@ -1,7 +1,7 @@
 import torch
 from hotpp.data import PaddedBatch
 from hotpp.utils.torch import deterministic
-from ..nn import Head
+from ..fields import LABELS_LOGITS
 from .base_module import BaseModule
 
 
@@ -13,6 +13,10 @@ class SlidingEncoder(torch.nn.Module):
         self._timestamps_field = timestamps_field
 
     @property
+    def need_states(self):
+        return False
+
+    @property
     def fields(self):
         return self._fields
 
@@ -20,7 +24,7 @@ class SlidingEncoder(torch.nn.Module):
     def hidden_size(self):
         return len(self._fields) * self._k
 
-    def forward(self, x, return_full_states=False):
+    def forward(self, x, return_states=False):
         timestamps = x.payload[self._timestamps_field]  # (B, L).
         deltas = timestamps.clone()
         deltas[:, 1:] -= timestamps[:, :-1]
@@ -40,6 +44,10 @@ class Identity(torch.nn.Identity):
         super().__init__()
         self.input_size = dim
 
+    @property
+    def need_interpolator(self):
+        return False
+
 
 class RecentHistoryModule(BaseModule):
     """The model copies last seen events to the future.
@@ -53,10 +61,10 @@ class RecentHistoryModule(BaseModule):
         kwargs: Ignored (keep for compatibility with base module).
     """
     def __init__(self, k, num_classes,
+                 seq_encoder=None, loss=None,  # Ignored.
+                 head_partial=None, optimizer_partial=None, lr_scheduler_partial=None,  # Ignored.
                  timestamps_field="timestamps",
                  labels_field="labels",
-                 val_metric=None,
-                 test_metric=None,
                  **kwargs):
         super().__init__(seq_encoder=SlidingEncoder(k, [timestamps_field, labels_field], timestamps_field=timestamps_field),
                          loss=Identity(2),
@@ -65,8 +73,7 @@ class RecentHistoryModule(BaseModule):
                          head_partial=lambda input_size, output_size: Identity(2),
                          optimizer_partial=lambda parameters: torch.optim.Adam(parameters, lr=0.001),  # Not used.
                          lr_scheduler_partial=lambda optimizer: torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=1),  # Not used.
-                         val_metric=val_metric,
-                         test_metric=test_metric)
+                         **kwargs)
         self._k = k
         self._num_classes = num_classes
         self.dummy = torch.nn.Parameter(torch.zeros(1))
@@ -130,12 +137,11 @@ class RecentHistoryModule(BaseModule):
         Returns:
             Predicted sequences with shape (B, I, N).
         """
-        hiddens, states = self.encode(x)  # (B, L, D), (N, B, L, D).
         init_times = x.payload[self._timestamps_field].take_along_dim(indices.payload, 1)  # (B, I).
         init_times = PaddedBatch({self._timestamps_field: init_times}, indices.seq_lens)
-        outputs = self.apply_head(hiddens)  # (B, L, D).
+        outputs, states = self(x)  # (B, L, D), (N, B, L, D).
         outputs = PaddedBatch(outputs.payload.take_along_dim(indices.payload.unsqueeze(2), 1),
                               indices.seq_lens)  # (B, I, D).
         states = states.take_along_dim(indices.payload[None, :, :, None], 2)  # (N, B, I, D).
-        sequences = self.predict_next_k(init_times, outputs, states, logits_fields_mapping={self._labels_field: self._labels_logits_field})  # (B, I, K) or (B, I, K, C).
+        sequences = self.predict_next_k(init_times, outputs, states, logits_fields_mapping={self._labels_field: LABELS_LOGITS})  # (B, I, K) or (B, I, K, C).
         return sequences  # (B, I, K) or (B, I, K, C).

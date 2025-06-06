@@ -14,7 +14,13 @@ class CumSumModel(torch.nn.Module):
         super().__init__()
         self.inter_token = 1
 
-    def forward(self, embeddings: PaddedBatch, times: PaddedBatch):
+    @property
+    def delta_time(self):
+        """Whether to take delta time or raw timestamps at input."""
+        # Need raw time for positional encoding.
+        return False
+
+    def forward(self, embeddings: PaddedBatch, times: PaddedBatch, return_states=False):
         """Encode input sequences with a causal mask.
 
         Args:
@@ -27,7 +33,11 @@ class CumSumModel(torch.nn.Module):
         outputs = (embeddings.payload * embeddings.seq_len_mask.unsqueeze(2)).cumsum(1)  # (B, L, D).
         states = embeddings.payload[None]  # (1, B, L, D).
         outputs = PaddedBatch(outputs, embeddings.seq_lens)
-        states = TransformerState(times.payload, states, embeddings.seq_lens)
+        if not return_states:
+            states = None
+        else:
+            assert return_states == "full"
+            states = TransformerState(times.payload, states, embeddings.seq_lens)
         return outputs, states
 
     def decode(self, embeddings: PaddedBatch, times: PaddedBatch, history_states: TransformerState):
@@ -118,7 +128,7 @@ class TestTransformerEncoder(TestCase):
         encoder = SimpleSequenceEncoder()
 
         # Test forward.
-        fw_outputs, fw_states = encoder(batch, return_full_states=True)
+        fw_outputs, fw_states = encoder(batch, return_states="full")
         mask = batch.seq_len_mask.unsqueeze(-1)
         self.assertEqual(fw_states.shape, (1, b, l, d))
         self.assertTrue((fw_states.payload[0] * mask).allclose(features * mask))

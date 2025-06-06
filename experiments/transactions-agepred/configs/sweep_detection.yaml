@@ -23,8 +23,7 @@ early_terminate:
   min_iter: 3
 parameters:
   module.loss.k:
-    min: 32
-    max: 128
+    values: [32, 64, 96, 128]
   module.loss.loss_subset:
     min: 0.05
     max: 0.3

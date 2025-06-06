@@ -1,0 +1,22 @@
+defaults:
+  - diffusion_transformer_base
+  - _self_
+
+diffusion_steps: 2
+transformer_hidden_size: 256
+transformer_heads: 4
+transformer_layers: 6
+
+module:
+  seq_encoder:
+    embedder:
+      categorical_noise: 0.09
+  loss:
+    diffusion_loss_weight: 9.5
+    decoder_loss_weight: 5.6
+    embedder_regularizer: 6.7
+    alpha: 0.04
+    detach_embeddings_from_step: false
+    detach_decoder: false
+    denoiser_partial:
+      dropout: 0.4

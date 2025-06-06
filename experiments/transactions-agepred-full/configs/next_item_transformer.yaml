@@ -1,0 +1,38 @@
+defaults:
+  - default
+  - _self_
+
+name: next_item_transformer
+
+module:
+  _target_: hotpp.modules.NextItemModule
+  seq_encoder:
+    _target_: hotpp.nn.Encoder
+    model_partial:
+      _target_: hotpp.nn.HuggingFaceTransformer
+      _partial_: true
+      model:
+        _target_: transformers.GPT2Model
+        config:
+          _target_: transformers.GPT2Config
+#          vocab_size: 1
+          n_positions: ${transformer_positions}
+          n_embd: ${transformer_hidden_size}
+          n_layer: ${transformer_layers}
+          n_head: ${transformer_heads}
+          output_hidden_states: True  #Necessary argument
+    max_context: ${transformer_context}
+  head_partial: ${head}
+  loss:
+    _target_: hotpp.losses.NextItemLoss
+    losses:
+      timestamps:
+        _target_: hotpp.losses.TimeMAELoss
+        max_delta: ${max_time_delta}
+        smoothing: ${time_smoothing}
+      labels:
+        _target_: hotpp.losses.CrossEntropyLoss
+        num_classes: ${num_classes}
+      log_amount:
+        _target_: hotpp.losses.MAELoss
+  autoreg_max_steps: ${max_predictions}

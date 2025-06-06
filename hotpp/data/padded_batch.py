@@ -29,13 +29,14 @@ class PaddedBatch:
             for name in seq_names:
                 if payload[name].ndim < 2:
                     raise ValueError(f"The field {name} doesn't have a time dimension.")
+            seq_names = tuple(sorted(seq_names))
         else:
             if seq_names is not None:
                 raise ValueError("Tensor batch can't have seq_names.")
             if payload.ndim < 2:
                 raise ValueError(f"Expected a tensor with shape (B, L, *), got {payload.shape}.")
-        if flip_padding:
-            seq_feature = payload if isinstance(payload, torch.Tensor) else payload[next(iter(seq_names))]
+        if flip_padding and seq_names:
+            seq_feature = payload if isinstance(payload, torch.Tensor) else payload[seq_names[0]]
             l = seq_feature.shape[1]
             if left:
                 indices = torch.arange(l, device=lengths.device)[None] + lengths[:, None] - l  # (B, L).
@@ -70,7 +71,7 @@ class PaddedBatch:
             seq_names = None
         else:
             payload = dict(self._payload)
-            seq_names = set(self.seq_names)
+            seq_names = self.seq_names
         return PaddedBatch(payload, self._lengths, seq_names, left=self._left)
 
     @property
@@ -108,7 +109,11 @@ class PaddedBatch:
         if isinstance(self.payload, torch.Tensor):
             return self.payload.shape[:2]
         else:
-            return self.payload[next(iter(self.seq_names))].shape[:2]
+            if self.seq_names:
+                return self.payload[self.seq_names[0]].shape[:2]
+            else:
+                batch_size = len(next(iter(self.payload.values())))
+                return (batch_size, 0)
 
     def to(self, *args, **kwargs):
         lengths = self._lengths.to(*args, **kwargs)
@@ -126,7 +131,7 @@ class PaddedBatch:
         """mask with B*T size for valid tokens in `payload`
         """
         if type(self._payload) is dict:
-            name = next(iter(self.seq_names))
+            name = self.seq_names[0]
             l = self._payload[name].shape[1]
         else:
             l = self._payload.shape[1]

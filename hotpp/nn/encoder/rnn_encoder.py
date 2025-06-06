@@ -9,34 +9,41 @@ from .window import apply_windows
 
 
 class RnnEncoder(BaseEncoder):
-    """RNN sequence encoder.
+    """Optimized RNN sequence encoder.
+
+    The encoder is primarily used with a single-layer GRU backbone, which allows
+    effective intermediate state computation and multi-prefix inference. In other
+    cases prefere general Encoder class.
 
     Args:
-        embeddings: Dict with categorical feature names. Values must be like this `{'in': dictionary_size, 'out': embedding_size}`.
+        embedder: An instance of embedder Class for input events encoding.
         rnn_partial: RNN constructor with a single `input_dim` parameter.
         timestamps_field: The name of the timestamps field.
         max_time_delta: Limit maximum time delta at the model input.
-        embedder_batch_norm: Use batch normalization in embedder.
         max_inference_context: Maximum RNN context for long sequences.
         inference_context_step: Window step when max_context is provided.
     """
     def __init__(self,
-                 embeddings,
+                 embedder,
                  rnn_partial,
                  timestamps_field="timestamps",
                  max_time_delta=None,
-                 embedder_batch_norm=True,
                  max_inference_context=None, inference_context_step=None,
                  ):
         super().__init__(
-            embeddings=embeddings,
+            embedder=embedder,
             timestamps_field=timestamps_field,
-            max_time_delta=max_time_delta,
-            embedder_batch_norm=embedder_batch_norm
+            max_time_delta=max_time_delta
         )
         self._max_context = max_inference_context
         self._context_step = inference_context_step
         self.rnn = rnn_partial(self.embedder.output_size)
+        if not self.rnn.delta_time:
+            raise NotImplementedError("Only RNNs with time delta at input are supported.")
+
+    @property
+    def need_states(self):
+        return True
 
     @property
     def hidden_size(self):
@@ -46,21 +53,21 @@ class RnnEncoder(BaseEncoder):
     def num_layers(self):
         return self.rnn.num_layers
 
-    def forward(self, x, return_full_states=False):
+    def forward(self, x, return_states=False):
         """Apply RNN.
 
         Args:
             x: PaddedBatch with input features.
-            return_full_states: Whether to return full states with shape (B, T, D)
-                or only final states with shape (B, D).
+            return_states: Whether to return final states with shape (B, D), full states with shape (B, T, D)
+                or no states (either False, "last" or "full").
 
         Returns:
             Outputs is with shape (B, T, D) and states with shape (N, B, D) or (N, B, T, D).
         """
         x = self.compute_time_deltas(x)
         time_deltas = x[self._timestamps_field]
-        embeddings = self.embed(x, compute_time_deltas=False)
-        outputs, states = self.rnn(embeddings, time_deltas, return_full_states=return_full_states)
+        embeddings = self.apply_embedder(x, compute_time_deltas=False)
+        outputs, states = self.rnn(embeddings, time_deltas, return_states=return_states)
         return outputs, states
 
     def interpolate(self, states, time_deltas):
@@ -89,9 +96,8 @@ class RnnEncoder(BaseEncoder):
         """
         batch_size, index_size = indices.shape
 
-        initial_timestamps = x.payload[self._timestamps_field].take_along_dim(indices.payload, dim=1)  # (B, I).
-
         # Compute time deltas and save initial times.
+        initial_timestamps = x.payload[self._timestamps_field].take_along_dim(indices.payload, dim=1)  # (B, I).
         x = self.compute_time_deltas(x)
 
         # Select input state and initial feature for each index position.
@@ -129,14 +135,14 @@ class RnnEncoder(BaseEncoder):
         return PaddedBatch(payload, indices.seq_lens, sequences.seq_names)
 
     def _get_initial_states(self, batch, indices):
-        time_deltas = PaddedBatch(batch.payload[self._timestamps_field], batch.seq_lens)
+        time_deltas = batch[self._timestamps_field]
         indices, seq_lens = indices.payload, indices.seq_lens
 
         if self.num_layers != 1:
             raise NotImplementedError("Only single-layer RNN is supported.")
-        embeddings = self.embed(batch, compute_time_deltas=False)  # (B, T, D).
+        embeddings = self.apply_embedder(batch, compute_time_deltas=False)  # (B, T, D).
         next_states = apply_windows((embeddings, time_deltas),
-                                    lambda xe, xt: PaddedBatch(self.rnn(xe, xt, return_full_states=True)[1].squeeze(0),
+                                    lambda xe, xt: PaddedBatch(self.rnn(xe, xt, return_states="full")[1].squeeze(0),
                                                                xe.seq_lens),
                                     self._max_context, self._context_step).payload[None]  # (N, B, T, D).
 
@@ -165,8 +171,8 @@ class RnnEncoder(BaseEncoder):
         outputs = defaultdict(list)
         for _ in range(n_steps):
             time_deltas = features[self._timestamps_field]
-            embeddings = self.embed(features, compute_time_deltas=False)  # (B, 1, D).
-            embeddings, states = self.rnn(embeddings, time_deltas, states=states)  # (B, 1, D), (N, B, D).
+            embeddings = self.apply_embedder(features, compute_time_deltas=False)  # (B, 1, D).
+            embeddings, states = self.rnn(embeddings, time_deltas, states=states, return_states="last")  # (B, 1, D), (N, B, D).
             features = predict_fn(embeddings, states.unsqueeze(2))  # (B, 1).
             for k, v in features.payload.items():
                 outputs[k].append(v.squeeze(1))  # (B).

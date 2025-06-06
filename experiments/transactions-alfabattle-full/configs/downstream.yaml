@@ -1,0 +1,69 @@
+workers: 5
+environment:
+  work_dir: _
+target:
+  file_name: _
+  cols_id:
+    - id
+  cols_id_type:
+    - int
+  col_target: target
+  drop_duplicated_ids: false
+split:
+  fit_ids: true
+  train_id:
+    file_name: _
+    drop_duplicated_ids: false
+  test_id:
+    file_name: _
+  cv_split_count: 5
+  is_stratify: true
+  random_state: 42
+models:
+  lgbm: 
+    enabled: true
+    model:
+      _target_: lightgbm.LGBMClassifier
+      n_estimators: 500
+      boosting_type: gbdt
+      objective: binary
+      metric: auc
+      subsample: 0.5
+      subsample_freq: 1
+      learning_rate: 0.02
+      feature_fraction: 0.75
+      max_depth: 6
+      lambda_l1: 1
+      lambda_l2: 1
+      min_data_in_leaf: 50
+      random_state: 42
+      n_jobs: 4
+      reg_alpha: null
+      reg_lambda: null
+      colsample_bytree: null
+      min_child_samples: null
+    cpu_count: 5
+    preprocessing: 
+      - _target_: sklearn.preprocessing.MaxAbsScaler
+metrics:
+  auroc: 
+    enabled: true
+    score_func: sklearn.metrics.roc_auc_score
+    scorer_params: 
+      needs_proba: true
+report_file: _
+features:
+  embeddings:
+    enabled: true
+    read_params:
+      file_name: _
+    target_options: {}
+external_scores: {}
+report:
+  is_check_train: false
+  error_handling: fail
+  print_all_metrics: false
+  metrics:
+    auroc: 
+      float_format: "{:.3f}"
+      split_columns: true

@@ -1,0 +1,17 @@
+defaults:
+  - diffusion_gru_base
+  - _self_
+
+diffusion_steps: 5
+
+module:
+  seq_encoder:
+    embedder:
+      categorical_noise: 1.7
+  loss:
+    diffusion_loss_weight: 6.0
+    decoder_loss_weight: 8.0
+    embedder_regularizer: 9.0
+    alpha: 0.05
+    detach_embeddings_from_step: false
+    detach_decoder: false

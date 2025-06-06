@@ -1,4 +1,5 @@
 from hotpp.data import PaddedBatch
+from ..fields import LABELS_LOGITS
 from .base_module import BaseModule
 
 
@@ -19,6 +20,7 @@ class NextItemModule(BaseModule):
         timestamps_field: The name of the timestamps field.
         labels_field: The name of the labels field.
         head_partial: FC head model class which accepts input and output dimensions.
+        aggregator: Embeddings aggregator.
         optimizer_partial:
             optimizer init partial. Network parameters are missed.
         lr_scheduler_partial:
@@ -28,25 +30,13 @@ class NextItemModule(BaseModule):
         autoreg_max_steps: The maximum number of future predictions.
     """
     def __init__(self, seq_encoder, loss,
-                 timestamps_field="timestamps",
-                 labels_field="labels",
-                 head_partial=None,
-                 optimizer_partial=None,
-                 lr_scheduler_partial=None,
-                 val_metric=None,
-                 test_metric=None,
-                 autoreg_max_steps=None):
+                 autoreg_max_steps=None,
+                 **kwargs):
 
         super().__init__(
             seq_encoder=seq_encoder,
             loss=loss,
-            timestamps_field=timestamps_field,
-            labels_field=labels_field,
-            head_partial=head_partial,
-            optimizer_partial=optimizer_partial,
-            lr_scheduler_partial=lr_scheduler_partial,
-            val_metric=val_metric,
-            test_metric=test_metric
+            **kwargs
         )
         self._autoreg_max_steps = autoreg_max_steps
 
@@ -62,10 +52,12 @@ class NextItemModule(BaseModule):
             Predicted sequences with shape (B, I, N).
         """
         if n_steps is None:
+            if self._autoreg_max_steps is None:
+                raise ValueError("The maximum number of autoregression steps must be provided to init.")
             n_steps = self._autoreg_max_steps
         def predict_fn(hiddens, states):
-            outputs = self.apply_head(hiddens)  # (B, L, D).
+            outputs = self._head(hiddens)  # (B, L, D).
             return self.predict_next(None, outputs, states,
                                      predict_delta=True,
-                                     logits_fields_mapping={self._labels_field: self._labels_logits_field})  # (B, L).
+                                     logits_fields_mapping={self._labels_field: LABELS_LOGITS})  # (B, L).
         return self._seq_encoder.generate(x, indices, predict_fn, n_steps)  # (B, I, N).

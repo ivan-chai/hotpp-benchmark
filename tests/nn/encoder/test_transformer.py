@@ -25,7 +25,7 @@ class TestAttNHPTransformer(TestCase):
             embeddings = PaddedBatch(torch.randn(b, l, input_size), lengths)  # (B, L, D).
             times = PaddedBatch(torch.rand(b, l), lengths)  # (B, L).
 
-            fw_outputs, fw_states = model(embeddings, times)  # (B, L, D), (N, B, L, D).
+            fw_outputs, fw_states = model(embeddings, times, return_states="full")  # (B, L, D), (N, B, L, D).
             self.assertEqual(fw_outputs.payload.shape, (b, l, hidden_size))
             self.assertEqual(fw_states.payload.shape, (n_layers, b, l, hidden_size))
 
@@ -65,7 +65,7 @@ class TestAttNHPTransformer(TestCase):
                 embeddings.payload[i, j - 1] = token
             times = PaddedBatch(torch.rand(b, l), lengths)  # (B, L).
 
-            fw_outputs, fw_states = model(embeddings, times)  # (B, L, D), (N, B, L, D).
+            fw_outputs, fw_states = model(embeddings, times, return_states="full")  # (B, L, D), (N, B, L, D).
             self.assertEqual(fw_outputs.payload.shape, (b, l, hidden_size))
             self.assertEqual(fw_states.payload.shape, (n_layers, b, l, hidden_size))
 
@@ -97,10 +97,10 @@ class TestAttNHPTransformer(TestCase):
             times = PaddedBatch(torch.rand(b, l), lengths)  # (B, L).
             mask = embeddings.seq_len_mask.bool()
 
-            fw1_outputs, fw1_states = model(embeddings, times)  # (B, L, D), (N, B, L, D).
+            fw1_outputs, fw1_states = model(embeddings, times, return_states="full")  # (B, L, D), (N, B, L, D).
 
             embeddings.payload += ~mask.unsqueeze(-1)  # (B, L, D).
-            fw2_outputs, fw2_states = model(embeddings, times)  # (B, L, D), (N, B, L, D).
+            fw2_outputs, fw2_states = model(embeddings, times, return_states="full")  # (B, L, D), (N, B, L, D).
 
             self.assertTrue(fw1_outputs.payload[mask].allclose(fw2_outputs.payload[mask], rtol=1e-3, atol=1e-6))
             self.assertTrue(fw1_states.payload[:, mask].allclose(fw2_states.payload[:, mask], rtol=1e-3, atol=1e-6))

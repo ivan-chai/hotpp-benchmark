@@ -1,0 +1,50 @@
+defaults:
+  - default_transformers
+  - _self_
+
+name: detection_transformers
+
+detection_k: 64
+
+conditional_head:
+  k: ${detection_k}
+
+module:
+  _target_: hotpp.modules.NextKModule
+  seq_encoder:
+    model_partial:
+      _target_: hotpp.nn.HuggingFaceTransformer
+      _partial_: true
+      model:
+        _target_: transformers.GPT2Model
+        config:
+          _target_: transformers.GPT2Config
+          n_positions: 1200
+          n_embd: 512
+          n_layer: 2
+          n_head: 4
+          output_hidden_states: True #Necessary argument
+  head_partial: ${conditional_head}
+  loss:
+    _target_: hotpp.losses.DetectionLoss
+    k: ${detection_k}
+    horizon: ${metric.horizon}
+    next_item_adapter:
+      timestamps: mode
+      labels: mean
+      log_amount: mean
+    next_item_loss:
+      _target_: hotpp.losses.NextItemLoss
+      losses:
+        _presence:
+          _target_: hotpp.losses.BinaryCrossEntropyLoss
+        timestamps:
+          _target_: hotpp.losses.TimeMAELoss
+          delta: start
+          max_delta: ${max_duration}
+          smoothing: ${time_smoothing}
+        labels:
+          _target_: hotpp.losses.CrossEntropyLoss
+          num_classes: ${num_classes}
+        log_amount:
+          _target_: hotpp.losses.MAELoss

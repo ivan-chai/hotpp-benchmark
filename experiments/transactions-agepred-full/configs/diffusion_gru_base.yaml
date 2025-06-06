@@ -1,0 +1,55 @@
+defaults:
+  - default
+  - _self_
+
+name: diffusion_gru
+
+diffusion_steps: 15
+
+module:
+  _target_: hotpp.modules.NextKModule
+  seq_encoder:
+    embedder:
+      categorical_noise: 0.1
+    rnn_partial:
+      _target_: hotpp.nn.GRU
+      _partial_: true
+      hidden_size: ${rnn_hidden_size}
+    max_inference_context: ${rnn_inference_context}
+    inference_context_step: ${rnn_inference_context_step}
+  head_partial: ${head}
+  loss:
+    _target_: hotpp.losses.DiffusionLoss
+    k: ${next_k}
+    diffusion_loss_weight: 1
+    decoder_loss_weight: 1
+    embedder_regularizer: 1
+    alpha: 0.5
+    detach_embeddings_from_step: 1
+    detach_decoder: false
+    next_item_loss:
+      _target_: hotpp.losses.NextItemLoss
+      losses:
+        timestamps:
+          _target_: hotpp.losses.TimeMAELoss
+          max_delta: ${max_duration}
+          smoothing: ${time_smoothing}
+        labels:
+          _target_: hotpp.losses.CrossEntropyLoss
+          num_classes: ${num_classes}
+        log_amount:
+          _target_: hotpp.losses.MAELoss
+    embedder: ${module.seq_encoder.embedder}
+    denoiser_partial:
+      _target_: hotpp.nn.GRUDenoiser
+      _partial_: true
+      hidden_size: ${rnn_hidden_size}
+      generation_steps: ${diffusion_steps}
+      num_layers: 1
+    decoder_partial:
+      _target_: hotpp.nn.Head
+      _partial_: true
+      hidden_dims: []
+    max_time_delta: ${max_time_delta}
+    loss_step: 1
+    generation_steps: ${diffusion_steps}

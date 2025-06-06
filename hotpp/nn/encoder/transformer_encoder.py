@@ -4,83 +4,72 @@ import torch
 from hotpp.data import PaddedBatch
 from hotpp.utils.torch import deterministic
 from .base_encoder import BaseEncoder
+from .encoder import limit_history
 from .transformer import TransformerState
 
 
-def limit_history(x, seq_lens, max_length=None):
-    """Limit maximum history size.
-
-    Args:
-        x: Embeddings with shape (B, L, D) or (N, B, L, D).
-        seq_lens: Input sequence lengths with shape (B).
-        max_length: Maximum output sequence length.
-
-    Returns:
-        New embeddings with shape (B, L', D) and new lengths with shape (B).
-    """
-    if max_length is None:
-        return x, seq_lens
-    max_length = min(max_length, seq_lens.max().item())
-    b, l = x.shape[-3:-1]
-    exclude = (seq_lens - max_length).clip(min=0)  # (B).
-    indices = (torch.arange(max_length, device=x.device)[None] + exclude[:, None]).clip(max=l - 1)  # (B, L').
-    shape = [1] * (x.ndim - 3) + [b, max_length, 1]
-    indices = indices.reshape(*shape)  # (*, B, L', 1).
-    result = x.take_along_dim(indices, -2)  # (*, B, L, D).
-    return result, seq_lens.clip(max=max_length)
-
-
 class TransformerEncoder(BaseEncoder):
-    """Transformer sequence encoder.
+    """Transformer sequence encoder with KV cache.
+
+    The encoder optimizes generation for some types of transformers by reusing the KV cache in a multi-prefix inference.
+
+    TPP transformers accept raw timestamps (for positional encoding) rather than time deltas.
 
     Args:
-        embeddings: Dict with categorical feature names. Values must be like this `{'in': dictionary_size, 'out': embedding_size}`.
+        embedder: An instance of embedder Class for input events encoding.
         transformer_partial: transformer decoder constructor with a single `input_dim` parameter.
         timestamps_field: The name of the timestamps field.
         max_time_delta: Limit maximum time delta at the model input.
         max_context: Maximum prefix length.
-        embedder_batch_norm: Use batch normalization in embedder.
         autoreg_batch_size: Apply auto-reg in the batched mode.
     """
     def __init__(self,
-                 embeddings,
+                 embedder,
                  transformer_partial,
                  timestamps_field="timestamps",
                  max_time_delta=None,
                  max_context=None,
-                 embedder_batch_norm=True,
                  autoreg_batch_size=None
                  ):
         super().__init__(
-            embeddings=embeddings,
+            embedder=embedder,
             timestamps_field=timestamps_field,
-            max_time_delta=max_time_delta,
-            embedder_batch_norm=embedder_batch_norm
+            max_time_delta=max_time_delta
         )
         self.transformer = transformer_partial(self.embedder.output_size)
+        if self.transformer.delta_time:
+            raise NotImplementedError("Only transformers with raw time at input are supported.")
         self.max_context = max_context
         self.autoreg_batch_size = autoreg_batch_size
+
+    @property
+    def need_states(self):
+        return True
 
     @property
     def hidden_size(self):
         return self.transformer.output_size
 
-    def forward(self, x, return_full_states=False):
+    def forward(self, x, return_states=False):
         """Apply encoder network.
 
         Args:
             x: PaddedBatch with input features.
-            return_full_states: Whether to return full states with shape (B, T, D)
-                or only final states with shape (B, D).
+            return_states: Whether to return final states with shape (B, D), full states with shape (B, T, D)
+                or no states (either False, "last" or "full").
 
         Returns:
             Outputs is with shape (B, T, D) and states with shape (N, B, D) or (N, B, T, D).
         """
         times = x[self._timestamps_field]  # (B, L).
-        embeddings = self.embed(x, compute_time_deltas=False)
-        outputs, states = self.transformer(embeddings, times)   # (B, L, D), (N, B, L, D).
-        if not return_full_states:
+        embeddings = self.apply_embedder(x, compute_time_deltas=False)  # TODO: True?
+        outputs, states = self.transformer(embeddings, times, return_states=return_states)  # (B, L, D), (N, B, L, D).
+        if not return_states:
+            states = None
+        elif return_states == "last":
             states = states.take_along_dim((states.seq_lens - 1)[None, :, None, None], 2).squeeze(2)  # (N, B, D).
+        elif return_states != "full":
+            raise ValueError(f"Unknown states flag: {return_states}")
         return outputs, states
 
     def interpolate(self, states, time_deltas):
@@ -124,7 +113,7 @@ class TransformerEncoder(BaseEncoder):
         prefix_lengths = indices.payload[prefix_indices[:, 0], prefix_indices[:, 1]] + 1  # (V).
 
         # Generate.
-        outputs, states = self(x, return_full_states=True)  # (B, L, D), (N, B, L, D).
+        outputs, states = self(x, return_states="full")  # (B, L, D), (N, B, L, D).
         predictions = defaultdict(list)
         sequences = []
         lengths = []
@@ -134,7 +123,7 @@ class TransformerEncoder(BaseEncoder):
             bucket_indices = prefix_indices[start:stop, 0]
             bucket_lengths = prefix_lengths[start:stop]
             max_length = bucket_lengths.max().item()
-            # Note, that prefix_lengths are strictly positive.
+            # Note, that bucket_lengths are strictly positive.
             bucket_outputs = PaddedBatch(outputs.payload[bucket_indices].take_along_dim(bucket_lengths[:, None, None] - 1, 1),
                                          torch.ones_like(bucket_indices))  # (V, 1, D).
             bucket_times = limit_history(states.times[bucket_indices][:, :max_length].unsqueeze(-1), bucket_lengths, self.max_context)[0].squeeze(-1)
@@ -183,7 +172,7 @@ class TransformerEncoder(BaseEncoder):
             # Convert predicted delta to absolute time for the next input.
             times.payload += features.payload[self._timestamps_field]
             features.payload[self._timestamps_field] = times.payload
-            embeddings = self.embed(features, compute_time_deltas=False)  # (B, 1, D).
+            embeddings = self.apply_embedder(features, compute_time_deltas=False)  # (B, 1, D).
             last_outputs, new_states = self.transformer.decode(embeddings, times, last_states)  # (B, 1, D), (N, B, 1, D).
             # Append to the beginning, since transformer doesn't take order into account.
             last_states = TransformerState(

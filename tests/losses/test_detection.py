@@ -20,11 +20,8 @@ class Model(torch.nn.Module):
         self.weight = torch.nn.Parameter(torch.randn(1, length, num_events, num_labels + 2))  # (B, L, T, P).
 
     def forward(self):
-        return PaddedBatch({
-            "_presence": self.weight[..., :1].reshape(1, self.length, -1),
-            "timestamps": self.weight[..., 1:3].reshape(1, self.length, -1),
-            "labels": self.weight[..., 3:].reshape(1, self.length, -1)
-        }, torch.tensor([self.length]))
+        return PaddedBatch(self.weight.reshape(1, self.length, -1),
+                           torch.tensor([self.length]))
 
 
 class TestDetectionLoss(TestCase):
@@ -106,8 +103,6 @@ class TestDetectionLoss(TestCase):
         loss.train()
         for step in range(100):
             prediction = model()
-            prediction = PaddedBatch(torch.cat([prediction.payload[k] for k in loss.fields], -1),
-                                     prediction.seq_lens)
             optimizer.zero_grad()
             losses, _ = loss(batch, prediction, None)
             loss_value = sum(losses.values())
@@ -122,8 +117,6 @@ class TestDetectionLoss(TestCase):
         loss.eval()
         with torch.no_grad():
             outputs = model()
-            outputs = PaddedBatch(torch.cat([outputs.payload[k] for k in loss.fields], -1),
-                                  outputs.seq_lens)
             states = outputs.payload[None]
             predictions = loss.predict_next_k(outputs, states).payload  # (B, L, K)
             predictions["timestamps"] += batch.payload["timestamps"].unsqueeze(2)

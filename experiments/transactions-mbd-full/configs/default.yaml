@@ -1,0 +1,120 @@
+defaults:
+  - downstream@downstream
+  - _self_
+
+seed_everything: 42
+num_evaluation_seeds: 5
+
+max_predictions: 48
+num_classes: 60
+num_src_type32: 100
+max_time_delta: 8  # x4 = 32 days.
+max_duration: 8  # x4 = 32 days.
+
+rnn_hidden_size: 512
+rnn_inference_context: 1200
+rnn_inference_context_step: 200
+
+transformer_hidden_size: 512
+transformer_heads: 4
+transformer_layers: 2
+transformer_pos_m: 1  # ~ minimum delta.
+transformer_pos_M: 800  # ~ maximum delta.
+
+reducer: mean-last-10
+
+logger:
+  _target_: pytorch_lightning.loggers.WandbLogger
+  project: hotpp-mbd-full
+  name: ${name}
+  save_dir: lightning_logs
+model_path: checkpoints/${name}.ckpt
+report: results/${name}.yaml
+multiseed_report: results/multiseed_${name}.yaml
+downstream_report: results/downstream_${name}.txt
+
+data_module:
+  _target_: hotpp.data.HotppDataModule
+  id_field: client_id
+  max_length: 1000  # Val/Test.
+  position: last  # Val/Test.
+  batch_size: 512  # Val/Test.
+  train_params:
+    min_length: 400
+    min_required_length: 32
+    max_length: 800
+    batch_size: 96
+  num_workers: 16
+  global_target_fields:
+    - bcard_target
+    - cred_target
+    - zp_target
+    - acquiring_target
+  train_path: data/train.parquet
+  val_path: data/valid.parquet
+
+metric:
+  _target_: hotpp.metrics.HorizonMetric
+  max_time_delta: ${max_time_delta}
+  horizon: 7  # x4 = 28 days.
+  horizon_evaluation_step: 64
+  map_deltas: [1]  # 4 days.
+  map_target_length: 24
+  otd_steps: 5
+  otd_insert_cost: 0.5  # 2 days.
+  otd_delete_cost: 0.5  # 2 days.
+
+head:
+  _target_: hotpp.nn.Head
+  _partial_: true
+  hidden_dims: [512, 256]
+  use_batch_norm: true
+
+conditional_head:
+  _target_: hotpp.nn.ConditionalHead
+  _partial_: true
+  hidden_dims: [512, 256]
+  use_batch_norm: true
+
+module:
+  seq_encoder:
+    _target_: hotpp.nn.RnnEncoder
+    embedder:
+      _target_: hotpp.nn.Embedder
+      embeddings:
+        event_type:
+            in: ${num_classes}
+            out: 16
+        src_type32:
+            in: ${num_src_type32}
+            out: 32
+      numeric_values:
+        timestamps: identity
+        log_amount: identity
+    max_time_delta: ${max_time_delta}
+  aggregator:
+    _target_: hotpp.nn.MeanAggregator
+  optimizer_partial:
+    _partial_: true
+    _target_: torch.optim.Adam
+    lr: 0.001
+    weight_decay: 0.0
+  lr_scheduler_partial:
+    _partial_: true
+    _target_: torch.optim.lr_scheduler.StepLR
+    step_size: 5
+    gamma: 0.8
+  val_metric: ${metric}
+
+trainer:
+  accelerator: cuda
+  devices: 2
+  max_epochs: 30
+  enable_checkpointing: true
+  deterministic: false #true
+  precision: 16-mixed
+  gradient_clip_val: 1  # Increases training stability.
+  check_val_every_n_epoch: 1
+  model_selection:
+    metric: val/T-mAP
+    mode: max
