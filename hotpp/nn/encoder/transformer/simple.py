@@ -194,17 +194,23 @@ class SimpleTransformer(torch.nn.Module):
         """Apply encoder after input projection and positional encoding.
 
         Args:
-            attention_mask: Additional attention mask with shape (L, L) which contains True for masked connections.
+            attention_mask: Additional attention mask with shape (L, L) or (B, L, L) which contains True for masked connections.
                 The mask will be merged with causal mask if causal transformer is applied.
 
         Returns:
             Outputs and activations, if return_states is "full".
         """
         b, l = embeddings.shape
+        causal_hint = self.causal if attention_mask is None else False
         if attention_mask is None:
             attention_mask = self.sa_mask[:l, :l] if self.sa_mask is not None else None
         elif self.sa_mask is not None:
-            attention_mask = torch.logical_or(attention_mask, self.sa_mask[:l, :l])
+            sa_mask = self.sa_mask[:l, :l]
+            if attention_mask.ndim == 3:
+                sa_mask = sa_mask[None]
+                if attention_mask.shape[0] == b:
+                    attention_mask = attention_mask.repeat_interleave(self.n_head, dim=0)
+            attention_mask = torch.logical_or(attention_mask, sa_mask)
         else:
             attention_mask = None
 
@@ -212,7 +218,7 @@ class SimpleTransformer(torch.nn.Module):
             outputs = encoder(embeddings.payload,
                               mask=attention_mask,
                               src_key_padding_mask=~embeddings.seq_len_mask.bool() if not self.causal else None,
-                              is_causal=self.causal)  # (B, L, D).
+                              is_causal=causal_hint)  # (B, L, D).
             if return_states == "full":
                 states = encoder.activations
             else:
