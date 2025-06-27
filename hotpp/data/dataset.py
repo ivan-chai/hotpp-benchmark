@@ -28,6 +28,8 @@ def get_parquet_length(path):
 
 
 def to_torch_if_possible(v):
+    if v is None:
+        v = float("nan")
     try:
         if isinstance(v, np.ndarray):
             return torch.from_numpy(v)
