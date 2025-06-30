@@ -6,7 +6,7 @@ import json
 import numpy as np
 from datasets import load_dataset
 from ptls.preprocessing import PysparkDataPreprocessor
-from pyspark.sql import SparkSession
+from pyspark.sql import SparkSession, Window
 from pyspark.sql.types import DoubleType, IntegerType, ArrayType
 from random import Random
 
@@ -60,8 +60,8 @@ def get_transactions(cache_dir):
     udf_function = F.udf(lambda x: int(json.loads(x).get("correct", 2)), IntegerType())
     dataset = dataset.withColumn("correct", udf_function("event_data"))
 
-    dataset = dataset.selectExpr("installation_id as id",
-                                 "game_session",
+    dataset = dataset.selectExpr("installation_id as user_id",
+                                 "game_session as id",
                                  "timestamp as timestamps",
                                  "event_code as labels",
                                  "event_type as types",
@@ -81,19 +81,19 @@ def get_targets(cache_dir, transactions):
     assert len(dataset.keys()) == 1
     key = next(iter(dataset.keys()))
     dataset = dataset2spark(dataset[key], "targets", cache_dir)
-    dataset = dataset.selectExpr("installation_id as id",
-                                 "game_session",
+    dataset = dataset.selectExpr("installation_id as user_id",
+                                 "game_session as id",
                                  "accuracy_group as target")
     assessments = transactions.where((F.col("types") == "Assessment") & (F.col("labels") == 2000))
-    assessments = assessments.select("game_session", "timestamps")
-    dataset = dataset.join(assessments, on="game_session").drop("game_session").withColumnRenamed("timestamps", "target_timestamp")
-    return dataset  # id, target_timestamp, target.
+    assessments = assessments.select("id", "timestamps")
+    dataset = dataset.join(assessments, on="id").withColumnRenamed("timestamps", "target_timestamp")
+    return dataset  # user_id, id, target_timestamp, target.
 
 
 def train_val_test_split(transactions, targets):
     """Select test set from the labeled subset of the dataset."""
-    data_ids = {row["id"] for row in transactions.select("id").distinct().collect()}
-    labeled_ids = {row["id"] for row in targets.select("id").distinct().collect()}
+    data_ids = {row["user_id"] for row in transactions.select("user_id").distinct().collect()}
+    labeled_ids = {row["user_id"] for row in targets.select("user_id").distinct().collect()}
     labeled_ids = data_ids & labeled_ids
     unlabeled_ids = data_ids - labeled_ids
 
@@ -108,14 +108,14 @@ def train_val_test_split(transactions, targets):
     val_ids = set(train_ids[:n_clients_val])
     train_ids = set(train_ids[n_clients_val:])
 
-    testset = transactions.filter(transactions["id"].isin(test_ids))
-    trainset = transactions.filter(transactions["id"].isin(train_ids))
-    valset = transactions.filter(transactions["id"].isin(val_ids))
+    testset = transactions.filter(transactions["user_id"].isin(test_ids))
+    trainset = transactions.filter(transactions["user_id"].isin(train_ids))
+    valset = transactions.filter(transactions["user_id"].isin(val_ids))
     return trainset.persist(), valset.persist(), testset.persist()
 
 
 def dump_parquet(df, path, n_partitions):
-    df.sort(F.col("id")).repartition(n_partitions, "id").write.mode("overwrite").parquet(path)
+    df.sort(F.col("user_id"), F.col("id")).repartition(n_partitions, "user_id").write.mode("overwrite").parquet(path)
 
 
 def main(args):
@@ -125,12 +125,12 @@ def main(args):
     if not os.path.isdir(cache_dir):
         os.mkdir(cache_dir)
     transactions = get_transactions(cache_dir)
-    targets = get_targets(cache_dir, transactions)  # id, target_timestamp, target.
-    transactions = transactions.drop("game_session") # id, timestamps, labels, types, title, world, correct.
+    targets = get_targets(cache_dir, transactions)  # user_id, id, target_timestamp, target.
+    transactions = transactions.drop("id") # user_id, timestamps, labels, types, title, world, correct.
 
     print("Transform")
     preprocessor = PysparkDataPreprocessor(
-        col_id="id",
+        col_id="user_id",
         col_event_time="timestamps",
         event_time_transformation="none",
         cols_category=["labels", "types", "title", "world"],
@@ -140,7 +140,7 @@ def main(args):
     transactions = preprocessor.fit_transform(transactions).persist()
 
     # Join with targets
-    transactions = targets.join(transactions, on="id")  # id, timestamps, labels, types, title, world, correct, target_timestamp, target.
+    transactions = targets.join(transactions, on="user_id")  # user_id, id, timestamps, labels, types, title, world, correct, target_timestamp, target.
 
     # Truncate to the target timestamp.
     def get_index(timestamps, target_timestamp):
@@ -154,6 +154,15 @@ def main(args):
         transactions = transactions.withColumn(col, udf_function(col, "index"))
     udf_function = F.udf(lambda seq, index: seq[0: index], ArrayType(DoubleType()))
     transactions = transactions.withColumn("timestamps", udf_function("timestamps", "index"))
+    transactions = transactions.drop("index")
+
+    # ID to integer.
+    id_mapping = transactions.select("id").distinct()
+    window = Window().orderBy("id")
+    id_mapping = id_mapping.withColumn("id_int", F.row_number().over(window)).persist()
+    dump_parquet(id_mapping, "data/mappping.parquet", 1)
+    transactions = transactions.join(id_mapping, on="id").drop("id").withColumnRenamed("id_int", "id")
+    targets = targets.join(id_mapping, on="id").drop("id").withColumnRenamed("id_int", "id")
 
     print("Split & dump")
     train, val, test = train_val_test_split(transactions, targets)
