@@ -118,6 +118,16 @@ def dump_parquet(df, path, n_partitions):
     df.sort(F.col("user_id"), F.col("id")).repartition(n_partitions, "user_id").write.mode("overwrite").parquet(path)
 
 
+def str_to_int(transactions, targets, field):
+    index_field = "_tmp_"
+    id_mapping = transactions.select(field).distinct()
+    window = Window().orderBy(field)
+    id_mapping = id_mapping.withColumn(index_field, F.row_number().over(window)).persist()
+    transactions = transactions.join(id_mapping, on=field).drop(field).withColumnRenamed(index_field, field)
+    targets = targets.join(id_mapping, on=field).drop(field).withColumnRenamed(index_field, field)
+    return transactions, targets
+
+
 def main(args):
     cache_dir = os.path.join(args.root, "cache")
     if not os.path.isdir(args.root):
@@ -157,12 +167,8 @@ def main(args):
     transactions = transactions.drop("index")
 
     # ID to integer.
-    id_mapping = transactions.select("id").distinct()
-    window = Window().orderBy("id")
-    id_mapping = id_mapping.withColumn("id_int", F.row_number().over(window)).persist()
-    dump_parquet(id_mapping, "data/mappping.parquet", 1)
-    transactions = transactions.join(id_mapping, on="id").drop("id").withColumnRenamed("id_int", "id")
-    targets = targets.join(id_mapping, on="id").drop("id").withColumnRenamed("id_int", "id")
+    transactions, targets = str_to_int(transactions, targets, "id")
+    transactions, targets = str_to_int(transactions, targets, "user_id")
 
     print("Split & dump")
     train, val, test = train_val_test_split(transactions, targets)
