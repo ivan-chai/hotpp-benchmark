@@ -48,6 +48,7 @@ def get_transactions(cache_dir):
             "installation_id",
             "game_session",
             "timestamp",
+            "event_id",
             "event_code",
             "event_type",
             "title",
@@ -63,6 +64,7 @@ def get_transactions(cache_dir):
     dataset = dataset.selectExpr("installation_id as user_id",
                                  "game_session as id",
                                  "timestamp as timestamps",
+                                 "event_id",
                                  "event_code as labels",
                                  "event_type as types",
                                  "title",
@@ -136,21 +138,21 @@ def main(args):
         os.mkdir(cache_dir)
     transactions = get_transactions(cache_dir)
     targets = get_targets(cache_dir, transactions)  # user_id, id, target_timestamp, target.
-    transactions = transactions.drop("id") # user_id, timestamps, labels, types, title, world, correct.
+    transactions = transactions.drop("id") # user_id, timestamps, labels, event_id, types, title, world, correct.
 
     print("Transform")
     preprocessor = PysparkDataPreprocessor(
         col_id="user_id",
         col_event_time="timestamps",
         event_time_transformation="none",
-        cols_category=["labels", "types", "title", "world"],
+        cols_category=["labels", "event_id", "types", "title", "world"],
         cols_identity=["correct"],
         category_transformation="frequency"
     )
     transactions = preprocessor.fit_transform(transactions).persist()
 
     # Join with targets
-    transactions = targets.join(transactions, on="user_id")  # user_id, id, timestamps, labels, types, title, world, correct, target_timestamp, target.
+    transactions = targets.join(transactions, on="user_id")  # user_id, id, timestamps, labels, event_id, types, title, world, correct, target_timestamp, target.
 
     # Truncate to the target timestamp.
     def get_index(timestamps, target_timestamp):
@@ -158,7 +160,7 @@ def main(args):
 
     udf_function = F.udf(get_index, IntegerType())
     transactions = transactions.withColumn("index", udf_function("timestamps", "target_timestamp")).drop("target_timestamp")
-    cols_to_slice = ["labels", "types", "title", "world", "correct"]
+    cols_to_slice = ["labels", "event_id", "types", "title", "world", "correct"]
     udf_function = F.udf(lambda seq, index: seq[0:index], ArrayType(IntegerType()))
     for col in cols_to_slice:
         transactions = transactions.withColumn(col, udf_function(col, "index"))
