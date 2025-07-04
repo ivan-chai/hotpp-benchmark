@@ -14,6 +14,9 @@ VAL_SIZE = 0.1
 TEST_SIZE = 0.2
 
 
+OOD_PRESCRIPTION = 1850987
+
+
 def parse_args():
     parser = argparse.ArgumentParser("Prepare and dump dataset to a parquet file.")
     parser.add_argument("--root", help="Dataset root (must contain MIMIC4 folder with `core`, `hosp`, and `icu`)", default="data")
@@ -77,9 +80,11 @@ def load_prescriptions(root):
 
     path = os.path.join(root, "MIMIC3/PRESCRIPTIONS.csv")
     df = spark.read.option("header", True).csv(path).selectExpr(
+        "cast(ROW_ID as int) as row_id",
         "cast(SUBJECT_ID as int) as id",
         "STARTDATE as timestamps",
         "DRUG as labels")
+    df = df.filter(df["row_id"] != OOD_PRESCRIPTION).drop("row_id")
     df = df.dropna()
 
     df = df.withColumn("seq_num", F.lit(1)).withColumn("types", F.lit("prescription"))
