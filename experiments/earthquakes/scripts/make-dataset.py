@@ -26,7 +26,7 @@ def read_txt(path, id_offset=0):
     df = df.select(
         "id",
         F.lit(list(map(float, range(0, 512)))).alias("timestamps"),
-        F.array(*[F.col(name) for name in features]).alias("values"),
+        F.array(*[F.col(name) for name in features]).alias("bins"),
         F.col("0").cast("int").alias("target")
     )
     return df
