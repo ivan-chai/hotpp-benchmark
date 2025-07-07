@@ -24,8 +24,11 @@ if config["metric"]["goal"] == "maximize":
     order = "-" + order
 
 api = wandb.Api()
+sweep_id = args.sweep_id
+if "/" in sweep_id:
+    sweep_id = sweep_id.split("/")[-1]
 runs = api.runs(path=project,
-                filters={"sweep": args.sweep_id},
+                filters={"sweep": sweep_id},
                 order=order,
                 per_page=top_k)
 by_metric = defaultdict(list)
