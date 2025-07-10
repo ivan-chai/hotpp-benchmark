@@ -32,8 +32,12 @@ def to_torch_if_possible(v):
         v = float("nan")
     try:
         if isinstance(v, np.ndarray):
-            return torch.from_numpy(v)
-        return torch.tensor(v)
+            t = torch.from_numpy(v)
+        else:
+            t = torch.tensor(v)
+        if torch.is_floating_point(t):
+            t = t.float()
+        return t
     except TypeError:
         return v
 
@@ -59,6 +63,7 @@ class HotppDataset(torch.utils.data.IterableDataset):
         position: Sample position (`random` or `last`).
         fields: A list of fields to keep in data. Other fields will be discarded.
         drop_nans: A list of fields to skip nans for.
+        add_seq_fields: A dictionary with additional constant fields.
         global_target_fields: The name of the target field or a list of fields. Global targets are assigned to sequences.
         local_targets_fields: The name of the target field or a list of fields. Local targets are assigned to individual events.
         local_targets_indices_field: The name of the target field or a list of fields. Local targets are assigned to individual events.
@@ -71,6 +76,7 @@ class HotppDataset(torch.utils.data.IterableDataset):
                  id_field="id",
                  timestamps_field="timestamps",
                  drop_nans=None,
+                 add_seq_fields=None,
                  global_target_fields=None,
                  local_targets_fields=None,
                  local_targets_indices_field=None):
@@ -91,6 +97,7 @@ class HotppDataset(torch.utils.data.IterableDataset):
         self.id_field = id_field
         self.timestamps_field = timestamps_field
         self.drop_nans = parse_fields(drop_nans)
+        self.add_seq_fields = add_seq_fields
         self.global_target_fields = parse_fields(global_target_fields)
 
         if local_targets_fields and not local_targets_indices_field:
@@ -197,9 +204,17 @@ class HotppDataset(torch.utils.data.IterableDataset):
                     features[k] = vs
         if not features:
             return None
-        return PaddedBatch(features, lengths,
-                           seq_names={k for k, v in features.items()
-                                      if self.is_seq_feature(k, v, batch=True)})
+        batch = PaddedBatch(features, lengths,
+                            seq_names={k for k, v in features.items()
+                                       if self.is_seq_feature(k, v, batch=True)})
+        if self.add_seq_fields is not None:
+            b, l = batch.shape
+            payload = dict(batch.payload)
+            for k, v in self.add_seq_fields.items():
+                payload[k] = torch.full((b, l), v, device=batch.device)
+            batch = PaddedBatch(payload, batch.seq_lens,
+                                seq_names=set(batch.seq_names) | set(self.add_seq_fields))
+        return batch
 
     def collate_fn(self, batch):
         batch_size = len(batch)
