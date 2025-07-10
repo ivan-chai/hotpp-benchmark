@@ -199,6 +199,52 @@ class MAELoss(BaseLoss):
         return self.predict_modes(predictions)  # (B, L, D).
 
 
+class MSELoss(BaseLoss):
+    """Absolute Squared Error.
+
+    Args:
+        grad_scale: Gradients multiplier.
+    """
+    def __init__(self, grad_scale=None):
+        super().__init__(input_size=1, target_size=1,
+                         grad_scale=grad_scale)
+
+    @property
+    def need_interpolator(self):
+        return False
+
+    def compute_loss(self, inputs, predictions, mask=None):
+        """Compute losses and metrics.
+
+        NOTE: the model predicts next inputs.
+
+        Args:
+            inputs: Input features with shape (B, L, *).
+            predictions: Mode outputs with shape (B, L, *, 1) or (B, 1, *, 1).
+            mask: Sequence lengths mask with shape (B, L) or None.
+
+        Returns:
+            Losses tensor with shape (B, L', *), (optional) mask tensor with shape (B, L') and metrics dictionary.
+        """
+        assert predictions.shape[-1] == 1
+        predictions = predictions.squeeze(-1)  # (B, L - 1, *).
+        broadcast = (predictions.shape[1] != inputs.shape[1]) and (predictions.shape[1] == 1)
+        predictions = predictions if broadcast else predictions[:, :-1]  # (B, L - 1, *).
+        losses = (predictions - inputs[:, 1:]).square()  # (B, L, *).
+        mask = torch.logical_and(mask[:, 1:], mask[:, :-1]) if mask is not None else None  # (B, L - 1).
+        return losses, mask, {}
+
+    def predict_modes(self, predictions):
+        return predictions  # (B, L, D).
+
+    def predict_means(self, predictions):
+        return self.predict_modes(predictions)  # (B, L, D).
+
+    def predict_samples(self, predictions, temperature=1):
+        # Temperature is unused.
+        return self.predict_modes(predictions)  # (B, L, D).
+
+
 class TimeMAELoss(BaseLoss):
     """MAE for delta T prediction.
 

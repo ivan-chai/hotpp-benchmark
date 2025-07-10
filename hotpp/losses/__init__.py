@@ -1,5 +1,5 @@
 # Base losses.
-from .common import BaseLoss, TimeMAELoss, TimeMSELoss, CrossEntropyLoss, BinaryCrossEntropyLoss, MAELoss
+from .common import BaseLoss, TimeMAELoss, TimeMSELoss, CrossEntropyLoss, BinaryCrossEntropyLoss, MAELoss, MSELoss
 from .rmtpp import TimeRMTPPLoss
 
 # High-level losses.
