@@ -1,7 +1,9 @@
 import argparse
 import math
 import os
+import pathlib
 import pyspark.sql.functions as F
+import shutil
 from datasets import load_dataset
 from ptls.preprocessing import PysparkDataPreprocessor
 from pyspark.sql import SparkSession, Window
@@ -17,8 +19,8 @@ TRANSACTIONS_FILES = [
 TARGET_FILE = "train_target"
 
 SEED = 42
-VAL_SIZE = 0.05
 TEST_SIZE = 0.1
+VAL_SIZE = 0.05
 
 
 def parse_args():
@@ -27,63 +29,23 @@ def parse_args():
     return parser.parse_args()
 
 
-def dataset2spark(dataset, name, cache_dir):
+def download(cache_dir):
     spark = SparkSession.builder.getOrCreate()
-    path = os.path.join(cache_dir, f"convert-{name}.parquet")
-    if not os.path.exists(path):
-        dataset.to_parquet(path)
-    dataset = spark.read.parquet(path)
-    return dataset
-
-
-def get_transactions(cache_dir):
-    dataset = None
     for name in TRANSACTIONS_FILES:
-        print(f"Load {name}")
-        part = load_dataset("dllllb/alfa-scoring-trx", name, cache_dir=cache_dir)
-        key = next(iter(part.keys()))
-        part = dataset2spark(part[key], name, cache_dir)
-        dataset = dataset.union(part) if dataset is not None else part
-    dataset = dataset.selectExpr("app_id as id",
-                                 "mcc as labels",
-                                 "amnt as amount",
-                                 "currency",
-                                 "operation_kind",
-                                 "operation_type",
-                                 "operation_type_group",
-                                 "ecommerce_flag",
-                                 "payment_system",
-                                 "income_flag",
-                                 "country",
-                                 "city",
-                                 "mcc_category",
-                                 "card_type",
-                                 "transaction_number",
-                                 "day_of_week",
-                                 "weekofyear",
-                                 "hour",
-                                 "hour_diff",
-                                 "days_before")
-
-    # Convert days_before to timestamps.
-    dataset = dataset.withColumn("timestamps", 1000000 - F.col("days_before"))
-
-    # Add log_amount.
-    udf = F.udf(lambda x: math.log(abs(x) + 1), FloatType())
-    dataset = dataset.withColumn("log_amount", udf(F.col("amount")))
-    dataset = dataset.withColumn("log_hour_diff", udf(F.col("hour_diff")))
-    dataset = dataset.withColumn("log_days_before", udf(F.col("days_before")))
-    return dataset
+        path = os.path.join(cache_dir, f"convert-{name}.parquet")
+        if not os.path.exists(path):
+            print(f"Load {name}")
+            part = load_dataset("dllllb/alfa-scoring-trx", name, cache_dir=cache_dir)
+            key = next(iter(part.keys()))
+            part[key].to_parquet(path)
+        split_path = os.path.join(cache_dir, f"split-{name}.parquet")
+        if not os.path.exists(split_path):
+            df = spark.read.parquet(path)
+            df.repartition(16, "app_id").write.mode("overwrite").parquet(split_path)
 
 
 def get_targets(cache_dir):
     print(f"Load targets")
-    # The file is broken:
-    #   dataset = load_dataset("dllllb/alfa-scoring-trx", TARGET_FILE, cache_dir=cache_dir)
-    #   assert len(dataset.keys()) == 1
-    #   key = next(iter(dataset.keys()))
-    #   dataset = dataset2spark(dataset[key], "targets", cache_dir)
-    # Use a workaround instead:
     from huggingface_hub import hf_hub_download
     path = hf_hub_download("dllllb/alfa-scoring-trx", TARGET_FILE + ".csv.gz", cache_dir=cache_dir, repo_type="dataset")
     spark = SparkSession.builder.getOrCreate()
@@ -108,42 +70,84 @@ def split_targets_train_test(df):
     return df_target_train.persist(), df_target_test.persist()
 
 
-def make_index(ids):
+def read_part(path):
     spark = SparkSession.builder.getOrCreate()
-    index = spark.createDataFrame([[list(ids)]], ["id"])
-    index = index.withColumn("id", F.explode("id"))
-    return index
+    dataset = spark.read.parquet(path)
+    dataset = dataset.selectExpr("app_id as id",
+                                 "mcc as labels",
+                                 "amnt as log_amount",
+                                 "currency",
+                                 "operation_kind",
+                                 "operation_type",
+                                 "operation_type_group",
+                                 "ecommerce_flag",
+                                 "payment_system",
+                                 "income_flag",
+                                 "country",
+                                 "city",
+                                 "mcc_category",
+                                 "card_type",
+                                 "transaction_number",
+                                 "day_of_week",
+                                 "weekofyear",
+                                 "hour",
+                                 "hour_diff",
+                                 "days_before")
+
+    # Convert days_before to timestamps.
+    dataset = dataset.withColumn("timestamps", 1000000 - F.col("days_before"))
+
+    # Add log deltas.
+    udf = F.udf(lambda x: math.log(abs(x) + 1), FloatType())
+    dataset = dataset.withColumn("log_hour_diff", udf(F.col("hour_diff")))
+    dataset = dataset.withColumn("log_days_before", udf(F.col("days_before")))
+    return dataset
 
 
-def train_val_test_split(transactions, train_targets, test_targets):
-    """Select test set from the labeled subset of the dataset."""
+def collect_lists(df, group_field="id", sort_field="transaction_number"):
+    col_list = [sort_field] + [col for col in df.columns if (col != group_field) and (col != sort_field)]
+    unpack_col_list = [group_field] + [F.col(f"_struct.{col}").alias(col) for col in col_list]
 
-    train_ids = list(sorted({row["id"] for row in train_targets.select("id").distinct().collect()}))
-    test_ids = list(sorted({row["id"] for row in test_targets.select("id").distinct().collect()}))
+    df = df.groupBy(group_field).agg(F.sort_array(F.collect_list(F.struct(*col_list))).alias("_struct"))
+    df = df.select(*unpack_col_list).drop("_struct").persist()
 
-    Random(SEED).shuffle(train_ids)
-    n_clients_val = int(len(train_ids) * VAL_SIZE)
-    val_ids = set(train_ids[-n_clients_val:])
-    train_ids = set(train_ids[:-n_clients_val])
-
-    print("TRAIN LABELED IDS", len(train_ids))
-    print("VAL IDS", len(val_ids))
-    print("TEST IDS", len(test_ids))
-
-    train_ids = make_index(train_ids)
-    val_ids = make_index(val_ids)
-    test_ids = make_index(test_ids)
-    no_train_ids = val_ids.union(test_ids)
-
-    print("Filter")
-    testset = transactions.join(test_ids, on="id", how="inner")
-    valset = transactions.join(val_ids, on="id", how="inner")
-    trainset = transactions.join(no_train_ids, on="id", how="left_anti")  # Both labeled and unlabeled.
-    return trainset.persist(), valset.persist(), testset.persist()
+    # Measure time from the beginning.
+    udf = F.udf(lambda x: [v - x[0] for v in x], ArrayType(IntegerType()))
+    df = df.withColumn("timestamps", udf(F.col("timestamps")))
+    return df
 
 
 def dump_parquet(df, path, n_partitions):
     df.sort(F.col("id")).repartition(n_partitions, "id").write.mode("overwrite").parquet(path)
+
+
+def dump_parquet_file(df, path):
+    root = "folder-" + path
+    df.sort(F.col("id")).repartition(1, "id").write.mode("overwrite").parquet(root)
+    parquet_files = list(pathlib.Path(root).glob("*.parquet"))
+    assert len(parquet_files) == 1
+    shutil.move(parquet_files[0], path)
+    shutil.rmtree(root)
+
+
+def convert_part(src_path,
+                 dst_train, dst_val, dst_test,
+                 targets_train, targets_test):
+    df = read_part(src_path)
+    df = collect_lists(df)
+
+    df_dev = df.join(targets_test, on="id", how="left_anti").join(targets_train, on="id", how="left")
+    dump_parquet_file(df_dev.filter(F.col("id") % 100 >= VAL_SIZE * 100), dst_train)
+    dump_parquet_file(df_dev.filter(F.col("id") % 100 < VAL_SIZE * 100), dst_val)
+
+    df_test = df.join(targets_test, on="id", how="inner")
+    dump_parquet_file(df_test, dst_test)
+
+
+def clean_folder(path):
+    if os.path.exists(path):
+        shutil.rmtree(path)
+    os.mkdir(path)
 
 
 def main(args):
@@ -152,51 +156,25 @@ def main(args):
         os.mkdir(args.root)
     if not os.path.isdir(cache_dir):
         os.mkdir(cache_dir)
+    download(cache_dir)
     targets = get_targets(cache_dir)
-    train_targets, test_targets = split_targets_train_test(targets)
+    targets_train, targets_test = split_targets_train_test(targets)
 
-    transactions = get_transactions(cache_dir)
-
-    print("Transform")
-    preprocessor = PysparkDataPreprocessor(
-        col_id="id",
-        col_event_time="timestamps",
-        event_time_transformation="none",
-        cols_category=["labels",
-                       "currency",
-	               "operation_kind",
-	               "card_type",
-	               "operation_type",
-                       "operation_type_group",
-                       "ecommerce_flag",
-                       "payment_system",
-                       "income_flag",
-                       "country",
-                       "city",
-                       "mcc_category",
-                       "day_of_week",
-                       "hour",
-                       "weekofyear"],
-        category_transformation="frequency"
-    )
-    transactions = preprocessor.fit_transform(transactions)
-    # Normalize timestamps.
-    udf = F.udf(lambda x: [v - x[0] for v in x], ArrayType(IntegerType()))
-    transactions = transactions.withColumn("timestamps", udf(F.col("timestamps")))
-    transactions = transactions.join(targets.select("id", "target"), on="id", how="left").persist()
-
-    print("Split")
-    train, val, test = train_val_test_split(transactions, train_targets, test_targets)
-
-    train_path = os.path.join(args.root, "train.parquet")
-    val_path = os.path.join(args.root, "val.parquet")
-    test_path = os.path.join(args.root, "test.parquet")
-    print(f"Dump train with {train.count()} records to {train_path}")
-    dump_parquet(train, train_path, n_partitions=64)
-    print(f"Dump val with {val.count()} records to {val_path}")
-    dump_parquet(val, val_path, n_partitions=16)
-    print(f"Dump test with {test.count()} records to {test_path}")
-    dump_parquet(test, test_path, n_partitions=16)
+    root_dst_train = os.path.join(args.root, "train.parquet")
+    root_dst_val = os.path.join(args.root, "val.parquet")
+    root_dst_test = os.path.join(args.root, "test.parquet")
+    clean_folder(root_dst_train)
+    clean_folder(root_dst_val)
+    clean_folder(root_dst_test)
+    for name in TRANSACTIONS_FILES:
+        root_src = os.path.join(cache_dir, f"split-{name}.parquet")
+        for filename in pathlib.Path(root_src).glob("*.parquet"):
+            filename = os.path.basename(filename)
+            convert_part(os.path.join(root_src, filename),
+                         os.path.join(root_dst_train, filename),
+                         os.path.join(root_dst_val, filename),
+                         os.path.join(root_dst_test, filename),
+                         targets_train, targets_test)
     print("OK")
 
 
