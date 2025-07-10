@@ -13,7 +13,7 @@ VAL_SIZE = 0.1
 
 def parse_args():
     parser = argparse.ArgumentParser("Prepare and dump dataset to a parquet file.")
-    parser.add_argument("--root", help="Dataset root (must contain MIMIC4 folder with `core`, `hosp`, and `icu`)", default="data")
+    parser.add_argument("--root", help="Dataset root", default="data")
     return parser.parse_args()
 
 
