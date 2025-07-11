@@ -31,6 +31,7 @@ def parse_args():
 
 def download(cache_dir):
     spark = SparkSession.builder.getOrCreate()
+    dataset = None
     for name in TRANSACTIONS_FILES:
         path = os.path.join(cache_dir, f"convert-{name}.parquet")
         if not os.path.exists(path):
@@ -38,10 +39,17 @@ def download(cache_dir):
             part = load_dataset("dllllb/alfa-scoring-trx", name, cache_dir=cache_dir)
             key = next(iter(part.keys()))
             part[key].to_parquet(path)
-        split_path = os.path.join(cache_dir, f"split-{name}.parquet")
-        if not os.path.exists(split_path):
-            df = spark.read.parquet(path)
-            df.repartition(16, "app_id").write.mode("overwrite").parquet(split_path)
+        part = spark.read.parquet(path).select(
+            "app_id", "amnt", "currency", "operation_kind", "card_type",
+            "operation_type", "operation_type_group", "ecommerce_flag",
+            "payment_system", "income_flag", "mcc", "country", "city",
+            "mcc_category", "day_of_week", "hour", "days_before", "weekofyear",
+            "hour_diff", "transaction_number"
+        )
+        dataset = part if dataset is None else dataset.union(part)
+    split_path = os.path.join(cache_dir, f"split.parquet")
+    if not os.path.exists(split_path):
+        dataset.repartition(100, "app_id").write.mode("overwrite").parquet(split_path)
 
 
 def get_targets(cache_dir):
@@ -166,15 +174,14 @@ def main(args):
     clean_folder(root_dst_train)
     clean_folder(root_dst_val)
     clean_folder(root_dst_test)
-    for name in TRANSACTIONS_FILES:
-        root_src = os.path.join(cache_dir, f"split-{name}.parquet")
-        for filename in pathlib.Path(root_src).glob("*.parquet"):
-            filename = os.path.basename(filename)
-            convert_part(os.path.join(root_src, filename),
-                         os.path.join(root_dst_train, filename),
-                         os.path.join(root_dst_val, filename),
-                         os.path.join(root_dst_test, filename),
-                         targets_train, targets_test)
+    root_src = os.path.join(cache_dir, f"split.parquet")
+    for filename in pathlib.Path(root_src).glob("*.parquet"):
+        filename = os.path.basename(filename)
+        convert_part(os.path.join(root_src, filename),
+                     os.path.join(root_dst_train, filename),
+                     os.path.join(root_dst_val, filename),
+                     os.path.join(root_dst_test, filename),
+                     targets_train, targets_test)
     print("OK")
 
 
