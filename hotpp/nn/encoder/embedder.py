@@ -55,15 +55,23 @@ class EmbeddingEncoder(torch.nn.Embedding):
 
 
 class IdentityEncoder(torch.nn.Module):
+    def __init__(self, size=1):
+        super().__init__()
+        self.size = size
+
     def forward(self, x):
-        if x.payload.ndim != 2:
-            raise ValueError(f"Expected tensor with shape (B, L), got {x.payload.shape}.")
-        payload = x.payload.unsqueeze(-1)
-        return PaddedBatch(payload, x.seq_lens)  # (B, L, 1).
+        if x.payload.ndim == 3:
+            payload = x.payload
+        elif x.payload.ndim == 2:
+            payload = x.payload.unsqueeze(-1)
+        else:
+            raise ValueError(f"Expected tensor with shape (B, L) or (B, L, D), got {x.payload.shape}.")
+        assert payload.shape[2] == self.size
+        return PaddedBatch(payload, x.seq_lens)  # (B, L, D).
 
     @property
     def output_size(self):
-        return 1
+        return self.size
 
 
 class LogEncoder(torch.nn.Module):
@@ -115,7 +123,9 @@ class Embedder(torch.nn.Module):
                                               normalize=spec.get("normalize", False),
                                               clip=spec.get("clip", False))
         for name, spec in (numeric_values or {}).items():
-            if isinstance(spec, (str, torch.nn.Module)):
+            if hasattr(spec, "items"):
+                spec = dict(spec)
+            if isinstance(spec, (str, dict, torch.nn.Module)):
                 encoders[name] = self._make_encoder(spec)
             else:
                 # spec is a list of multiple encoders.

@@ -32,6 +32,8 @@ def to_torch_if_possible(v):
         v = float("nan")
     try:
         if isinstance(v, np.ndarray):
+            if isinstance(v[0], np.ndarray):
+                v = np.stack(v)
             t = torch.from_numpy(v)
         else:
             t = torch.tensor(v)

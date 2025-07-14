@@ -159,8 +159,8 @@ class MAELoss(BaseLoss):
     Args:
         grad_scale: Gradients multiplier.
     """
-    def __init__(self, grad_scale=None):
-        super().__init__(input_size=1, target_size=1,
+    def __init__(self, size=1, grad_scale=None):
+        super().__init__(input_size=size, target_size=size,
                          grad_scale=grad_scale)
 
     @property
@@ -180,7 +180,7 @@ class MAELoss(BaseLoss):
         Returns:
             Losses tensor with shape (B, L', *), (optional) mask tensor with shape (B, L') and metrics dictionary.
         """
-        assert predictions.shape[-1] == 1
+        assert predictions.shape[-1] == self._input_size
         predictions = predictions.squeeze(-1)  # (B, L - 1, *).
         broadcast = (predictions.shape[1] != inputs.shape[1]) and (predictions.shape[1] == 1)
         predictions = predictions if broadcast else predictions[:, :-1]  # (B, L - 1, *).
@@ -205,8 +205,8 @@ class MSELoss(BaseLoss):
     Args:
         grad_scale: Gradients multiplier.
     """
-    def __init__(self, grad_scale=None):
-        super().__init__(input_size=1, target_size=1,
+    def __init__(self, size=1, grad_scale=None):
+        super().__init__(input_size=size, target_size=size,
                          grad_scale=grad_scale)
 
     @property
@@ -226,7 +226,7 @@ class MSELoss(BaseLoss):
         Returns:
             Losses tensor with shape (B, L', *), (optional) mask tensor with shape (B, L') and metrics dictionary.
         """
-        assert predictions.shape[-1] == 1
+        assert predictions.shape[-1] == self._input_size
         predictions = predictions.squeeze(-1)  # (B, L - 1, *).
         broadcast = (predictions.shape[1] != inputs.shape[1]) and (predictions.shape[1] == 1)
         predictions = predictions if broadcast else predictions[:, :-1]  # (B, L - 1, *).
