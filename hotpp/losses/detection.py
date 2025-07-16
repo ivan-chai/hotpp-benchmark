@@ -90,6 +90,9 @@ class DetectionLoss(NextKLoss):
             presence_logits: Predicted presence logits with shape (B, L2, K).
         """
         # (B, L1, K), (B, L2, K).
+        matching_priors = self._matching_priors.clone()
+        matching_thresholds = self._matching_thresholds.clone()
+        
         matching = matching.payload[matching.seq_len_mask]  # (V, K).
         if len(matching) > 0:
             means = (matching >= 0).float().mean(0)  # (K).
