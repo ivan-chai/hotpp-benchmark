@@ -90,13 +90,13 @@ class DetectionLoss(NextKLoss):
             presence_logits: Predicted presence logits with shape (B, L2, K).
         """
         # (B, L1, K), (B, L2, K).
-        matching_priors = self._matching_priors.clone()
-        matching_thresholds = self._matching_thresholds.clone()
         
         matching = matching.payload[matching.seq_len_mask]  # (V, K).
         if len(matching) > 0:
             means = (matching >= 0).float().mean(0)  # (K).
             matching_priors = self._matching_priors * (1 - self._momentum) + means * self._momentum
+        else:
+            matching_priors = self._matching_priors.clone()
 
         presence_logits = presence_logits.payload[presence_logits.seq_len_mask]  # (V, K).
         if len(presence_logits) > 0:
@@ -108,6 +108,8 @@ class DetectionLoss(NextKLoss):
             up_quantiles = presence_logits.take_along_dim(up_indices[None], 0).squeeze(0)  # (K).
             quantiles = 0.5 * (bottom_quantiles + up_quantiles)
             matching_thresholds = self._matching_thresholds * (1 - self._momentum) + quantiles * self._momentum
+        else:
+            matching_thresholds = self._matching_thresholds.clone()
 
         if torch.distributed.is_initialized():
             world_size = torch.distributed.get_world_size()
