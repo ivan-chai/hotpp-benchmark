@@ -88,10 +88,14 @@ def eval_embeddings(conf):
 
 
 def parse_result(path):
+    """Return a dictionary split->metric->(mean, std)."""
     scores = {}
     with open(path, "r") as fp:
         split = None
+        metric = None
         for line in fp:
+            if "Metric:" in line:
+                metric = line.strip().split()[1].strip("\"")
             if "split_name" in line:
                 split = line.strip().split()[1].replace("scores_", "")
                 if split == "valid":
@@ -103,7 +107,9 @@ def parse_result(path):
             tokens = line.strip().split()
             mean = float(tokens[2])
             std = float(tokens[6])
-            scores[split] = (mean, std)
+            if split not in scores:
+                scores[split] = {}
+            scores[split][metric] = (mean, std)
             split = None
     return scores
 
@@ -192,9 +198,10 @@ def main(conf):
     if scores is not None:
         # The main process.
         result = {}
-        for split, (mean, std) in scores.items():
-            result[f"{split}/{conf.downstream.target.col_target} (mean)"] = mean
-            result[f"{split}/{conf.downstream.target.col_target} (std)"] = std
+        for split, by_metric in scores.items():
+            for metric, (mean, std) in by_metric.items():
+                result[f"{split}/{conf.downstream.target.col_target}-{metric}"] = mean
+                result[f"{split}/{conf.downstream.target.col_target}-{metric}-std"] = std
         with open(downstream_report, "w") as fp:
             dump_report(result, fp)
 

@@ -33,9 +33,10 @@ def test(conf, model, dm, trainer=None):
         if scores is not None:
             # The main process.
             downstream_metrics = {}
-            for split, (mean, std) in scores.items():
-                downstream_metrics[f"{split}/downstream"] = mean
-                downstream_metrics[f"{split}/downstream-std"] = std
+            for split, by_metric in scores.items():
+                for metric, (mean, std) in by_metric.items():
+                    downstream_metrics[f"{split}/{conf.downstream.target.col_target}-{metric}"] = mean
+                    downstream_metrics[f"{split}/{conf.downstream.target.col_target}-{metric}-std"] = std
             metrics.update(downstream_metrics)
             trainer.logger.log_metrics(downstream_metrics)
 
