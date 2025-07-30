@@ -105,6 +105,10 @@ class ExtendedLayer:
     def __init__(self, layer):
         self.layer = layer
 
+    @property
+    def self_attn(self):
+        return self.layer.self_attn
+
     def __call__(self, *args, **kwargs):
         self.activation = self.layer(*args, **kwargs)
         return self.activation
@@ -127,13 +131,12 @@ def extended_transformer(transformer, cache_hiddens=False):
     if not cache_hiddens:
         yield transformer
         return
-    layers = [ExtendedLayer(layer) for layer in transformer.layers]
-    backup_values = transformer.layers._modules.values
-    transformer.layers._modules.values = lambda: layers
+    backup_values = dict(transformer.layers._modules)
+    transformer.layers._modules.update({name: ExtendedLayer(layer) for name, layer in transformer.layers._modules.items()})
     try:
         yield ExtendedTransformer(transformer)
     finally:
-        transformer.layers._modules.values = backup_values
+        transformer.layers._modules.update(backup_values)
 
 
 class SimpleTransformer(torch.nn.Module):
