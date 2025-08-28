@@ -1,0 +1,37 @@
+defaults:
+  - default
+  - _self_
+
+name: next_item_transformer_simple
+
+module:
+  _target_: hotpp.modules.NextItemModule
+  seq_encoder:
+    _target_: hotpp.nn.Encoder
+    model_partial:
+      _target_: hotpp.nn.SimpleTransformer
+      _partial_: true
+      n_positions: ${transformer_positions}
+      n_embd: ${transformer_hidden_size}
+      n_layer: ${transformer_layers}
+      n_head: ${transformer_heads}
+      max_duration: ${max_duration}
+      pos_type:  # Multiple encodings are allowed.
+        - time-angular-rel
+      activation:
+        _partial_: True
+        _target_: torch.nn.functional.gelu
+      causal: True
+    max_context: ${transformer_context}
+  head_partial: ${head}
+  loss:
+    _target_: hotpp.losses.NextItemLoss
+    losses:
+      timestamps:
+        _target_: hotpp.losses.TimeMAELoss
+        max_delta: ${max_time_delta}
+        smoothing: ${time_smoothing}
+      labels:
+        _target_: hotpp.losses.CrossEntropyLoss
+        num_classes: ${num_classes}
+  autoreg_max_steps: ${max_predictions}
