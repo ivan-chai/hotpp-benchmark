@@ -1,0 +1,10 @@
+defaults:
+  - next_item_transformer_simple
+  - _self_
+
+name: next_item_transformer_simple_rope
+
+module:
+  seq_encoder:
+    model_partial:
+      rope: time
