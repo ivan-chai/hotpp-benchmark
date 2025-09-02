@@ -2,7 +2,7 @@ import torch
 from torch import Tensor
 from torch.nn import functional as F
 from torch.nn.functional import *
-from torch.nn.functional import _mha_shape_check, _canonical_mask, _none_or_dtype, _in_projection, _in_projection_packed, _check_key_padding_mask
+from torch.nn.functional import _canonical_mask, _none_or_dtype, _in_projection, _in_projection_packed, _check_key_padding_mask
 from torch.nn.modules.activation import _arg_requires_grad, _is_make_fx_tracing
 from typing import Optional
 
@@ -195,51 +195,7 @@ def multi_head_attention_rope_forward(
           :math:`S` is the source sequence length. If ``average_attn_weights=False``, returns attention weights per
           head of shape :math:`(num_heads, L, S)` when input is unbatched or :math:`(N, num_heads, L, S)`.
     """
-    tens_ops = (
-        query,
-        key,
-        value,
-        in_proj_weight,
-        in_proj_bias,
-        bias_k,
-        bias_v,
-        out_proj_weight,
-        out_proj_bias,
-    )
-    if has_torch_function(tens_ops):
-        return handle_torch_function(
-            multi_head_attention_forward,
-            tens_ops,
-            query,
-            key,
-            value,
-            embed_dim_to_check,
-            num_heads,
-            in_proj_weight,
-            in_proj_bias,
-            bias_k,
-            bias_v,
-            add_zero_attn,
-            dropout_p,
-            out_proj_weight,
-            out_proj_bias,
-            training=training,
-            key_padding_mask=key_padding_mask,
-            need_weights=need_weights,
-            attn_mask=attn_mask,
-            is_causal=is_causal,
-            use_separate_proj_weight=use_separate_proj_weight,
-            q_proj_weight=q_proj_weight,
-            k_proj_weight=k_proj_weight,
-            v_proj_weight=v_proj_weight,
-            static_k=static_k,
-            static_v=static_v,
-            average_attn_weights=average_attn_weights,
-        )
-
-    is_batched = _mha_shape_check(
-        query, key, value, key_padding_mask, attn_mask, num_heads
-    )
+    is_batched = True
 
     # For unbatched input, we unsqueeze at the expected batch-dim to pretend that the input
     # is batched, run the computation and before returning squeeze the
