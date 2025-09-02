@@ -66,7 +66,7 @@ class PositionalEncoding(torch.nn.Module):
     Mei H., Yang C., Eisner J. "Transformer embeddings of irregularly spaced events and their participants", ICLR 2021.
 
     Args:
-        pos_type: Either `pos-embedding`, `pos-angular[-train]`, `time-angular[-train]-abs`, `time-angular[-train]-rel`, or a list of values (probably, empty).
+        pos_type: Either `none`, `pos-embedding`, `pos-angular[-train]`, `time-angular[-train]-abs`, `time-angular[-train]-rel`, or a list of values (probably, empty).
         max_duration: Must be provided if time encodings are used.
         min_time_step: The minimum time step (> 0). By default it is max_duration / n_positions.
     """
@@ -81,7 +81,9 @@ class PositionalEncoding(torch.nn.Module):
             raise ValueError("The embedding size must be divisible by the number of positional embedders")
         embedder_size = n_embd // len(pos_type)
         for name in pos_type:
-            if name in ["pos-angular", "pos-angular-train"]:
+            if name in "none":
+                continue
+            elif name in ["pos-angular", "pos-angular-train"]:
                 embedders.append(PositionalAngularEmbedding(embedder_size, n_positions,
                                                             trainable="-train" in name))
             elif name == "pos-embedding":
@@ -97,10 +99,14 @@ class PositionalEncoding(torch.nn.Module):
     def forward(self, x, timestamps=None):
         # x: (B, L, D).
         # timestamps: (B, L).
-        embeddings = [embedder(x, timestamps) for embedder in self.embedders]  # N x (B, L, D / N).
-        # Use interleave instead of concatenation to achieve correct processing with multiple attention heads.
-        embeddings = torch.stack(embeddings, -1).flatten(2, 3)  # (B, L, D).
-        return self.dropout(x + embeddings)
+        if len(self.embedders) == 0:
+            embeddings = x
+        else:
+            embeddings = [embedder(x, timestamps) for embedder in self.embedders]  # N x (B, L, D / N).
+            # Use interleave instead of concatenation to achieve correct processing with multiple attention heads.
+            embeddings = torch.stack(embeddings, -1).flatten(2, 3)  # (B, L, D).
+            embeddings = x + embeddings
+        return self.dropout(embeddings)
 
 
 class HoTPPTransformerEncoderLayer(torch.nn.TransformerEncoderLayer):
