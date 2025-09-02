@@ -2,7 +2,7 @@ import torch
 from torch import Tensor
 from torch.nn import functional as F
 from torch.nn.functional import *
-from torch.nn.functional import _canonical_mask, _none_or_dtype, _in_projection, _in_projection_packed, _check_key_padding_mask
+from torch.nn.functional import _canonical_mask, _none_or_dtype, _in_projection, _in_projection_packed
 from torch.nn.modules.activation import _arg_requires_grad, _is_make_fx_tracing
 from typing import Optional
 
@@ -385,9 +385,6 @@ def multi_head_attention_rope_forward(
 
     # merge key padding and attention masks
     if key_padding_mask is not None:
-        if not torch.jit.is_scripting() and not torch.jit.is_tracing():
-            _check_key_padding_mask(key_padding_mask, src_len, bsz)
-
         key_padding_mask = (
             key_padding_mask.view(bsz, 1, 1, src_len)
             .expand(-1, num_heads, -1, -1)
