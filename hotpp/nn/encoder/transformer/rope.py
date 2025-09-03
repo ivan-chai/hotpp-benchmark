@@ -226,8 +226,11 @@ def multi_head_attention_rope_forward(
     # set up shape vars
     tgt_len, bsz, embed_dim = query.shape  # (L, B, D).
     src_len, _, _ = key.shape
-    assert q_proj_weight.shape[0] % k_proj_weight.shape[0] == 0
-    group_size = q_proj_weight.shape[0] // k_proj_weight.shape[0]
+    if k_proj_weight is None:
+        group_size = 1
+    else:
+        assert q_proj_weight.shape[0] % k_proj_weight.shape[0] == 0
+        group_size = q_proj_weight.shape[0] // k_proj_weight.shape[0]
     assert num_heads % group_size == 0
     num_kv_heads = num_heads // group_size
 
