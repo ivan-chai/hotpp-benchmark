@@ -1,8 +1,10 @@
 import math
 import torch
+from torch.nn import functional as F
 from contextlib import contextmanager
 
 from hotpp.data import PaddedBatch
+from .rope import MultiheadAttentionRoPE, TimeRoPEEncoding
 
 
 class PositionalAngularEmbedding(torch.nn.Module):
@@ -64,7 +66,7 @@ class PositionalEncoding(torch.nn.Module):
     Mei H., Yang C., Eisner J. "Transformer embeddings of irregularly spaced events and their participants", ICLR 2021.
 
     Args:
-        pos_type: Either `pos-embedding`, `pos-angular[-train]`, `time-angular[-train]-abs`, `time-angular[-train]-rel`, or a list of values (probably, empty).
+        pos_type: Either `none`, `pos-embedding`, `pos-angular[-train]`, `time-angular[-train]-abs`, `time-angular[-train]-rel`, or a list of values (probably, empty).
         max_duration: Must be provided if time encodings are used.
         min_time_step: The minimum time step (> 0). By default it is max_duration / n_positions.
     """
@@ -79,7 +81,9 @@ class PositionalEncoding(torch.nn.Module):
             raise ValueError("The embedding size must be divisible by the number of positional embedders")
         embedder_size = n_embd // len(pos_type)
         for name in pos_type:
-            if name in ["pos-angular", "pos-angular-train"]:
+            if name in "none":
+                continue
+            elif name in ["pos-angular", "pos-angular-train"]:
                 embedders.append(PositionalAngularEmbedding(embedder_size, n_positions,
                                                             trainable="-train" in name))
             elif name == "pos-embedding":
@@ -95,11 +99,83 @@ class PositionalEncoding(torch.nn.Module):
     def forward(self, x, timestamps=None):
         # x: (B, L, D).
         # timestamps: (B, L).
-        embeddings = [embedder(x, timestamps) for embedder in self.embedders]  # N x (B, L, D / N).
-        # Use interleave instead of concatenation to achieve correct processing with multiple attention heads.
-        embeddings = torch.stack(embeddings, -1).flatten(2, 3)  # (B, L, D).
-        return self.dropout(x + embeddings)
+        if len(self.embedders) == 0:
+            embeddings = x
+        else:
+            embeddings = [embedder(x, timestamps) for embedder in self.embedders]  # N x (B, L, D / N).
+            # Use interleave instead of concatenation to achieve correct processing with multiple attention heads.
+            embeddings = torch.stack(embeddings, -1).flatten(2, 3)  # (B, L, D).
+            embeddings = x + embeddings
+        return self.dropout(embeddings)
 
+
+class HoTPPTransformerEncoderLayer(torch.nn.TransformerEncoderLayer):
+    """TransformerEncoderLayer with RoPE support."""
+    def __init__(self, d_model, nhead,
+                 dim_feedforward=2048,
+                 dropout=0.1,
+                 activation=F.relu,
+                 layer_norm_eps=1e-5,
+                 batch_first=False,
+                 norm_first=False,
+                 bias=True,
+                 device=None,
+                 dtype=None):
+        super().__init__(d_model, nhead,
+                         dim_feedforward=dim_feedforward,
+                         dropout=dropout,
+                         activation=activation,
+                         layer_norm_eps=layer_norm_eps,
+                         batch_first=batch_first,
+                         norm_first=norm_first,
+                         bias=bias,
+                         device=device,
+                         dtype=dtype)
+        factory_kwargs = {"device": device, "dtype": dtype}
+        self.self_attn = MultiheadAttentionRoPE(
+            d_model,
+            nhead,
+            dropout=dropout,
+            bias=bias,
+            batch_first=batch_first,
+            **factory_kwargs,
+        )
+
+    def forward(self, src, src_mask=None, src_key_padding_mask=None, is_causal=False, rope=None):
+        rope = rope or getattr(self, "_rope", [None])[0]
+        self.self_attn._rope = [rope]
+        try:
+            return super().forward(src, src_mask, src_key_padding_mask, is_causal)
+        finally:
+            del self.self_attn._rope
+
+
+class HoTPPTransformerEncoder(torch.nn.TransformerEncoder):
+    """TransformerEncoder with RoPE support."""
+    def __init__(self,
+                 layers,
+                 norm=None,
+                 mask_check=True):
+        super(torch.nn.TransformerEncoder, self).__init__()
+        self.layers = torch.nn.ModuleList(layers)
+        self.num_layers = len(layers)
+        self.norm = norm
+        # this attribute saves the value providedat object construction
+        self.enable_nested_tensor = False
+        # this attribute controls whether nested tensors are used
+        self.use_nested_tensor = False
+        self.mask_check = mask_check
+
+    def forward(self, src, mask=None, src_key_padding_mask=None, is_causal=False, rope=None):
+        if rope is None:
+            return super().forward(src, mask, src_key_padding_mask, is_causal)
+        for layer in self.layers:
+            layer._rope = [rope]
+        try:
+            return super().forward(src, mask, src_key_padding_mask, is_causal)
+        finally:
+            for layer in self.layers:
+                del layer._rope
 
 class ExtendedLayer:
     def __init__(self, layer):
@@ -146,11 +222,13 @@ class SimpleTransformer(torch.nn.Module):
         pos_type: Either `pos-embedding`, `pos-angular`, `time-angular[-train]-abs`, `time-angular[-train]-rel`, or a list of values (probably, empty).
         max_duration: Must be provided if time encodings are used.
         min_time_step: The minimum time step (> 0). By default it is max_duration / n_positions.
+        rope: Either "time[-train]" or None.
     """
     def __init__(self, input_size, n_positions=1024, n_embd=768, n_layer=12, n_head=12,
                  n_inner=None, dropout=0.1, causal=False,
                  activation=torch.nn.functional.relu,
-                 pos_type="pos-angular", max_duration=None, min_time_step=None):
+                 pos_type="pos-angular", rope=None,
+                 max_duration=None, min_time_step=None):
         super().__init__()
         n_inner = n_inner if n_inner is not None else 4 * n_embd
         self.n_positions = n_positions
@@ -165,20 +243,33 @@ class SimpleTransformer(torch.nn.Module):
 
         # We use norm_first by default.
         # See the original paper: Xiong R. et al. "On layer normalization in the transformer architecture" ICML 2020.
-        layer = torch.nn.TransformerEncoderLayer(d_model=n_embd,
-                                                 nhead=n_head,
-                                                 dim_feedforward=n_inner,
-                                                 activation=activation,
-                                                 dropout=dropout,
-                                                 norm_first=True,
-                                                 batch_first=True)
-        self.encoder = torch.nn.TransformerEncoder(layer, n_layer)
+        layers = [HoTPPTransformerEncoderLayer(d_model=n_embd,
+                                               nhead=n_head,
+                                               dim_feedforward=n_inner,
+                                               activation=activation,
+                                               dropout=dropout,
+                                               norm_first=True,
+                                               batch_first=True)
+                  for _ in range(n_layer)]
+        self.encoder = HoTPPTransformerEncoder(layers)
         self.positional = PositionalEncoding(n_embd=n_embd,
                                              n_positions=n_positions,
                                              pos_type=pos_type,
                                              max_duration=max_duration,
                                              min_time_step=min_time_step,
                                              dropout=dropout)
+        if rope in {"time", "time-train"}:
+            self.rope = TimeRoPEEncoding(
+                head_dim=n_embd // n_head,
+                n_positions=n_positions,
+                max_duration=max_duration,
+                min_time_step=min_time_step,
+                trainable="train" in rope
+            )
+        elif rope is not None:
+            raise ValueError(f"Wrong rope value: {rope}")
+        else:
+            self.rope = None
         if causal:
             sa_mask = torch.triu(torch.ones((n_positions, n_positions), dtype=torch.bool), diagonal=1)
             self.register_buffer("sa_mask", sa_mask, persistent=False)
@@ -221,7 +312,8 @@ class SimpleTransformer(torch.nn.Module):
             outputs = encoder(embeddings.payload,
                               mask=attention_mask,
                               src_key_padding_mask=~embeddings.seq_len_mask.bool() if not self.causal else None,
-                              is_causal=causal_hint)  # (B, L, D).
+                              is_causal=causal_hint,
+                              rope=self.rope)  # (B, L, D).
             if return_states == "full":
                 states = encoder.activations
             else:
@@ -248,5 +340,9 @@ class SimpleTransformer(torch.nn.Module):
         embeddings = self.input_projection(x.payload)  # (B, L, D).
         embeddings = self.positional(embeddings, timestamps.payload)  # (B, L, D).
         embeddings = PaddedBatch(embeddings, x.seq_lens)
-        outputs, states = self.transform(embeddings, attention_mask=attention_mask)
+        if self.rope is not None:
+            with self.rope.cache(timestamps.payload):
+                outputs, states = self.transform(embeddings, attention_mask=attention_mask)
+        else:
+            outputs, states = self.transform(embeddings, attention_mask=attention_mask)
         return outputs, states
