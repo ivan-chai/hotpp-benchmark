@@ -114,6 +114,7 @@ class HoTPPTransformerEncoderLayer(torch.nn.TransformerEncoderLayer):
 
     Args:
         normalization: Normalization class.
+        mlp: Either "default" or "gated".
     """
     def __init__(self, d_model, nhead,
                  dim_feedforward=2048,
@@ -121,6 +122,7 @@ class HoTPPTransformerEncoderLayer(torch.nn.TransformerEncoderLayer):
                  activation=F.relu,
                  normalization=torch.nn.LayerNorm,
                  layer_norm_eps=1e-5,
+                 mlp="default",
                  batch_first=False,
                  norm_first=False,
                  bias=True,
@@ -149,6 +151,13 @@ class HoTPPTransformerEncoderLayer(torch.nn.TransformerEncoderLayer):
             assert hasattr(self, "norm2")
             self.norm2 = normalization(d_model, **norm_kwargs)
 
+        # Update MLP.
+        if mlp == "gated":
+            self.gate = torch.nn.Linear(d_model, dim_feedforward, bias=bias, **factory_kwargs)
+        elif mlp != "default":
+            raise ValueError(f"Unknown MLP type: {mlp}.")
+        self.mlp = mlp
+
         # Update attention block.
         self.self_attn = MultiheadAttentionRoPE(
             d_model,
@@ -166,6 +175,14 @@ class HoTPPTransformerEncoderLayer(torch.nn.TransformerEncoderLayer):
             return super().forward(src, src_mask, src_key_padding_mask, is_causal)
         finally:
             del self.self_attn._rope
+
+    def _ff_block(self, x):
+        if self.mlp == "gated":
+            x = self.linear2(self.dropout(self.activation(self.gate(x)) * self.linear1(x)))
+        else:
+            assert self.mlp == "default"
+            x = self.linear2(self.dropout(self.activation(self.linear1(x))))
+        return self.dropout2(x)
 
 
 class HoTPPTransformerEncoder(torch.nn.TransformerEncoder):
@@ -246,7 +263,7 @@ class SimpleTransformer(torch.nn.Module):
                  n_inner=None, dropout=0.1, causal=False,
                  activation=torch.nn.functional.relu,
                  normalization=torch.nn.LayerNorm,
-                 pos_type="pos-angular", rope=None,
+                 mlp="default", pos_type="pos-angular", rope=None,
                  max_duration=None, min_time_step=None):
         super().__init__()
         n_inner = n_inner if n_inner is not None else 4 * n_embd
@@ -267,6 +284,7 @@ class SimpleTransformer(torch.nn.Module):
                                                dim_feedforward=n_inner,
                                                activation=activation,
                                                normalization=normalization,
+                                               mlp=mlp,
                                                dropout=dropout,
                                                norm_first=True,
                                                batch_first=True)
