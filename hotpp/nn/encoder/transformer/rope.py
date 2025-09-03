@@ -84,6 +84,20 @@ class TimeRoPEEncoding(torch.nn.Module):
         return tuple(result)
 
 
+def _in_projection(
+    q: Tensor,
+    k: Tensor,
+    v: Tensor,
+    w_q: Tensor,
+    w_k: Tensor,
+    w_v: Tensor,
+    b_q: Optional[Tensor] = None,
+    b_k: Optional[Tensor] = None,
+    b_v: Optional[Tensor] = None,
+):
+    return linear(q, w_q, b_q), linear(k, w_k, b_k), linear(v, w_v, b_v)
+
+
 def multi_head_attention_rope_forward(
     query: Tensor,
     key: Tensor,
@@ -110,7 +124,8 @@ def multi_head_attention_rope_forward(
     static_v: Optional[Tensor] = None,
     average_attn_weights: bool = True,
     is_causal: bool = False,
-    rope: Optional[TimeRoPEEncoding] = None
+    rope: Optional[TimeRoPEEncoding] = None,
+    enable_gqa: bool = False,
 ) -> tuple[Tensor, Optional[Tensor]]:
     r"""Forward method for MultiHeadAttentionRoPE.
 
@@ -209,8 +224,12 @@ def multi_head_attention_rope_forward(
             key_padding_mask = key_padding_mask.unsqueeze(0)
 
     # set up shape vars
-    tgt_len, bsz, embed_dim = query.shape
+    tgt_len, bsz, embed_dim = query.shape  # (L, B, D).
     src_len, _, _ = key.shape
+    assert q_proj_weight.shape[0] % k_proj_weight.shape[0] == 0
+    group_size = q_proj_weight.shape[0] // k_proj_weight.shape[0]
+    assert num_heads % group_size == 0
+    num_kv_heads = num_heads // group_size
 
     key_padding_mask = _canonical_mask(
         mask=key_padding_mask,
@@ -290,7 +309,9 @@ def multi_head_attention_rope_forward(
         if in_proj_bias is None:
             b_q = b_k = b_v = None
         else:
-            b_q, b_k, b_v = in_proj_bias.chunk(3)
+            b_q = in_proj_bias[:embed_dim]
+            b_k, b_v = in_proj_bias[embed_dim:].chunk(2)
+
         q, k, v = _in_projection(
             query,
             key,
@@ -342,25 +363,25 @@ def multi_head_attention_rope_forward(
     #
     # reshape q, k, v for multihead attention and make them batch first
     #
-    q = q.view(tgt_len, bsz * num_heads, head_dim).transpose(0, 1)
+    q = q.view(tgt_len, bsz * num_heads, head_dim).transpose(0, 1)  # (BH, L, D).
     if static_k is None:
-        k = k.view(k.shape[0], bsz * num_heads, head_dim).transpose(0, 1)
+        k = k.view(k.shape[0], bsz * num_kv_heads, head_dim).transpose(0, 1)  # (BH, L, D).
     else:
         # TODO finish disentangling control flow so we don't do in-projections when statics are passed
         assert (
-            static_k.size(0) == bsz * num_heads
-        ), f"expecting static_k.size(0) of {bsz * num_heads}, but got {static_k.size(0)}"
+            static_k.size(0) == bsz * num_kv_heads
+        ), f"expecting static_k.size(0) of {bsz * num_kv_heads}, but got {static_k.size(0)}"
         assert (
             static_k.size(2) == head_dim
         ), f"expecting static_k.size(2) of {head_dim}, but got {static_k.size(2)}"
         k = static_k
     if static_v is None:
-        v = v.view(v.shape[0], bsz * num_heads, head_dim).transpose(0, 1)
+        v = v.view(v.shape[0], bsz * num_kv_heads, head_dim).transpose(0, 1)  # (BH, L, D).
     else:
         # TODO finish disentangling control flow so we don't do in-projections when statics are passed
         assert (
-            static_v.size(0) == bsz * num_heads
-        ), f"expecting static_v.size(0) of {bsz * num_heads}, but got {static_v.size(0)}"
+            static_v.size(0) == bsz * num_kv_heads
+        ), f"expecting static_v.size(0) of {bsz * num_kv_heads}, but got {static_v.size(0)}"
         assert (
             static_v.size(2) == head_dim
         ), f"expecting static_v.size(2) of {head_dim}, but got {static_v.size(2)}"
@@ -368,7 +389,7 @@ def multi_head_attention_rope_forward(
 
     # add zero attention along batch dimension (now first)
     if add_zero_attn:
-        zero_attn_shape = (bsz * num_heads, 1, head_dim)
+        zero_attn_shape = (bsz * num_kv_heads, 1, head_dim)
         k = torch.cat(
             [k, torch.zeros(zero_attn_shape, dtype=k.dtype, device=k.device)], dim=1
         )
@@ -403,16 +424,18 @@ def multi_head_attention_rope_forward(
     if rope is not None:
         # q, k: (B * H, L, D).
         q = q.view(bsz, num_heads, tgt_len, head_dim)
-        k = k.view(bsz, num_heads, tgt_len, head_dim)
+        k = k.view(bsz, num_kv_heads, tgt_len, head_dim)
         q, k = rope(q, k)
         q = q.view(bsz * num_heads, tgt_len, head_dim)
-        k = k.view(bsz * num_heads, tgt_len, head_dim)
+        k = k.view(bsz * num_kv_heads, tgt_len, head_dim)
 
     #
     # (deep breath) calculate attention and out projection
     #
 
     if need_weights:
+        if group_size != 1:
+            raise NotImplementedError("GQA with need_weights.")
         _B, _Nt, E = q.shape
         q_scaled = q * math.sqrt(1.0 / float(E))
 
@@ -459,11 +482,12 @@ def multi_head_attention_rope_forward(
                 attn_mask = attn_mask.view(bsz, num_heads, -1, src_len)
 
         q = q.view(bsz, num_heads, tgt_len, head_dim)
-        k = k.view(bsz, num_heads, src_len, head_dim)
-        v = v.view(bsz, num_heads, src_len, head_dim)
+        k = k.view(bsz, num_kv_heads, src_len, head_dim)
+        v = v.view(bsz, num_kv_heads, src_len, head_dim)
 
         attn_output = scaled_dot_product_attention(
-            q, k, v, attn_mask, dropout_p, is_causal
+            q, k, v, attn_mask, dropout_p, is_causal,
+            enable_gqa=enable_gqa
         )
         attn_output = (
             attn_output.permute(2, 0, 1, 3).contiguous().view(bsz * tgt_len, embed_dim)
@@ -478,6 +502,44 @@ def multi_head_attention_rope_forward(
 
 
 class MultiheadAttentionRoPE(torch.nn.MultiheadAttention):
+    def __init__(self,
+                 embed_dim,
+                 num_heads,
+                 *,
+                 group_size=1,
+                 device=None,
+                 dtype=None,
+                 **kwargs
+        ):
+        super().__init__(embed_dim, num_heads,
+                         device=device, dtype=dtype,
+                         **kwargs)
+        self.group_size = group_size
+        if group_size > 1:
+            factory_kwargs = {"device": device, "dtype": dtype}
+            if self._qkv_same_embed_dim:
+                self._qkv_same_embed_dim = False
+                del self.in_proj_weight
+                self.in_proj_weight = None
+                self.q_proj_weight = torch.nn.Parameter(
+                    torch.empty((embed_dim, embed_dim), **factory_kwargs)
+                )
+            assert embed_dim % num_heads == 0
+            head_dim = embed_dim // num_heads
+            assert num_heads % group_size == 0
+            num_kv_heads = num_heads // group_size
+            kvdim = head_dim * num_kv_heads
+            self.num_kv_heads = num_kv_heads
+            self.k_proj_weight = torch.nn.Parameter(
+                torch.empty((kvdim, self.kdim), **factory_kwargs)
+            )
+            self.v_proj_weight = torch.nn.Parameter(
+                torch.empty((kvdim, self.vdim), **factory_kwargs)
+            )
+            if self.in_proj_bias is not None:
+                self.in_proj_bias = torch.nn.Parameter(torch.empty(embed_dim + 2 * kvdim, **factory_kwargs))
+            self._reset_parameters()
+
     def forward(
         self,
         query: Tensor,
@@ -621,6 +683,7 @@ class MultiheadAttentionRoPE(torch.nn.MultiheadAttention):
             why_not_fast_path = "autocast is enabled"
 
         if not why_not_fast_path:
+            assert self.group_size == 1
             tensor_args = (
                 query,
                 key,
@@ -712,9 +775,11 @@ class MultiheadAttentionRoPE(torch.nn.MultiheadAttention):
                 v_proj_weight=self.v_proj_weight,
                 average_attn_weights=average_attn_weights,
                 is_causal=is_causal,
-                rope=rope
+                rope=rope,
+                enable_gqa=self.group_size > 1
             )
         else:
+            assert self.group_size == 1
             attn_output, attn_output_weights = multi_head_attention_rope_forward(
                 query,
                 key,

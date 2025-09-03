@@ -123,6 +123,7 @@ class HoTPPTransformerEncoderLayer(torch.nn.TransformerEncoderLayer):
                  normalization=torch.nn.LayerNorm,
                  layer_norm_eps=1e-5,
                  mlp="default",
+                 group_size=1,
                  batch_first=False,
                  norm_first=False,
                  bias=True,
@@ -165,6 +166,7 @@ class HoTPPTransformerEncoderLayer(torch.nn.TransformerEncoderLayer):
             dropout=dropout,
             bias=bias,
             batch_first=batch_first,
+            group_size=group_size,
             **factory_kwargs,
         )
 
@@ -263,7 +265,7 @@ class SimpleTransformer(torch.nn.Module):
                  n_inner=None, dropout=0.1, causal=False,
                  activation=torch.nn.functional.relu,
                  normalization=torch.nn.LayerNorm,
-                 mlp="default", pos_type="pos-angular", rope=None,
+                 mlp="default", pos_type="pos-angular", rope=None, group_size=1,
                  max_duration=None, min_time_step=None):
         super().__init__()
         n_inner = n_inner if n_inner is not None else 4 * n_embd
@@ -286,6 +288,7 @@ class SimpleTransformer(torch.nn.Module):
                                                normalization=normalization,
                                                mlp=mlp,
                                                dropout=dropout,
+                                               group_size=group_size,
                                                norm_first=True,
                                                batch_first=True)
                   for _ in range(n_layer)]
