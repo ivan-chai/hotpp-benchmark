@@ -152,6 +152,20 @@ class HoTPPTransformerEncoderLayer(torch.nn.TransformerEncoderLayer):
 
 class HoTPPTransformerEncoder(torch.nn.TransformerEncoder):
     """TransformerEncoder with RoPE support."""
+    def __init__(self,
+                 layers,
+                 norm=None,
+                 mask_check=True):
+        super(torch.nn.TransformerEncoder, self).__init__()
+        self.layers = torch.nn.ModuleList(layers)
+        self.num_layers = len(layers)
+        self.norm = norm
+        # this attribute saves the value providedat object construction
+        self.enable_nested_tensor = False
+        # this attribute controls whether nested tensors are used
+        self.use_nested_tensor = False
+        self.mask_check = mask_check
+
     def forward(self, src, mask=None, src_key_padding_mask=None, is_causal=False, rope=None):
         if rope is None:
             return super().forward(src, mask, src_key_padding_mask, is_causal)
@@ -229,14 +243,15 @@ class SimpleTransformer(torch.nn.Module):
 
         # We use norm_first by default.
         # See the original paper: Xiong R. et al. "On layer normalization in the transformer architecture" ICML 2020.
-        layer = HoTPPTransformerEncoderLayer(d_model=n_embd,
-                                             nhead=n_head,
-                                             dim_feedforward=n_inner,
-                                             activation=activation,
-                                             dropout=dropout,
-                                             norm_first=True,
-                                             batch_first=True)
-        self.encoder = HoTPPTransformerEncoder(layer, n_layer)
+        layers = [HoTPPTransformerEncoderLayer(d_model=n_embd,
+                                               nhead=n_head,
+                                               dim_feedforward=n_inner,
+                                               activation=activation,
+                                               dropout=dropout,
+                                               norm_first=True,
+                                               batch_first=True)
+                  for _ in range(n_layer)]
+        self.encoder = HoTPPTransformerEncoder(layers)
         self.positional = PositionalEncoding(n_embd=n_embd,
                                              n_positions=n_positions,
                                              pos_type=pos_type,
