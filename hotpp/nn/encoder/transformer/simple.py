@@ -110,11 +110,16 @@ class PositionalEncoding(torch.nn.Module):
 
 
 class HoTPPTransformerEncoderLayer(torch.nn.TransformerEncoderLayer):
-    """TransformerEncoderLayer with RoPE support."""
+    """TransformerEncoderLayer with RoPE support.
+
+    Args:
+        normalization: Normalization class.
+    """
     def __init__(self, d_model, nhead,
                  dim_feedforward=2048,
                  dropout=0.1,
                  activation=F.relu,
+                 normalization=torch.nn.LayerNorm,
                  layer_norm_eps=1e-5,
                  batch_first=False,
                  norm_first=False,
@@ -131,7 +136,20 @@ class HoTPPTransformerEncoderLayer(torch.nn.TransformerEncoderLayer):
                          bias=bias,
                          device=device,
                          dtype=dtype)
+
         factory_kwargs = {"device": device, "dtype": dtype}
+
+        # Update normalization.
+        if normalization is not torch.nn.LayerNorm:
+            norm_kwargs = dict(factory_kwargs)
+            if (normalization is torch.nn.LayerNorm) or (normalization is torch.nn.RMSNorm):
+                norm_kwargs["eps"] = layer_norm_eps
+            assert hasattr(self, "norm1")
+            self.norm1 = normalization(d_model, **norm_kwargs)
+            assert hasattr(self, "norm2")
+            self.norm2 = normalization(d_model, **norm_kwargs)
+
+        # Update attention block.
         self.self_attn = MultiheadAttentionRoPE(
             d_model,
             nhead,
@@ -227,6 +245,7 @@ class SimpleTransformer(torch.nn.Module):
     def __init__(self, input_size, n_positions=1024, n_embd=768, n_layer=12, n_head=12,
                  n_inner=None, dropout=0.1, causal=False,
                  activation=torch.nn.functional.relu,
+                 normalization=torch.nn.LayerNorm,
                  pos_type="pos-angular", rope=None,
                  max_duration=None, min_time_step=None):
         super().__init__()
@@ -247,6 +266,7 @@ class SimpleTransformer(torch.nn.Module):
                                                nhead=n_head,
                                                dim_feedforward=n_inner,
                                                activation=activation,
+                                               normalization=normalization,
                                                dropout=dropout,
                                                norm_first=True,
                                                batch_first=True)
