@@ -259,7 +259,7 @@ class SimpleTransformer(torch.nn.Module):
         pos_type: Either `pos-embedding`, `pos-angular`, `time-angular[-train]-abs`, `time-angular[-train]-rel`, or a list of values (probably, empty).
         max_duration: Must be provided if time encodings are used.
         min_time_step: The minimum time step (> 0). By default it is max_duration / n_positions.
-        rope: Either "time[-train]" or None.
+        rope: Either "time[-train]", "none" or None.
     """
     def __init__(self, input_size, n_positions=1024, n_embd=768, n_layer=12, n_head=12,
                  n_inner=None, dropout=0.1, causal=False,
@@ -307,7 +307,7 @@ class SimpleTransformer(torch.nn.Module):
                 min_time_step=min_time_step,
                 trainable="train" in rope
             )
-        elif rope is not None:
+        elif (rope is not None) and (rope != "none"):
             raise ValueError(f"Wrong rope value: {rope}")
         else:
             self.rope = None
