@@ -116,8 +116,7 @@ class HoTPPTransformerEncoderLayer(torch.nn.TransformerEncoderLayer):
         normalization: Normalization class.
         mlp: Either "default" or "gated".
     """
-    def __init__(self, d_model, nhead,
-                 dim_feedforward=2048,
+    def __init__(self, d_model, nhead, dim_feedforward,
                  dropout=0.1,
                  activation=F.relu,
                  normalization=torch.nn.LayerNorm,
