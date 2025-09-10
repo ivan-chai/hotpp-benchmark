@@ -1,5 +1,6 @@
 import copy
 import logging
+from contextlib import contextmanager
 
 import hydra
 import pytorch_lightning as pl
@@ -11,6 +12,15 @@ from .evaluate import test
 
 
 logger = logging.getLogger(__name__)
+
+
+@contextmanager
+def torch_matmul_precision(precision="highest"):
+    torch.set_float32_matmul_precision(precision)
+    try:
+        yield None
+    finally:
+        torch.set_float32_matmul_precision("highest")
 
 
 def train(conf):
@@ -31,12 +41,15 @@ def train(conf):
         model.load_state_dict(torch.load(conf.model_path))
         trainer = None
     else:
+        matmul_precision = conf.trainer.pop("matmul_precision", "highest")
+
         trainer = get_trainer(conf)
         if conf.get("init_from_checkpoint", None):
             if resume_from_checkpoint:
                 raise ValueError("Can't mix resume_from_checkpoint with init_from_checkpoint")
             model.load_state_dict(torch.load(conf["init_from_checkpoint"]))
-        trainer.fit(model, dm, ckpt_path=resume_from_checkpoint)
+        with torch_matmul_precision(matmul_precision):
+            trainer.fit(model, dm, ckpt_path=resume_from_checkpoint)
 
         checkpoint_callback = trainer.checkpoint_callback
         if checkpoint_callback is not None:
