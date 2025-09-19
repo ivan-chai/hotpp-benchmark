@@ -345,8 +345,6 @@ class SimpleTransformer(torch.nn.Module):
                 if attention_mask.shape[0] == b:
                     attention_mask = attention_mask.repeat_interleave(self.n_head, dim=0)
             attention_mask = torch.logical_or(attention_mask, sa_mask)
-        else:
-            attention_mask = None
 
         with extended_transformer(self.encoder, cache_hiddens=(return_states == "full")) as encoder:
             outputs = encoder(embeddings.payload,
