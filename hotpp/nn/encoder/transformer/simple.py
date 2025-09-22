@@ -337,9 +337,8 @@ class SimpleTransformer(torch.nn.Module):
         b, l = embeddings.shape
         causal_hint = self.causal if attention_mask is None else False
         if attention_mask is None:
-            attention_mask = self.sa_mask[:l, :l] if self.sa_mask is not None else None
-        elif causal_hint:
-            assert self.sa_mask is not None
+            attention_mask = self.sa_mask[:l, :l] if self.causal else None
+        elif self.causal:
             sa_mask = self.sa_mask[:l, :l]
             if attention_mask.ndim == 3:
                 sa_mask = sa_mask[None]
