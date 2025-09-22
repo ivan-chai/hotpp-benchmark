@@ -110,12 +110,19 @@ class PositionalEncoding(torch.nn.Module):
 
 
 class HoTPPTransformerEncoderLayer(torch.nn.TransformerEncoderLayer):
-    """TransformerEncoderLayer with RoPE support."""
-    def __init__(self, d_model, nhead,
-                 dim_feedforward=2048,
+    """TransformerEncoderLayer with RoPE support.
+
+    Args:
+        normalization: Normalization class.
+        mlp: Either "default" or "gated".
+    """
+    def __init__(self, d_model, nhead, dim_feedforward,
                  dropout=0.1,
                  activation=F.relu,
+                 normalization=torch.nn.LayerNorm,
                  layer_norm_eps=1e-5,
+                 mlp="default",
+                 group_size=1,
                  batch_first=False,
                  norm_first=False,
                  bias=True,
@@ -131,13 +138,34 @@ class HoTPPTransformerEncoderLayer(torch.nn.TransformerEncoderLayer):
                          bias=bias,
                          device=device,
                          dtype=dtype)
+
         factory_kwargs = {"device": device, "dtype": dtype}
+
+        # Update normalization.
+        if normalization is not torch.nn.LayerNorm:
+            norm_kwargs = dict(factory_kwargs)
+            if (normalization is torch.nn.LayerNorm) or (normalization is torch.nn.RMSNorm):
+                norm_kwargs["eps"] = layer_norm_eps
+            assert hasattr(self, "norm1")
+            self.norm1 = normalization(d_model, **norm_kwargs)
+            assert hasattr(self, "norm2")
+            self.norm2 = normalization(d_model, **norm_kwargs)
+
+        # Update MLP.
+        if mlp == "gated":
+            self.gate = torch.nn.Linear(d_model, dim_feedforward, bias=bias, **factory_kwargs)
+        elif mlp != "default":
+            raise ValueError(f"Unknown MLP type: {mlp}.")
+        self.mlp = mlp
+
+        # Update attention block.
         self.self_attn = MultiheadAttentionRoPE(
             d_model,
             nhead,
             dropout=dropout,
             bias=bias,
             batch_first=batch_first,
+            group_size=group_size,
             **factory_kwargs,
         )
 
@@ -148,6 +176,14 @@ class HoTPPTransformerEncoderLayer(torch.nn.TransformerEncoderLayer):
             return super().forward(src, src_mask, src_key_padding_mask, is_causal)
         finally:
             del self.self_attn._rope
+
+    def _ff_block(self, x):
+        if self.mlp == "gated":
+            x = self.linear2(self.dropout(self.activation(self.gate(x)) * self.linear1(x)))
+        else:
+            assert self.mlp == "default"
+            x = self.linear2(self.dropout(self.activation(self.linear1(x))))
+        return self.dropout2(x)
 
 
 class HoTPPTransformerEncoder(torch.nn.TransformerEncoder):
@@ -222,12 +258,13 @@ class SimpleTransformer(torch.nn.Module):
         pos_type: Either `pos-embedding`, `pos-angular`, `time-angular[-train]-abs`, `time-angular[-train]-rel`, or a list of values (probably, empty).
         max_duration: Must be provided if time encodings are used.
         min_time_step: The minimum time step (> 0). By default it is max_duration / n_positions.
-        rope: Either "time[-train]" or None.
+        rope: Either "time[-train]", "none" or None.
     """
     def __init__(self, input_size, n_positions=1024, n_embd=768, n_layer=12, n_head=12,
                  n_inner=None, dropout=0.1, causal=False,
                  activation=torch.nn.functional.relu,
-                 pos_type="pos-angular", rope=None,
+                 normalization=torch.nn.LayerNorm,
+                 mlp="default", pos_type="pos-angular", rope=None, group_size=1,
                  max_duration=None, min_time_step=None):
         super().__init__()
         n_inner = n_inner if n_inner is not None else 4 * n_embd
@@ -247,7 +284,10 @@ class SimpleTransformer(torch.nn.Module):
                                                nhead=n_head,
                                                dim_feedforward=n_inner,
                                                activation=activation,
+                                               normalization=normalization,
+                                               mlp=mlp,
                                                dropout=dropout,
+                                               group_size=group_size,
                                                norm_first=True,
                                                batch_first=True)
                   for _ in range(n_layer)]
@@ -266,7 +306,7 @@ class SimpleTransformer(torch.nn.Module):
                 min_time_step=min_time_step,
                 trainable="train" in rope
             )
-        elif rope is not None:
+        elif (rope is not None) and (rope != "none"):
             raise ValueError(f"Wrong rope value: {rope}")
         else:
             self.rope = None
@@ -305,8 +345,6 @@ class SimpleTransformer(torch.nn.Module):
                 if attention_mask.shape[0] == b:
                     attention_mask = attention_mask.repeat_interleave(self.n_head, dim=0)
             attention_mask = torch.logical_or(attention_mask, sa_mask)
-        else:
-            attention_mask = None
 
         with extended_transformer(self.encoder, cache_hiddens=(return_states == "full")) as encoder:
             outputs = encoder(embeddings.payload,

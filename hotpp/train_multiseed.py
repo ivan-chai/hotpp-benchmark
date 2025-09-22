@@ -27,8 +27,9 @@ def train_multiseed(conf):
         raise ValueError("Need the path to the multiseed evaluation report.")
     OmegaConf.set_struct(conf, False)
     base_model_path = conf["model_path"]
-    conf.pop("logger", None)
-    conf.pop("report", None)  # Don't overwrite single-seed test results.
+    # Don't overwrite single-seed test results.
+    conf.pop("report", None)
+    conf.pop("downstream_report", None)
     by_metric = defaultdict(list)
     for seed in range(conf.num_evaluation_seeds):
         conf["seed_everything"] = seed
