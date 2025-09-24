@@ -251,6 +251,16 @@ def extended_transformer(transformer, cache_hiddens=False):
         transformer.layers._modules.update(backup_values)
 
 
+@contextmanager
+def no_mha_fast_path():
+    revert = torch.backends.mha.get_fastpath_enabled()
+    torch.backends.mha.set_fastpath_enabled(False)
+    try:
+        yield None
+    finally:
+        torch.backends.mha.set_fastpath_enabled(revert)
+
+
 class SimpleTransformer(torch.nn.Module):
     """Simple transformer mimicing HuggingFace interface.
 
@@ -338,24 +348,27 @@ class SimpleTransformer(torch.nn.Module):
         causal_hint = self.causal if attention_mask is None else False
         if attention_mask is None:
             attention_mask = self.sa_mask[:l, :l] if self.causal else None
-        elif self.causal:
-            sa_mask = self.sa_mask[:l, :l]
+        else:
             if attention_mask.ndim == 3:
-                sa_mask = sa_mask[None]
                 if attention_mask.shape[0] == b:
                     attention_mask = attention_mask.repeat_interleave(self.n_head, dim=0)
-            attention_mask = torch.logical_or(attention_mask, sa_mask)
+            if self.causal:
+                sa_mask = self.sa_mask[:l, :l]
+                if attention_mask.ndim == 3:
+                    sa_mask = sa_mask[None]
+                attention_mask = torch.logical_or(attention_mask, sa_mask)
 
-        with extended_transformer(self.encoder, cache_hiddens=(return_states == "full")) as encoder:
-            outputs = encoder(embeddings.payload,
-                              mask=attention_mask,
-                              src_key_padding_mask=~embeddings.seq_len_mask.bool() if not self.causal else None,
-                              is_causal=causal_hint,
-                              rope=self.rope)  # (B, L, D).
-            if return_states == "full":
-                states = encoder.activations
-            else:
-                states = None
+        with no_mha_fast_path():
+            with extended_transformer(self.encoder, cache_hiddens=(return_states == "full")) as encoder:
+                outputs = encoder(embeddings.payload,
+                                mask=attention_mask,
+                                src_key_padding_mask=~embeddings.seq_len_mask.bool() if not self.causal else None,
+                                is_causal=causal_hint,
+                                rope=self.rope)  # (B, L, D).
+                if return_states == "full":
+                    states = encoder.activations
+                else:
+                    states = None
         return PaddedBatch(outputs, embeddings.seq_lens), states
 
     def forward(self, x, timestamps, states=None, return_states=False, attention_mask=None):

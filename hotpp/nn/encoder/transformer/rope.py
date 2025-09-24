@@ -12,7 +12,7 @@ class TimeRoPEEncoding(torch.nn.Module):
 
     Usage:
     ```
-    sa = MultiHeadAttentionRoPE(...)
+    sa = MultiheadAttentionRoPE(...)
     rope = TimeRoPEEncoding(...)
     with rope.cache(timestamps):
         x = sa(q, k, v, rope=rope)
