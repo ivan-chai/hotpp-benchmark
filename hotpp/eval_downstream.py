@@ -182,7 +182,7 @@ def main(conf):
     if downstream_report is None:
         raise RuntimeError("Need output dowstream report path.")
 
-    trainer = get_trainer(conf)
+    trainer = get_trainer(conf, precision=32)
     dm = hydra.utils.instantiate(conf.data_module)
     model = hydra.utils.instantiate(conf.module)
     model.load_state_dict(torch.load(conf.model_path))
