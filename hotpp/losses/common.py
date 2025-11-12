@@ -1,3 +1,4 @@
+import math
 from abc import ABC, abstractmethod, abstractproperty
 from collections.abc import Iterable
 
@@ -252,15 +253,17 @@ class TimeMAELoss(BaseLoss):
         delta: The type of time delta computation (`last` or `start`).
         smoothing: The amount of noise to add to time deltas. Useful for discrete time to prevent spiky intensity.
         scale: Input scale (inputs are devided by that value and predictions are multiplied).
+        truncated: Use truncated distribution for positive numbers.
         grad_scale: Gradients multiplier.
     """
-    def __init__(self, delta="last", max_delta=None, smoothing=None, scale=None, grad_scale=None):
+    def __init__(self, delta="last", max_delta=None, smoothing=None, scale=None, truncated=False, grad_scale=None):
         super().__init__(input_size=1, target_size=1,
                          grad_scale=grad_scale)
         self.delta = delta
         self.max_delta = max_delta
         self.smoothing = smoothing
         self.scale = scale
+        self.truncated = truncated
 
     @property
     def need_interpolator(self):
@@ -289,6 +292,11 @@ class TimeMAELoss(BaseLoss):
         if self.scale is not None:
             deltas = deltas / self.scale
         losses = (predictions - deltas).abs()  # (B, L - 1, *).
+        if self.truncated:
+            lognorm = torch.where(predictions >= 0,
+                                  (1 - 0.5 * (-predictions).exp()).log(),
+                                  math.log(0.5) + predictions)
+            losses = losses + lognorm
         return losses, mask, {}
 
     def predict_modes(self, predictions):
@@ -310,14 +318,17 @@ class TimeMSELoss(BaseLoss):
     Args:
         delta: The type of time delta computation (`last` or `start`).
         smoothing: The amount of noise to add to time deltas. Useful for discrete time to prevent spiky intensity.
+        scale: Input scale (inputs are devided by that value and predictions are multiplied).
+        truncated: Use truncated distribution for positive numbers.
     """
-    def __init__(self, delta="last", max_delta=None, smoothing=None, scale=None, grad_scale=None):
+    def __init__(self, delta="last", max_delta=None, smoothing=None, scale=None, truncated=False, grad_scale=None):
         super().__init__(input_size=1, target_size=1,
                          grad_scale=grad_scale)
         self.delta = delta
         self.max_delta = max_delta
         self.smoothing = smoothing
         self.scale = scale
+        self.truncated = truncated
 
     @property
     def need_interpolator(self):
@@ -345,7 +356,13 @@ class TimeMSELoss(BaseLoss):
         predictions = predictions if broadcast else predictions[:, :-1]  # (B, L - 1, *).
         if self.scale is not None:
             deltas = deltas / self.scale
-        losses = (predictions - deltas).square()  # (B, L - 1, *).
+        difference = deltas - predictions
+        losses = difference.square()  # (B, L - 1, *).
+        if self.truncated:
+            lognorm = torch.where(difference >= -2.0,
+                                  math.log(0.5) + torch.log1p(torch.erf(predictions)),
+                                  -6.0581)
+            losses = losses + lognorm
         return losses, mask, {}
 
     def predict_modes(self, predictions):

@@ -159,7 +159,7 @@ def main(conf):
     if not embeddings_path.endswith(".parquet"):
         raise RuntimeError("Embeddings path must have the '.parquet' extension.")
 
-    trainer = get_trainer(conf)
+    trainer = get_trainer(conf, precision=32)
     datamodule = hydra.utils.instantiate(conf.data_module)
     model = hydra.utils.instantiate(conf.module)
     model.load_state_dict(torch.load(conf.model_path))
