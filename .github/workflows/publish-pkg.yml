@@ -27,18 +27,18 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v3
       with:
-        python-version: '3.x'
-
+        python-version: '3.13'
     - name: Build package
       run: |
-        pip install build
-        python -m build --wheel
+        pip install -U build setuptools
+        pip install --no-build-isolation torch \
+          --find-links "https://download.pytorch.org/whl/cpu/torch_stable.html"
+        python -m build -n --wheel
         ls -lh dist/
     - name: Try to install package
       run: |
-        pip install dist/*.whl
+        pip install --no-build-isolation dist/*.whl
         pip list
-
     - name: Publish package
       if: github.event_name == 'release'
       uses: pypa/gh-action-pypi-publish@27b31702a0e7fc50959f5ad993c78deac1bdfc29
