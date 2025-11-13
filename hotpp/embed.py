@@ -18,6 +18,14 @@ from .data import ShuffledDistributedDataset
 logger = logging.getLogger(__name__)
 
 
+class TupleWithCPU(tuple):
+    def cpu(self):
+        return self
+
+    def tolist(self):
+        return list(self)
+
+
 class GatherMetric(Metric):
     """Gather predictions across all processes."""
     def __init__(self, n_values, compute_on_cpu=False):
@@ -30,13 +38,19 @@ class GatherMetric(Metric):
         if len(args) != self.n_values:
             raise ValueError(f"Wrong number of inputs: {len(args)} != {self.n_values}")
         for i, v in enumerate(args):
+            if isinstance(v, (tuple, list)):
+                v = TupleWithCPU(v)
             getattr(self, f"_out_{i}").append(v)
 
     def compute(self):
         results = []
         for i in range(self.n_values):
             try:
-                values = dim_zero_cat(getattr(self, f"_out_{i}"))
+                values = getattr(self, f"_out_{i}")
+                if values and isinstance(values[0], torch.Tensor):
+                    values = dim_zero_cat(values)
+                else:
+                    values = TupleWithCPU(sum(values, tuple()))
                 results.append(values)
             except ValueError:
                 # Empty list.
