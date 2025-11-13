@@ -81,7 +81,8 @@ class HotppDataset(torch.utils.data.IterableDataset):
                  add_seq_fields=None,
                  global_target_fields=None,
                  local_targets_fields=None,
-                 local_targets_indices_field=None):
+                 local_targets_indices_field=None,
+                 mbd=False):
         super().__init__()
         if isinstance(data, str):
             self.filenames = list(sorted(parquet_file_scan(data)))
@@ -113,6 +114,7 @@ class HotppDataset(torch.utils.data.IterableDataset):
                 known_fields = known_fields + [local_targets_indices_field]
             fields = list(sorted(set(fields) | set(known_fields)))
         self.fields = fields
+        self.mbd = mbd
 
     def shuffle_files(self, rnd=None):
         """Make a new dataset with shuffled partitions."""
@@ -185,7 +187,22 @@ class HotppDataset(torch.utils.data.IterableDataset):
                         break
                 if skip:
                     continue
-                yield self.process(features)
+                if self.mbd:
+                    year = 2022
+                    seq_features = [k for k, v in features.items() if self.is_seq_feature(k, v)]
+                    for month in range(1, 12 + 1):
+                        if month == 12:
+                            month_event_time = datetime(year + 1, 1, 1).timestamp() / TSCALE
+                        else:
+                            month_event_time = datetime(year, month + 1, 1).timestamp() / TSCALE
+                        mask = features[self.timestamps_field] < month_event_time
+                        fm = dict(features)
+                        for k in seq_features:
+                            fm[k] = features[k][mask]
+                        fm[self.id_field] = features[self.id_field] + "_month=" + str(month)
+                        yield self.process(fm)
+                else:
+                    yield self.process(features)
 
     def _make_batch(self, by_name, batch_size, seq_feature_name=None):
         # Compute lengths.
