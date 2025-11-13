@@ -190,6 +190,7 @@ class HotppDataset(torch.utils.data.IterableDataset):
                     continue
                 if self.mbd:
                     year = 2022
+                    TSCALE = 3600 * 24
                     seq_features = [k for k, v in features.items() if self.is_seq_feature(k, v)]
                     for month in range(1, 12 + 1):
                         if month == 12:
