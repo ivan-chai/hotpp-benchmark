@@ -128,7 +128,7 @@ class HotppDataset(torch.utils.data.IterableDataset):
                             fields=self.fields, id_field=self.id_field, timestamps_field=self.timestamps_field,
                             drop_nans=self.drop_nans, global_target_fields=self.global_target_fields,
                             local_targets_fields=self.local_targets_fields, local_targets_indices_field=self.local_targets_indices_field,
-                            mbd=mbd)
+                            mbd=self.mbd)
 
     def is_seq_feature(self, name, value, batch=False):
         """Check whether feature is sequential using its name and value.
