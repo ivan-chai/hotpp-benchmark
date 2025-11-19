@@ -2,6 +2,7 @@ import torch
 from torchmetrics.aggregation import MeanMetric
 
 from ..data import PaddedBatch
+from .edit_distance import HorizonEditDistanceMetric
 from .horizon_binary_targets import HorizonBinaryTargetsMetric
 from .next_item import NextItemMetric
 from .otd import OTDMetric, batch_bincount
@@ -38,6 +39,8 @@ class HorizonMetric(torch.nn.Module):
         self._horizon_predicted_deltas = MeanMetric(compute_on_cpu=compute_on_cpu)
         self._sequence_labels_entropies = MeanMetric(compute_on_cpu=compute_on_cpu)
         self._target_sequence_labels_entropies = MeanMetric(compute_on_cpu=compute_on_cpu)
+        self._sequence_labels_unique_events = MeanMetric(compute_on_cpu=compute_on_cpu)
+        self._target_sequence_labels_unique_events = MeanMetric(compute_on_cpu=compute_on_cpu)
 
         self.next_item = NextItemMetric(max_time_delta=max_time_delta, compute_on_cpu=compute_on_cpu)
         if map_deltas is not None:
@@ -47,9 +50,13 @@ class HorizonMetric(torch.nn.Module):
             self.tmap = TMAPMetric(horizon=horizon,
                                    time_delta_thresholds=map_deltas,
                                    compute_on_cpu=compute_on_cpu)
+            self.edit_distance = HorizonEditDistanceMetric(horizon=horizon,
+                                                           time_delta_thresholds=map_deltas,
+                                                           compute_on_cpu=compute_on_cpu)
         else:
             self.map_target_length = None
             self.tmap = None
+            self.edit_distance = None
         if otd_steps is not None:
             if (otd_insert_cost is None) or (otd_delete_cost is None):
                 raise ValueError("Need insertion and deletion costs for the OTD metric.")
@@ -74,7 +81,7 @@ class HorizonMetric(torch.nn.Module):
 
     @property
     def horizon_prediction(self):
-        return (self.tmap is not None) or (self.otd is not None)
+        return (self.tmap is not None) or (self.edit_distance is not None) or (self.otd is not None)
 
     def reset(self):
         self._target_lengths.reset()
@@ -82,10 +89,14 @@ class HorizonMetric(torch.nn.Module):
         self._horizon_predicted_deltas.reset()
         self._sequence_labels_entropies.reset()
         self._target_sequence_labels_entropies.reset()
+        self._sequence_labels_unique_events.reset()
+        self._target_sequence_labels_unique_events.reset()
 
         self.next_item.reset()
         if self.tmap is not None:
             self.tmap.reset()
+        if self.edit_distance is not None:
+            self.edit_distance.reset()
         if self.otd is not None:
             self.otd.reset()
         if self.horizon_binary_targets is not None:
@@ -215,6 +226,19 @@ class HorizonMetric(torch.nn.Module):
                                                 targets.payload["timestamps"], targets.payload["labels"])
         self._target_sequence_labels_entropies.update(target_entropies)
 
+        # Update unique events.
+        n_labels = max(features.payload["labels"][features.seq_len_mask.bool()].max().item(),
+                       seq_predicted_labels[seq_predicted_mask].max().item()) + 1
+        if seq_predicted_mask is not None:
+            masked_predicted_labels = torch.where(seq_predicted_mask, seq_predicted_labels, n_labels)  # (B, I, N).
+        else:
+            masked_predicted_labels = seq_predicted_labels  # (B, I, N).
+        unique_predicted_labels = (batch_bincount(masked_predicted_labels.flatten(1, 2))[:, :n_labels] > 0).sum(1)  # (B).
+        masked_target_labels = torch.where(features.seq_len_mask.bool(), features.payload["labels"], n_labels)  # (B, L).
+        unique_target_labels = (batch_bincount(masked_target_labels)[:, :n_labels] > 0).sum(1)  # (B).
+        self._sequence_labels_unique_events.update(unique_predicted_labels)
+        self._target_sequence_labels_unique_events.update(unique_predicted_labels)
+
         # Update T-mAP.
         if self.tmap is not None:
             tmap_predicted_labels_scores = predicted_labels_logits
@@ -225,12 +249,25 @@ class HorizonMetric(torch.nn.Module):
                 tmap_predicted_mask = torch.ones_like(tmap_predicted_mask)
             self.tmap.update(
                 initial_times=initial_timestamps,
-                target_mask=torch.ones(v, self.map_target_length, dtype=torch.bool, device=initial_timestamps.device),  # (V, K).
+                target_mask=torch.ones(v, min(target_timestamps.shape[1], self.map_target_length), dtype=torch.bool, device=initial_timestamps.device),  # (V, K).
                 target_times=target_timestamps[:, :self.map_target_length],  # (V, K).
                 target_labels=target_labels[:, :self.map_target_length],  # (V, K).
                 predicted_mask=tmap_predicted_mask,  # (V, N).
                 predicted_times=predicted_timestamps,  # (V, N).
                 predicted_labels_scores=tmap_predicted_labels_scores  # (V, N, C).
+            )
+
+        # Update edit distance.
+        if self.edit_distance is not None:
+            # TODO: Add predicted probabilities as weights?
+            self.edit_distance.update(
+                initial_times=initial_timestamps,
+                target_mask=torch.ones(v, min(target_timestamps.shape[1], self.map_target_length), dtype=torch.bool, device=initial_timestamps.device),  # (V, K).
+                target_times=target_timestamps[:, :self.map_target_length],  # (V, K).
+                target_labels=target_labels[:, :self.map_target_length],  # (V, K).
+                predicted_mask=predicted_mask,  # (V, N).
+                predicted_times=predicted_timestamps,  # (V, N).
+                predicted_labels=predicted_labels  # (V, N).
             )
 
         # Update OTD.
@@ -280,7 +317,9 @@ class HorizonMetric(torch.nn.Module):
                 "mean-target-length": target_length,
                 "mean-predicted-length": self._predicted_lengths.compute(),
                 "sequence-labels-entropy": self._sequence_labels_entropies.compute(),
-                "target-sequence-labels-entropy": self._target_sequence_labels_entropies.compute()
+                "target-sequence-labels-entropy": self._target_sequence_labels_entropies.compute(),
+                "sequence-unique-labels": self._sequence_labels_unique_events.compute(),
+                "target-sequence-unique-labels": self._target_sequence_labels_unique_events.compute()
             })
             mean_time_step = self._horizon_predicted_deltas.compute()
             if not mean_time_step.isnan():
@@ -288,6 +327,8 @@ class HorizonMetric(torch.nn.Module):
         values.update(self.next_item.compute())
         if self.tmap is not None:
             values.update(self.tmap.compute())
+        if self.edit_distance is not None:
+            values.update(self.edit_distance.compute())
         if self.otd is not None:
             values.update(self.otd.compute())
         if self.horizon_binary_targets is not None:

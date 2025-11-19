@@ -4,7 +4,7 @@ from unittest import TestCase, main
 
 import torch
 
-from hotpp.metrics import NextItemMetric, TMAPMetric, OTDMetric, HorizonMetric, HorizonBinaryTargetsMetric
+from hotpp.metrics import NextItemMetric, TMAPMetric, OTDMetric, HorizonMetric, HorizonEditDistanceMetric, HorizonBinaryTargetsMetric
 
 
 class TestMetrics(TestCase):
@@ -139,6 +139,32 @@ class TestMetrics(TestCase):
         map_gt = (ap_h1_c0 + ap_h1_c1 + ap_h2_c0 + ap_h2_c1) / 4
         self.assertAlmostEqual(metric.compute()["T-mAP"], map_gt)
 
+    def test_edit_distance_metric(self):
+        metric = HorizonEditDistanceMetric(horizon=100, time_delta_thresholds=[0, 1])
+        metric.update(
+            initial_times=self.seq_target_times[:, 0] - 1,
+            target_mask=self.seq_target_mask,
+            target_times=self.seq_target_times,
+            target_labels=self.seq_target_labels,
+            predicted_mask=self.seq_predicted_mask,
+            predicted_times=self.seq_predicted_times,
+            predicted_labels=self.seq_predicted_labels_logits.argmax(-1)
+        )
+
+        tp0 = 2
+        tp1 = 3
+        n_pred = 5
+        n_gt = 3
+
+        f1_micro_0 = 2 * tp0 / (n_pred + n_gt)
+        f1_micro_1 = 2 * tp1 / (n_pred + n_gt)
+        edit_distance_0 = (2 + 1) / max(n_pred, n_gt)
+        edit_distance_1 = (2) / max(n_pred, n_gt)
+
+        result = metric.compute()
+        self.assertAlmostEqual(result["horizon-f1-score-micro"], 0.5 * (f1_micro_0 + f1_micro_1))
+        self.assertAlmostEqual(result["horizon-edit-distance"], 0.5 * (edit_distance_0 + edit_distance_1))
+
     def test_otd_metric(self):
         metric = OTDMetric(insert_cost=0.5, delete_cost=1)
 
@@ -270,6 +296,22 @@ class TestMetrics(TestCase):
         ap_h2_c1 = 0.75
         map_gt = (ap_h1_c0 + ap_h1_c1 + ap_h2_c0 + ap_h2_c1) / 4
         self.assertAlmostEqual(metrics["T-mAP"], map_gt)
+
+        tp0 = 2
+        tp1 = 3
+        n_pred = 5
+        n_gt = 3
+
+        f1_micro_0 = 2 * tp0 / (n_pred + n_gt)
+        f1_micro_1 = 2 * tp1 / (n_pred + n_gt)
+        edit_distance_0 = (2 + 1) / max(n_pred, n_gt)
+        edit_distance_1 = (2) / max(n_pred, n_gt)
+
+        self.assertAlmostEqual(metrics["horizon-f1-score-micro"], 0.5 * (f1_micro_0 + f1_micro_1))
+        self.assertAlmostEqual(metrics["horizon-edit-distance"], 0.5 * (edit_distance_0 + edit_distance_1))
+
+        self.assertAlmostEqual(metrics["sequence-unique-labels"], 2)
+        self.assertAlmostEqual(metrics["target-sequence-unique-labels"], 2)
 
 
 if __name__ == "__main__":
