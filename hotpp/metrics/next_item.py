@@ -72,8 +72,8 @@ class NextItemMetric(Metric):
 
         nc = scores.shape[-1]
         labels = dim_zero_cat(self._labels)
-        one_hot_labels = torch.nn.functional.one_hot(labels.long(), nc).bool()  # (B, C).
-        micro_weights = one_hot_labels.sum(0) / one_hot_labels.sum()  # (C).
+        one_hot_labels = torch.nn.functional.one_hot(labels.long().cpu(), nc).bool()  # (B, C).
+        micro_weights = (one_hot_labels.sum(0) / one_hot_labels.sum()).to(device)  # (C).
         aps, max_f_scores = compute_map(one_hot_labels, scores, device=self._device)  # (C).
         aps = aps.to(device)
         max_f_scores = max_f_scores.to(device)
