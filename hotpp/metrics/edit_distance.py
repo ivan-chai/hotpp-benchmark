@@ -49,6 +49,7 @@ class HorizonEditDistanceMetric(Metric):
         time_mismatch = time_deltas[None, :, :, :] > time_delta_thresholds[:, None, None, None]  # (D, B, P, T).
         label_mismatch = predicted_labels[:, :, None] != target_labels[:, None, :]  # (B, P, T).
         costs = torch.logical_or(time_mismatch, label_mismatch[None]).long()  # (D, B, P, T).
+        costs = torch.logical_or(costs, torch.logical_or(~predicted_mask[:, :, None].bool(), ~target_mask[:, None, :].bool())[None])
 
         for i in range(len(self.time_delta_thresholds)):
             matching = batch_linear_assignment(costs[i])  # (B, P).
