@@ -237,7 +237,7 @@ class HorizonMetric(torch.nn.Module):
         masked_target_labels = torch.where(features.seq_len_mask.bool(), features.payload["labels"], n_labels)  # (B, L).
         unique_target_labels = (batch_bincount(masked_target_labels)[:, :n_labels] > 0).sum(1)  # (B).
         self._sequence_labels_unique_events.update(unique_predicted_labels)
-        self._target_sequence_labels_unique_events.update(unique_predicted_labels)
+        self._target_sequence_labels_unique_events.update(unique_target_labels)
         del masked_predicted_labels
         del unique_predicted_labels
         del masked_target_labels
