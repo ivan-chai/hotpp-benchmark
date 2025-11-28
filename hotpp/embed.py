@@ -47,7 +47,7 @@ class GatherMetric(Metric):
         for i in range(self.n_values):
             try:
                 values = getattr(self, f"_out_{i}")
-                if values and isinstance(values[0], torch.Tensor):
+                if isinstance(values, torch.Tensor) or (values and isinstance(values[0], torch.Tensor)):
                     values = dim_zero_cat(values)
                 else:
                     values = TupleWithCPU(sum(values, tuple()))
