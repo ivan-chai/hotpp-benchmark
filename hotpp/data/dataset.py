@@ -72,10 +72,13 @@ class HotppDataset(torch.utils.data.IterableDataset):
     """
     def __init__(self, data,
                  min_length=0, max_length=None,
+                 random_split=1,
+                 random_part="train",
                  position="random",
                  min_required_length=None,
                  fields=None,
                  id_field="id",
+                 cast_id=None,
                  timestamps_field="timestamps",
                  drop_nans=None,
                  add_seq_fields=None,
@@ -92,11 +95,14 @@ class HotppDataset(torch.utils.data.IterableDataset):
         if not self.filenames:
             raise RuntimeError("Empty dataset")
         self.total_length = sum(map(get_parquet_length, self.filenames))
+        self.random_split = random_split
+        self.random_part = random_part
         self.min_length = min_length
         self.max_length = max_length
         self.position = position
         self.min_required_length = min_required_length
         self.id_field = id_field
+        self.cast_id = cast_id
         self.timestamps_field = timestamps_field
         self.drop_nans = parse_fields(drop_nans)
         self.add_seq_fields = add_seq_fields
@@ -120,9 +126,10 @@ class HotppDataset(torch.utils.data.IterableDataset):
         filenames = list(self.filenames)
         rnd.shuffle(filenames)
         return HotppDataset(filenames,
+                            random_split=self.random_split, random_part=self.random_part,
                             min_length=self.min_length, max_length=self.max_length,
                             position=self.position, min_required_length=self.min_required_length,
-                            fields=self.fields, id_field=self.id_field, timestamps_field=self.timestamps_field,
+                            fields=self.fields, id_field=self.id_field, cast_id=self.cast_id, timestamps_field=self.timestamps_field,
                             drop_nans=self.drop_nans, global_target_fields=self.global_target_fields,
                             local_targets_fields=self.local_targets_fields, local_targets_indices_field=self.local_targets_indices_field)
 
@@ -172,9 +179,19 @@ class HotppDataset(torch.utils.data.IterableDataset):
 
     def __iter__(self):
         for filename in self.filenames:
+            if (self.random_split != 1) or (self.random_part != "train"):
+                s = 1000000000
+                h = hash(os.path.basename(filename))
+                in_train = h <= s * self.random_split
+                if in_train ^ (self.random_part == "train"):
+                    continue
             for rec in read_pyarrow_file(filename, use_threads=True):
                 if (self.min_required_length is not None) and (len(rec[self.timestamps_field]) < self.min_required_length):
                     continue
+                if self.cast_id == "int":
+                    rec[self.id_field] = int(rec[self.id_field])
+                else:
+                    assert self.cast_id is None
                 if self.fields is not None:
                     rec = {field: rec[field] for field in self.fields}
                 features = {k: to_torch_if_possible(v) for k, v in rec.items()}
