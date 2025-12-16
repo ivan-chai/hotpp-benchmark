@@ -4,6 +4,8 @@ defaults:
 
 name: hypro_rmtpp
 
+num_evaluation_seeds: 1
+
 data_module:
   batch_size: 256
 
