@@ -25,6 +25,12 @@ class TupleWithCPU(tuple):
     def tolist(self):
         return list(self)
 
+    def numel(self):
+        return len(self)
+
+    def ndim(self):
+        return 1
+
 
 class GatherMetric(Metric):
     """Gather predictions across all processes."""
@@ -124,10 +130,12 @@ class EmbedderModule(pl.LightningModule):
 
     def forward(self, batch):
         data, _ = batch
-        embeddings = self.model.embed(data)  # (B, D).
+        embeddings = self.model.embed(data).cpu()  # (B, D).
         assert embeddings.ndim == 2
         # Embeddings: (B, D).
         ids = data.payload[self.id_field]  # (B).
+        if isinstance(ids, torch.Tensor):
+            ids = ids.cpu()
         return ids, embeddings
 
 
