@@ -253,7 +253,7 @@ class ShuffledDistributedDataset(torch.utils.data.IterableDataset):
     Args:
         parallelize: Parallel reading mode, either `records` (better granularity) or `files` (faster).
     """
-    def __init__(self, dataset, rank=None, world_size=None, cache_size=None, parallelize="records", seed=0):
+    def __init__(self, dataset, rank=None, world_size=None, cache_size=None, parallelize="files", seed=0):
         super().__init__()
         self.dataset = dataset
         self.rank = rank
@@ -294,12 +294,10 @@ class ShuffledDistributedDataset(torch.utils.data.IterableDataset):
 
     def _iter_shuffled_files(self, dataset, seed, rank, world_size):
         filenames = list(dataset.filenames)
-        Random(seed).shuffle(filenames)
-
         root = os.path.commonprefix(filenames)
         subset = [filename for filename in filenames if immutable_hash(os.path.relpath(filename, root)) % world_size == rank]
         dataset = dataset.replace_files(subset)
-        yield from dataset
+        yield from self._iter_shuffled_records_impl(dataset, seed)
 
     def _iter_shuffled_records(self, dataset, seed, rank, world_size):
         for i, item in enumerate(self._iter_shuffled_records_impl(dataset, seed)):
