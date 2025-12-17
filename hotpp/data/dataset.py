@@ -1,5 +1,7 @@
-import os
+import hashlib
+import inspect
 import itertools
+import os
 import random
 import torch
 import numpy as np
@@ -12,6 +14,10 @@ from ptls.data_load import read_pyarrow_file
 from ptls.data_load.datasets import parquet_file_scan
 
 from .padded_batch import PaddedBatch
+
+
+def immutable_hash(s):
+    return int(hashlib.sha256(s.encode("utf-8")).hexdigest(), 16)
 
 
 def get_nested_value(value):
@@ -114,17 +120,18 @@ class HotppDataset(torch.utils.data.IterableDataset):
             fields = list(sorted(set(fields) | set(known_fields)))
         self.fields = fields
 
+    def replace_files(self, filenames):
+        names = set(inspect.signature(self.__init__).parameters.keys())
+        names = names - {"self", "data"}
+        kwargs = {name: getattr(self, name) for name in names}
+        return HotppDataset(filenames, **kwargs)
+
     def shuffle_files(self, rnd=None):
         """Make a new dataset with shuffled partitions."""
         rnd = rnd if rnd is not None else random.Random()
         filenames = list(self.filenames)
         rnd.shuffle(filenames)
-        return HotppDataset(filenames,
-                            min_length=self.min_length, max_length=self.max_length,
-                            position=self.position, min_required_length=self.min_required_length,
-                            fields=self.fields, id_field=self.id_field, timestamps_field=self.timestamps_field,
-                            drop_nans=self.drop_nans, global_target_fields=self.global_target_fields,
-                            local_targets_fields=self.local_targets_fields, local_targets_indices_field=self.local_targets_indices_field)
+        return self.replace_files(filenames)
 
     def is_seq_feature(self, name, value, batch=False):
         """Check whether feature is sequential using its name and value.
@@ -241,12 +248,18 @@ class HotppDataset(torch.utils.data.IterableDataset):
 
 
 class ShuffledDistributedDataset(torch.utils.data.IterableDataset):
-    def __init__(self, dataset, rank=None, world_size=None, cache_size=None, seed=0):
+    """Distributed dataset.
+
+    Args:
+        parallelize: Parallel reading mode, either `records` (better granularity) or `files` (faster).
+    """
+    def __init__(self, dataset, rank=None, world_size=None, cache_size=None, parallelize="records", seed=0):
         super().__init__()
         self.dataset = dataset
         self.rank = rank
         self.world_size = world_size
         self.cache_size = cache_size
+        self.parallelize = parallelize
         self.seed = seed
         self.epoch = 0
 
@@ -272,17 +285,37 @@ class ShuffledDistributedDataset(torch.utils.data.IterableDataset):
         dataset, worker_id, total_workers, rank, world_size, global_seed = self._get_context()
         if (worker_id is None) and (total_workers == 1):
             worker_id = 0
-        for i, item in enumerate(self._iter_shuffled(dataset, global_seed)):
-            if (i - worker_id) % total_workers == 0:
+        if self.parallelize == "records":
+            yield from self._iter_shuffled_records(dataset, global_seed, worker_id, total_workers)
+        elif self.parallelize == "files":
+            yield from self._iter_shuffled_files(dataset, global_seed, worker_id, total_workers)
+        else:
+            raise ValueError(f"Unknown parallelize mode: {self.parallelize}")
+
+    def _iter_shuffled_files(self, dataset, seed, rank, world_size):
+        filenames = list(dataset.filenames)
+        Random(seed).shuffle(filenames)
+
+        root = os.path.commonprefix(filenames)
+        subset = [filename for filename in filenames if immutable_hash(os.path.relpath(filename, root)) % world_size == rank]
+        dataset = dataset.replace_files(subset)
+        yield from dataset
+
+    def _iter_shuffled_records(self, dataset, seed, rank, world_size):
+        for i, item in enumerate(self._iter_shuffled_records_impl(dataset, seed)):
+            if i % world_size == rank:
                 yield item
 
-    def _iter_shuffled(self, dataset, seed):
+    def _iter_shuffled_records_impl(self, dataset, seed):
         if self.cache_size is None:
             yield from dataset
         else:
             rnd = Random(seed)
+            filenames = list(dataset.filenames)
+            rnd.shuffle(filenames)
+            dataset = dataset.replace_files(filenames)
             cache = []
-            for item in dataset.shuffle_files(rnd):
+            for item in dataset:
                 cache.append(item)
                 if len(cache) >= self.cache_size:
                     rnd.shuffle(cache)
