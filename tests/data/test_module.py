@@ -26,13 +26,13 @@ class TestDDPDataLoader(TestCase):
         ids = pa.array(list(range(15)))
         timestamps = pa.array([list(range(i)) for i in range(15)])
         table = pa.Table.from_arrays([ids, timestamps], names=["id", "timestamps"])
-        self.data15_path = os.path.join(self.root, "data15.parquet")
+        self.data15_path = os.path.join(self.root, "part15.parquet")
         pa.parquet.write_table(table, self.data15_path)
 
-        ids = pa.array(list(range(16)))
+        ids = pa.array(list(range(15, 15 + 16)))
         timestamps = pa.array([list(range(i)) for i in range(16)])
         table = pa.Table.from_arrays([ids, timestamps], names=["id", "timestamps"])
-        self.data16_path = os.path.join(self.root, "data16.parquet")
+        self.data16_path = os.path.join(self.root, "part16.parquet")
         pa.parquet.write_table(table, self.data16_path)
 
     def tearDown(self):
@@ -105,7 +105,7 @@ class TestDDPDataLoader(TestCase):
             items = sum(items, [])
             ids = torch.cat([v.payload["id"] for v, _ in items]).tolist()
             self.assertEqual(len(ids), 16)
-            self.assertEqual(set(ids), set(range(16)))
+            self.assertEqual(set(ids), set(range(15, 15 + 16)))
 
     def test_seed(self):
         for world_size in [1, 2]:
@@ -145,6 +145,19 @@ class TestDDPDataLoader(TestCase):
 
             self.assertEqual(set(ids1), set(ids2))
             self.assertNotEqual(ids1, ids2)
+
+        # Joined dataset, file parallelizm.
+        data = HotppDataModule(train_path=[self.data15_path, self.data16_path],
+                               drop_last=False,
+                               parallelize="files",
+                               train_params={
+                                   "batch_size": 4,
+                                   "num_workers": 1
+                               })
+        items = gather_distributed_dataset(data, "train", world_size, epoch=1)
+        items = sum(items, [])
+        ids = torch.cat([v.payload["id"] for v, _ in items]).tolist()
+        self.assertEqual(set(ids), set(range(15 + 16)))
 
 
 if __name__ == "__main__":
