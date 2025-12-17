@@ -156,8 +156,15 @@ class TestDDPDataLoader(TestCase):
                                })
         items = gather_distributed_dataset(data, "train", world_size, epoch=1)
         items = sum(items, [])
-        ids = torch.cat([v.payload["id"] for v, _ in items]).tolist()
-        self.assertEqual(set(ids), set(range(15 + 16)))
+        ids1 = torch.cat([v.payload["id"] for v, _ in items]).tolist()
+
+        items = gather_distributed_dataset(data, "train", world_size, epoch=2)
+        items = sum(items, [])
+        ids2 = torch.cat([v.payload["id"] for v, _ in items]).tolist()
+
+        self.assertEqual(set(ids1), set(range(15 + 16)))
+        self.assertEqual(set(ids2), set(range(15 + 16)))
+        self.assertNotEqual(ids1, ids2)
 
 
 if __name__ == "__main__":
