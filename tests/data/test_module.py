@@ -43,6 +43,7 @@ class TestDDPDataLoader(TestCase):
         # 15 items, drop last, world 1, 0 / 1 worker.
         for num_workers in [0, 1]:
             data = HotppDataModule(train_path=self.data15_path,
+                                   parallelize="records",
                                    train_params={
                                        "batch_size": 4,
                                        "num_workers": num_workers,
@@ -56,6 +57,7 @@ class TestDDPDataLoader(TestCase):
 
         # 15 items, drop last, world 1, 2 workers.
         data = HotppDataModule(train_path=self.data15_path,
+                               parallelize="records",
                                train_params={
                                    "batch_size": 4,
                                    "num_workers": 2,
@@ -70,6 +72,7 @@ class TestDDPDataLoader(TestCase):
     def test_ddp(self):
         # 15 items, drop last, world 2.
         data = HotppDataModule(train_path=self.data15_path,
+                               parallelize="records",
                                train_params={
                                    "batch_size": 4,
                                    "num_workers": 2,
@@ -84,6 +87,7 @@ class TestDDPDataLoader(TestCase):
         for world_size in [1, 2]:
             # 15 items, without drop last.
             data = HotppDataModule(test_path=self.data15_path,
+                                   parallelize="records",
                                    test_params={
                                        "batch_size": 4,
                                        "num_workers": 2
@@ -96,6 +100,7 @@ class TestDDPDataLoader(TestCase):
 
             # 16 items, last will not be dropped.
             data = HotppDataModule(train_path=self.data16_path,
+                                   parallelize="records",
                                    train_params={
                                        "batch_size": 4,
                                        "num_workers": 2,
@@ -111,6 +116,7 @@ class TestDDPDataLoader(TestCase):
         for world_size in [1, 2]:
             # 16 items, last will not be dropped.
             data = HotppDataModule(train_path=self.data16_path,
+                                   parallelize="records",
                                    train_params={
                                        "cache_size": 4,
                                        "batch_size": 4,
@@ -130,6 +136,7 @@ class TestDDPDataLoader(TestCase):
         for world_size in [1, 2]:
             # 16 items, last will not be dropped.
             data = HotppDataModule(train_path=self.data16_path,
+                                   parallelize="records",
                                    train_params={
                                        "cache_size": 4,
                                        "batch_size": 4,
