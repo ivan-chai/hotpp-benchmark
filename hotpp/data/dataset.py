@@ -89,6 +89,7 @@ class HotppDataset(torch.utils.data.IterableDataset):
                  global_target_fields=None,
                  local_targets_fields=None,
                  local_targets_indices_field=None,
+                 allow_empty=False,
                  mbd=False):
         super().__init__()
         if isinstance(data, str):
@@ -97,8 +98,9 @@ class HotppDataset(torch.utils.data.IterableDataset):
             self.filenames = data
         else:
             raise ValueError(f"Unknown data type: {type(data)}")
-        if not self.filenames:
+        if (not self.filenames) and (not allow_empty):
             raise RuntimeError("Empty dataset")
+        self.allow_empty = allow_empty
         self.total_length = sum(map(get_parquet_length, self.filenames))
         self.min_length = min_length
         self.max_length = max_length
@@ -123,10 +125,10 @@ class HotppDataset(torch.utils.data.IterableDataset):
         self.fields = fields
         self.mbd = mbd
 
-    def replace_files(self, filenames):
+    def replace_files(self, filenames, **kwargs):
         names = set(inspect.signature(self.__init__).parameters.keys())
         names = names - {"self", "data"}
-        kwargs = {name: getattr(self, name) for name in names}
+        kwargs = {name: getattr(self, name) for name in names} | kwargs
         return HotppDataset(filenames, **kwargs)
 
     def shuffle_files(self, rnd=None):
@@ -313,9 +315,11 @@ class ShuffledDistributedDataset(torch.utils.data.IterableDataset):
 
     def _iter_shuffled_files(self, dataset, seed, rank, world_size):
         filenames = list(dataset.filenames)
+        if not filenames:
+            raise RuntimeError("Empty dataset")
         root = os.path.commonprefix(filenames)
         subset = [filename for filename in filenames if immutable_hash(os.path.relpath(filename, root)) % world_size == rank]
-        dataset = dataset.replace_files(subset)
+        dataset = dataset.replace_files(subset, allow_empty=True)
         yield from self._iter_shuffled_records_impl(dataset, seed)
 
     def _iter_shuffled_records(self, dataset, seed, rank, world_size):
