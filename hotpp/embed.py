@@ -90,9 +90,11 @@ class GatherMetric(Metric):
             try:
                 values = getattr(self, f"_out_{i}")
                 dtype = self.dtypes[f"_out_{i}"]
-                assert isinstance(values, torch.Tensor)
                 if dtype == "str":
                     values = TupleWithCPU(self._unpack_strings(values))
+                else:
+                    values = dim_zero_cat(values)
+                    assert isinstance(values, torch.Tensor)
                 results.append(values)
             except ValueError:
                 # Empty list.
