@@ -5,7 +5,7 @@ import pytorch_lightning as pl
 import torch
 from omegaconf import OmegaConf
 
-from hotpp.data import ShuffledDistributedDataset
+from hotpp.data import ShuffledDistributedDataset, DEFAULT_PARALLELIZM
 from hotpp.data.module import HotppSampler
 from tqdm import tqdm
 
@@ -19,6 +19,7 @@ def get_loader(dm):
     dataset = ShuffledDistributedDataset(dm.val_data, rank=None, world_size=None,
                                          num_workers=loader_params.get("num_workers", 0),
                                          cache_size=loader_params.pop("cache_size", 4096),
+                                         parallelize=loader_params.pop("parallelize", DEFAULT_PARALLELIZM),
                                          seed=loader_params.pop("seed", 0))
     loader = torch.utils.data.DataLoader(
         dataset=dataset,
