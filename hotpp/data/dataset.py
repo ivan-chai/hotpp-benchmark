@@ -90,8 +90,7 @@ class HotppDataset(torch.utils.data.IterableDataset):
                  global_target_fields=None,
                  local_targets_fields=None,
                  local_targets_indices_field=None,
-                 allow_empty=False,
-                 mbd=False):
+                 allow_empty=False):
         super().__init__()
         if isinstance(data, str):
             self.filenames = list(sorted(parquet_file_scan(data)))
@@ -125,6 +124,12 @@ class HotppDataset(torch.utils.data.IterableDataset):
             fields = list(sorted(set(fields) | set(known_fields)))
         self.fields = fields
         self.mbd = mbd
+
+    def replace_files(self, filenames, **kwargs):
+        names = set(inspect.signature(self.__init__).parameters.keys())
+        names = names - {"self", "data"}
+        kwargs = {name: getattr(self, name) for name in names} | kwargs
+        return HotppDataset(filenames, **kwargs)
 
     def replace_files(self, filenames, **kwargs):
         names = set(inspect.signature(self.__init__).parameters.keys())
