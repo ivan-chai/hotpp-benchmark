@@ -275,7 +275,7 @@ class SimpleTransformer(torch.nn.Module):
                  n_inner=None, dropout=0.1, causal=False,
                  activation=torch.nn.functional.relu,
                  normalization=torch.nn.LayerNorm,
-                 mlp="default", pos_type="pos-angular", rope=None, group_size=1, sos=False,
+                 mlp="default", pos_type="pos-angular", rope=None, group_size=1, sos=True,
                  max_duration=None, min_time_step=None):
         super().__init__()
         n_inner = n_inner if n_inner is not None else 4 * n_embd
