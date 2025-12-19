@@ -18,6 +18,9 @@ from .data import ShuffledDistributedDataset
 logger = logging.getLogger(__name__)
 
 
+MAX_STRING_LENGTH = 255
+
+
 class TupleWithCPU(tuple):
     def cpu(self):
         return self
@@ -25,21 +28,60 @@ class TupleWithCPU(tuple):
     def tolist(self):
         return list(self)
 
+    def numel(self):
+        return len(self)
+
+    def ndim(self):
+        return 1
+
 
 class GatherMetric(Metric):
     """Gather predictions across all processes."""
     def __init__(self, n_values, compute_on_cpu=False):
         super().__init__(compute_on_cpu=compute_on_cpu)
         self.n_values = n_values
+        self.dtypes = {}
         for i in range(n_values):
             self.add_state(f"_out_{i}", default=[], dist_reduce_fx="cat")
+            self.dtypes[f"_out_{i}"] = None
+
+    @staticmethod
+    def _pack_strings(v):
+        v = [s.encode("utf-8") for s in v]
+        max_length = max(map(len, v))
+        if max_length > MAX_STRING_LENGTH:
+            raise ValueError(f"String is too long: {max_length}")
+        v = [len(s).to_bytes() + s + b'\0' * (MAX_STRING_LENGTH - len(s)) for s in v]
+        v = np.frombuffer(b"".join(v), dtype=np.uint8).reshape(len(v), 1 + MAX_STRING_LENGTH)  # (B, 1 + L).
+        v = torch.from_numpy(v.copy())
+        return v
+
+    @staticmethod
+    def _unpack_strings(v):
+        v = v.cpu().numpy()  # (B, 1 + L).
+        lengths, v = v[:, 0], v[:, 1:]
+        v = [s.tobytes()[:l].decode("utf-8") for s, l in zip(v, lengths)]
+        return v
 
     def update(self, *args):
         if len(args) != self.n_values:
             raise ValueError(f"Wrong number of inputs: {len(args)} != {self.n_values}")
+        try:
+            device = next(v.device for v in args if isinstance(v, torch.Tensor))
+        except StopIteration:
+            device = "cpu"
         for i, v in enumerate(args):
-            if isinstance(v, (tuple, list)):
-                v = TupleWithCPU(v)
+            if isinstance(v, (tuple, list)) and isinstance(v[0], str):
+                dtype = "str"
+                v = self._pack_strings(v).to(device)
+            elif isinstance(v, torch.Tensor):
+                dtype = "tensor"
+            else:
+                raise ValueError(f"Can't synchronize object: {v}")
+            key = f"_out_{i}"
+            if (self.dtypes[key] is not None) and (self.dtypes[key] != dtype):
+                raise RuntimeError(f"Object type changed: {v}")
+            self.dtypes[key] = dtype
             getattr(self, f"_out_{i}").append(v)
 
     def compute(self):
@@ -47,10 +89,13 @@ class GatherMetric(Metric):
         for i in range(self.n_values):
             try:
                 values = getattr(self, f"_out_{i}")
-                if values and isinstance(values[0], torch.Tensor):
-                    values = dim_zero_cat(values)
+                values = dim_zero_cat(values)
+                assert isinstance(values, torch.Tensor)
+                dtype = self.dtypes[f"_out_{i}"]
+                if dtype == "str":
+                    values = TupleWithCPU(self._unpack_strings(values))
                 else:
-                    values = TupleWithCPU(sum(values, tuple()))
+                    assert dtype == "tensor"
                 results.append(values)
             except ValueError:
                 # Empty list.
@@ -151,7 +196,7 @@ def embeddings_to_pandas(id_field, by_split):
     all_splits = []
     all_embeddings = []
     for split, (ids, embeddings) in by_split.items():
-        assert len(ids) == len(embeddings)
+        assert len(ids) == len(embeddings), f"{len(ids)} {len(embeddings)}"
         assert embeddings.ndim == 2
         all_ids.extend(ids)
         all_splits.extend([split] * len(ids))

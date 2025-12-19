@@ -1,5 +1,6 @@
 import copy
 import datetime
+import functools
 import logging
 import yaml
 
@@ -9,6 +10,7 @@ from omegaconf import OmegaConf
 from pytorch_lightning.callbacks import LearningRateMonitor
 from pytorch_lightning.callbacks import ModelCheckpoint
 
+from hotpp.data import PaddedBatch
 from hotpp.utils.config import as_flat_config
 
 
@@ -19,6 +21,22 @@ def dump_report(metrics, fp):
     result = dict(metrics)
     result["date"] = f"{datetime.datetime.now():%Y-%m-%d %H:%M:%S}"
     yaml.safe_dump(result, fp)
+
+
+def patch_precision_plugin(trainer):
+    plugin = trainer.precision_plugin
+    base_method = plugin.convert_input.__func__
+    @functools.wraps(base_method)
+    def convert_input(self, data):
+        if isinstance(data, PaddedBatch):
+            data = copy.copy(data)
+            data.payload = base_method(self, data.payload)
+            return data
+        if isinstance(data, tuple):
+            return tuple([convert_input(self, v) for v in data])
+        return base_method(self, data)
+    plugin.convert_input = convert_input.__get__(plugin, plugin.__class__)
+    return trainer
 
 
 def get_trainer(conf, **trainer_params_additional):
@@ -62,4 +80,6 @@ def get_trainer(conf, **trainer_params_additional):
         trainer_params_additional["callbacks"] = trainer_params_callbacks
     trainer_params = dict(trainer_params)
     trainer_params.update(trainer_params_additional)
-    return pl.Trainer(**trainer_params)
+    trainer = pl.Trainer(**trainer_params)
+    trainer = patch_precision_plugin(trainer)
+    return trainer
