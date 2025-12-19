@@ -79,6 +79,8 @@ class HotppDataset(torch.utils.data.IterableDataset):
     """
     def __init__(self, data,
                  min_length=0, max_length=None,
+                 random_split=1,
+                 random_part="train",
                  position="random",
                  min_required_length=None,
                  fields=None,
@@ -101,6 +103,8 @@ class HotppDataset(torch.utils.data.IterableDataset):
             raise RuntimeError("Empty dataset")
         self.allow_empty = allow_empty
         self.total_length = sum(map(get_parquet_length, self.filenames))
+        self.random_split = random_split
+        self.random_part = random_part
         self.min_length = min_length
         self.max_length = max_length
         self.position = position
@@ -181,7 +185,15 @@ class HotppDataset(torch.utils.data.IterableDataset):
         return self.total_length
 
     def __iter__(self):
+        if self.filenames:
+            root = os.path.commonprefix(self.filenames)
         for filename in self.filenames:
+            if (self.random_split != 1) or (self.random_part != "train"):
+                s = 1000000000
+                h = immutable_hash(os.path.relpath(filename, root))
+                in_train = h % s <= s * self.random_split
+                if in_train ^ (self.random_part == "train"):
+                    continue
             for rec in read_pyarrow_file(filename, use_threads=True):
                 if (self.min_required_length is not None) and (len(rec[self.timestamps_field]) < self.min_required_length):
                     continue
