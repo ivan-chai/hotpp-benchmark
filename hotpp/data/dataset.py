@@ -131,12 +131,6 @@ class HotppDataset(torch.utils.data.IterableDataset):
         kwargs = {name: getattr(self, name) for name in names} | kwargs
         return HotppDataset(filenames, **kwargs)
 
-    def replace_files(self, filenames, **kwargs):
-        names = set(inspect.signature(self.__init__).parameters.keys())
-        names = names - {"self", "data"}
-        kwargs = {name: getattr(self, name) for name in names} | kwargs
-        return HotppDataset(filenames, **kwargs)
-
     def shuffle_files(self, rnd=None):
         """Make a new dataset with shuffled partitions."""
         rnd = rnd if rnd is not None else random.Random()
