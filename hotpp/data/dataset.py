@@ -3,6 +3,7 @@ import inspect
 import itertools
 import os
 import random
+import warnings
 import torch
 import numpy as np
 from collections import defaultdict
@@ -298,6 +299,10 @@ class ShuffledDistributedDataset(torch.utils.data.IterableDataset):
         filenames = list(dataset.filenames)
         if not filenames:
             raise RuntimeError("Empty dataset")
+        if len(filenames) < world_size:
+            warnings.warn(f"{len(filenames)} files for {world_size} workers, switch to record parallelizm")
+            yield from self._iter_shuffled_records(dataset, seed, rank, world_size)
+            return
         root = os.path.commonprefix(filenames)
         subset = [filename for filename in filenames if immutable_hash(os.path.relpath(filename, root)) % world_size == rank]
         dataset = dataset.replace_files(subset, allow_empty=True)
