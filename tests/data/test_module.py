@@ -26,13 +26,13 @@ class TestDDPDataLoader(TestCase):
         ids = pa.array(list(range(15)))
         timestamps = pa.array([list(range(i)) for i in range(15)])
         table = pa.Table.from_arrays([ids, timestamps], names=["id", "timestamps"])
-        self.data15_path = os.path.join(self.root, "data15.parquet")
+        self.data15_path = os.path.join(self.root, "part15.parquet")
         pa.parquet.write_table(table, self.data15_path)
 
-        ids = pa.array(list(range(16)))
+        ids = pa.array(list(range(15, 15 + 16)))
         timestamps = pa.array([list(range(i)) for i in range(16)])
         table = pa.Table.from_arrays([ids, timestamps], names=["id", "timestamps"])
-        self.data16_path = os.path.join(self.root, "data16.parquet")
+        self.data16_path = os.path.join(self.root, "part16.parquet")
         pa.parquet.write_table(table, self.data16_path)
 
     def tearDown(self):
@@ -43,6 +43,7 @@ class TestDDPDataLoader(TestCase):
         # 15 items, drop last, world 1, 0 / 1 worker.
         for num_workers in [0, 1]:
             data = HotppDataModule(train_path=self.data15_path,
+                                   parallelize="records",
                                    train_params={
                                        "batch_size": 4,
                                        "num_workers": num_workers,
@@ -56,6 +57,7 @@ class TestDDPDataLoader(TestCase):
 
         # 15 items, drop last, world 1, 2 workers.
         data = HotppDataModule(train_path=self.data15_path,
+                               parallelize="records",
                                train_params={
                                    "batch_size": 4,
                                    "num_workers": 2,
@@ -70,6 +72,7 @@ class TestDDPDataLoader(TestCase):
     def test_ddp(self):
         # 15 items, drop last, world 2.
         data = HotppDataModule(train_path=self.data15_path,
+                               parallelize="records",
                                train_params={
                                    "batch_size": 4,
                                    "num_workers": 2,
@@ -84,6 +87,7 @@ class TestDDPDataLoader(TestCase):
         for world_size in [1, 2]:
             # 15 items, without drop last.
             data = HotppDataModule(test_path=self.data15_path,
+                                   parallelize="records",
                                    test_params={
                                        "batch_size": 4,
                                        "num_workers": 2
@@ -96,6 +100,7 @@ class TestDDPDataLoader(TestCase):
 
             # 16 items, last will not be dropped.
             data = HotppDataModule(train_path=self.data16_path,
+                                   parallelize="records",
                                    train_params={
                                        "batch_size": 4,
                                        "num_workers": 2,
@@ -105,12 +110,13 @@ class TestDDPDataLoader(TestCase):
             items = sum(items, [])
             ids = torch.cat([v.payload["id"] for v, _ in items]).tolist()
             self.assertEqual(len(ids), 16)
-            self.assertEqual(set(ids), set(range(16)))
+            self.assertEqual(set(ids), set(range(15, 15 + 16)))
 
     def test_seed(self):
         for world_size in [1, 2]:
             # 16 items, last will not be dropped.
             data = HotppDataModule(train_path=self.data16_path,
+                                   parallelize="records",
                                    train_params={
                                        "cache_size": 4,
                                        "batch_size": 4,
@@ -130,6 +136,7 @@ class TestDDPDataLoader(TestCase):
         for world_size in [1, 2]:
             # 16 items, last will not be dropped.
             data = HotppDataModule(train_path=self.data16_path,
+                                   parallelize="records",
                                    train_params={
                                        "cache_size": 4,
                                        "batch_size": 4,
@@ -145,6 +152,26 @@ class TestDDPDataLoader(TestCase):
 
             self.assertEqual(set(ids1), set(ids2))
             self.assertNotEqual(ids1, ids2)
+
+        # Joined dataset, file parallelizm.
+        data = HotppDataModule(train_path=[self.data15_path, self.data16_path],
+                               drop_last=False,
+                               parallelize="files",
+                               train_params={
+                                   "batch_size": 4,
+                                   "num_workers": 1
+                               })
+        items = gather_distributed_dataset(data, "train", world_size, epoch=1)
+        items = sum(items, [])
+        ids1 = torch.cat([v.payload["id"] for v, _ in items]).tolist()
+
+        items = gather_distributed_dataset(data, "train", world_size, epoch=2)
+        items = sum(items, [])
+        ids2 = torch.cat([v.payload["id"] for v, _ in items]).tolist()
+
+        self.assertEqual(set(ids1), set(range(15 + 16)))
+        self.assertEqual(set(ids2), set(range(15 + 16)))
+        self.assertNotEqual(ids1, ids2)
 
 
 if __name__ == "__main__":
