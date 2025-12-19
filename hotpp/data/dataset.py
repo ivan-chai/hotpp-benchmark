@@ -185,10 +185,12 @@ class HotppDataset(torch.utils.data.IterableDataset):
         return self.total_length
 
     def __iter__(self):
+        if self.filenames:
+            root = os.path.commonprefix(self.filenames)
         for filename in self.filenames:
             if (self.random_split != 1) or (self.random_part != "train"):
                 s = 1000000000
-                h = hash(os.path.basename(filename))
+                h = immutable_hash(os.path.relpath(filename, root))
                 in_train = h % s <= s * self.random_split
                 if in_train ^ (self.random_part == "train"):
                     continue
