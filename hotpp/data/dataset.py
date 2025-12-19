@@ -85,7 +85,6 @@ class HotppDataset(torch.utils.data.IterableDataset):
                  min_required_length=None,
                  fields=None,
                  id_field="id",
-                 cast_id=None,
                  timestamps_field="timestamps",
                  drop_nans=None,
                  add_seq_fields=None,
@@ -111,7 +110,6 @@ class HotppDataset(torch.utils.data.IterableDataset):
         self.position = position
         self.min_required_length = min_required_length
         self.id_field = id_field
-        self.cast_id = cast_id
         self.timestamps_field = timestamps_field
         self.drop_nans = parse_fields(drop_nans)
         self.add_seq_fields = add_seq_fields
@@ -191,16 +189,12 @@ class HotppDataset(torch.utils.data.IterableDataset):
             if (self.random_split != 1) or (self.random_part != "train"):
                 s = 1000000000
                 h = hash(os.path.basename(filename))
-                in_train = h <= s * self.random_split
+                in_train = h % s <= s * self.random_split
                 if in_train ^ (self.random_part == "train"):
                     continue
             for rec in read_pyarrow_file(filename, use_threads=True):
                 if (self.min_required_length is not None) and (len(rec[self.timestamps_field]) < self.min_required_length):
                     continue
-                if self.cast_id == "int":
-                    rec[self.id_field] = int(rec[self.id_field])
-                else:
-                    assert self.cast_id is None
                 if self.fields is not None:
                     rec = {field: rec[field] for field in self.fields}
                 features = {k: to_torch_if_possible(v) for k, v in rec.items()}
