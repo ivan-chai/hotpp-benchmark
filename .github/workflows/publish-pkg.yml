@@ -31,7 +31,7 @@ jobs:
     - name: Build package
       run: |
         pip install -U build setuptools
-        pip install --no-build-isolation torch \
+        pip install --no-build-isolation torch "numpy>=1.23" "pytorch-lifestream==0.6.0" \
           --find-links "https://download.pytorch.org/whl/cpu/torch_stable.html"
         python -m build -n --wheel
         ls -lh dist/
