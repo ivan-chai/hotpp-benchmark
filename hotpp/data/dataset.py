@@ -92,7 +92,8 @@ class HotppDataset(torch.utils.data.IterableDataset):
                  global_target_fields=None,
                  local_targets_fields=None,
                  local_targets_indices_field=None,
-                 allow_empty=False):
+                 allow_empty=False,
+                 mbd = False):
         super().__init__()
         if isinstance(data, str):
             self.filenames = list(sorted(parquet_file_scan(data)))
