@@ -18,6 +18,9 @@ from ptls.data_load.datasets import parquet_file_scan
 from .padded_batch import PaddedBatch
 
 
+DEFAULT_PARALLELIZM = "records"
+
+
 def immutable_hash(s):
     return int(hashlib.sha256(s.encode("utf-8")).hexdigest(), 16)
 
@@ -101,9 +104,8 @@ class HotppDataset(torch.utils.data.IterableDataset):
             self.filenames = data
         else:
             raise ValueError(f"Unknown data type: {type(data)}")
-        if (not self.filenames) and (not allow_empty):
+        if not self.filenames:
             raise RuntimeError("Empty dataset")
-        self.allow_empty = allow_empty
         self.total_length = sum(map(get_parquet_length, self.filenames))
         self.random_split = random_split
         self.random_part = random_part
@@ -306,7 +308,7 @@ class ShuffledDistributedDataset(torch.utils.data.IterableDataset):
     Args:
         parallelize: Parallel reading mode, either `records` (better granularity) or `files` (faster).
     """
-    def __init__(self, dataset, rank=None, world_size=None, cache_size=None, parallelize="files", seed=0):
+    def __init__(self, dataset, rank=None, world_size=None, cache_size=None, parallelize=DEFAULT_PARALLELIZM, seed=0):
         super().__init__()
         self.dataset = dataset
         self.rank = rank
@@ -349,13 +351,16 @@ class ShuffledDistributedDataset(torch.utils.data.IterableDataset):
         filenames = list(dataset.filenames)
         if not filenames:
             raise RuntimeError("Empty dataset")
-        if len(filenames) < world_size:
-            warnings.warn(f"{len(filenames)} files for {world_size} workers, switch to record parallelizm")
+        root = os.path.commonprefix(filenames)
+        splits = [list() for _ in range(world_size)]
+        for filename in filenames:
+            splits[immutable_hash(os.path.relpath(filename, root)) % world_size].append(filename)
+        if any([len(split) == 0 for split in splits]):
+            if rank == 0:
+                warnings.warn(f"Some workers got zero files, switch to record parallelizm")
             yield from self._iter_shuffled_records(dataset, seed, rank, world_size)
             return
-        root = os.path.commonprefix(filenames)
-        subset = [filename for filename in filenames if immutable_hash(os.path.relpath(filename, root)) % world_size == rank]
-        dataset = dataset.replace_files(subset, allow_empty=True)
+        dataset = dataset.replace_files(splits[rank])
         yield from self._iter_shuffled_records_impl(dataset, seed)
 
     def _iter_shuffled_records(self, dataset, seed, rank, world_size):

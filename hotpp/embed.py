@@ -13,7 +13,7 @@ from torchmetrics import Metric
 from torchmetrics.utilities import dim_zero_cat
 
 from .common import get_trainer
-from .data import ShuffledDistributedDataset
+from .data import ShuffledDistributedDataset, DEFAULT_PARALLELIZM
 
 logger = logging.getLogger(__name__)
 
@@ -136,7 +136,8 @@ class InferenceDataModule(pl.LightningDataModule):
         loader_params = getattr(self.data, f"{self.split}_loader_params")
 
         num_workers = loader_params.get("num_workers", 0)
-        dataset = ShuffledDistributedDataset(dataset, rank=self.rank, world_size=self.world_size)
+        dataset = ShuffledDistributedDataset(dataset, rank=self.rank, world_size=self.world_size,
+                                             parallelize=loader_params.pop("parallelize", DEFAULT_PARALLELIZM))
         return torch.utils.data.DataLoader(
             dataset=dataset,
             collate_fn=dataset.dataset.collate_fn,

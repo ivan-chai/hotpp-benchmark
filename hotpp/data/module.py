@@ -1,6 +1,6 @@
 import torch
 import pytorch_lightning as pl
-from .dataset import HotppDataset, ShuffledDistributedDataset
+from .dataset import HotppDataset, ShuffledDistributedDataset, DEFAULT_PARALLELIZM
 
 
 def pop_loader_params(params):
@@ -102,7 +102,7 @@ class HotppDataModule(pl.LightningDataModule):
         loader_params.update(self.train_loader_params)
         dataset = ShuffledDistributedDataset(self.train_data, rank=rank, world_size=world_size,
                                              cache_size=loader_params.pop("cache_size", 4096),
-                                             parallelize=loader_params.pop("parallelize", "files"),
+                                             parallelize=loader_params.pop("parallelize", DEFAULT_PARALLELIZM),
                                              seed=loader_params.pop("seed", 0))
         loader = torch.utils.data.DataLoader(
             dataset=dataset,
@@ -118,7 +118,7 @@ class HotppDataModule(pl.LightningDataModule):
         loader_params = {"pin_memory": torch.cuda.is_available()}
         loader_params.update(self.val_loader_params)
         dataset = ShuffledDistributedDataset(self.val_data, rank=rank, world_size=world_size,
-                                             parallelize=loader_params.pop("parallelize", "files"))  # Disable shuffle.
+                                             parallelize=loader_params.pop("parallelize", DEFAULT_PARALLELIZM))  # Disable shuffle.
         loader = torch.utils.data.DataLoader(
             dataset=dataset,
             collate_fn=dataset.dataset.collate_fn,
@@ -132,7 +132,7 @@ class HotppDataModule(pl.LightningDataModule):
         loader_params = {"pin_memory": torch.cuda.is_available()}
         loader_params.update(self.test_loader_params)
         dataset = ShuffledDistributedDataset(self.test_data, rank=rank, world_size=world_size,
-                                             parallelize=loader_params.pop("parallelize", "files"))  # Disable shuffle.
+                                             parallelize=loader_params.pop("parallelize", DEFAULT_PARALLELIZM))  # Disable shuffle.
         loader = torch.utils.data.DataLoader(
             dataset=dataset,
             collate_fn=dataset.dataset.collate_fn,
