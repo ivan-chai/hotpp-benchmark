@@ -103,7 +103,8 @@ class HotppDataModule(pl.LightningDataModule):
         dataset = ShuffledDistributedDataset(self.train_data, rank=rank, world_size=world_size,
                                              cache_size=loader_params.pop("cache_size", 4096),
                                              parallelize=loader_params.pop("parallelize", DEFAULT_PARALLELIZM),
-                                             seed=loader_params.pop("seed", 0))
+                                             seed=loader_params.pop("seed", 0),
+                                             drop_last=loader_params.get("drop_last", False))
         loader = torch.utils.data.DataLoader(
             dataset=dataset,
             collate_fn=dataset.dataset.collate_fn,
