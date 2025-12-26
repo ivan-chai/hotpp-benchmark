@@ -126,7 +126,10 @@ def eval_downstream(downstream_config, trainer, datamodule, model,
             embeddings = extract_embeddings(trainer, datamodule, model, splits=splits)
             embeddings = embeddings_to_pandas(datamodule.id_field, embeddings)
         if len(embeddings.index.unique()) != len(embeddings):
-            raise ValueError("Duplicate ids")
+            from collections import Counter
+            duplicates = Counter(embeddings.index.to_list())
+            duplicates = {k: v for k, v in duplicates.items() if v > 1}
+            raise ValueError(f"Duplicate ids {duplicates}")
         if precomputed_targets is not None:
             if isinstance(precomputed_targets, str):
                 targets = pd.read_parquet(precomputed_targets).set_index("id")

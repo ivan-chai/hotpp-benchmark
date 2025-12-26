@@ -211,9 +211,9 @@ class HotppDataset(torch.utils.data.IterableDataset):
     def __iter__(self):
         total = 0
         for filename in self.filenames:
-            for rec in read_pyarrow_file(filename, use_threads=True):
+            for rec in read_pyarrow_file(filename):
                 total += 1
-                if total < self.offset:
+                if total <= self.offset:
                     continue
                 if (self.min_required_length is not None) and (len(rec[self.timestamps_field]) < self.min_required_length):
                     continue
