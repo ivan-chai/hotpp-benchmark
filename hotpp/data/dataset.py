@@ -224,7 +224,7 @@ class HotppDataset(torch.utils.data.IterableDataset):
                 features = {k: to_torch_if_possible(v) for k, v in rec.items()} #поле : столбец поля (в тензорах)
                 skip = False
                 for field in self.drop_nans:
-                    if not features[field].isfinite().all():
+                    if not self.mbd and not features[field].isfinite().all():
                         skip = True
                         break
                 if skip:
@@ -245,6 +245,13 @@ class HotppDataset(torch.utils.data.IterableDataset):
                             fm[k] = features[k][mask]
                         fm[self.id_field] = features[self.id_field] + "_month=" + str(month)
                         fm = {k if k not in self.mbd_target_months_dict else self.mbd_target_months_dict[k] : v for k, v in fm.items() if k not in self.mbd_target_months or k in mt_dict[month]}
+                        mbd_skip = False
+                        for field in self.drop_nans:
+                            if not fm[field].isfinite().all():
+                                mbd_skip = True
+                                break
+                        if mbd_skip:
+                            continue
                         yield self.process(fm)
                 else:
                     yield self.process(features)
