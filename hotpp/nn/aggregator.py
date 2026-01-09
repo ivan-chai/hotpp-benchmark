@@ -45,6 +45,17 @@ class MeanAggregator(BaseAggregator):
         return means  # (B, D).
 
 
+class FirstAggregator(BaseAggregator):
+    """Extract last embedding from each sequence."""
+    def forward(self, embeddings, states=None):
+        lengths = embeddings.seq_lens
+        embeddings = self.get_activations(embeddings, states)  # (B, L, D).
+        empty_mask = lengths == 0
+        first = embeddings[:, 0]  # (B, D).
+        first.masked_fill_(empty_mask.unsqueeze(1), 0)
+        return first  # (B, D).
+
+
 class LastAggregator(BaseAggregator):
     """Extract last embedding from each sequence."""
     def forward(self, embeddings, states=None):

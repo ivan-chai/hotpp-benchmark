@@ -74,6 +74,7 @@ class HotppDataset(torch.utils.data.IterableDataset):
         min_length: Minimum sequence length. Use 0 to disable subsampling.
         max_length: Maximum sequence length. Disable limit if `None`.
         position: Sample position (`random` or `last`).
+        rename: A dictionary for mapping field names during read.
         fields: A list of fields to keep in data. Other fields will be discarded.
         drop_nans: A list of fields to skip nans for.
         add_seq_fields: A dictionary with additional constant fields.
@@ -87,6 +88,7 @@ class HotppDataset(torch.utils.data.IterableDataset):
                  random_part="train",
                  position="random",
                  min_required_length=None,
+                 rename=None,
                  fields=None,
                  id_field="id",
                  timestamps_field="timestamps",
@@ -135,6 +137,8 @@ class HotppDataset(torch.utils.data.IterableDataset):
             raise ValueError("Need indices fol local targets.")
         self.local_targets_fields = parse_fields(local_targets_fields)
         self.local_targets_indices_field = local_targets_indices_field
+
+        self.rename = rename or {}
 
         if fields is not None:
             known_fields = [id_field, timestamps_field] + list(self.global_target_fields) + list(self.local_targets_fields)
@@ -212,6 +216,10 @@ class HotppDataset(torch.utils.data.IterableDataset):
                 if in_train ^ (self.random_part == "train"):
                     continue
             for rec in read_pyarrow_file(filename, use_threads=True):
+                for src, dst in self.rename.items():
+                    if src not in rec:
+                        raise RuntimeError(f"The field `{src}` not found")
+                    rec[dst] = rec.pop(src)
                 if (self.min_required_length is not None) and (len(rec[self.timestamps_field]) < self.min_required_length):
                     continue
                 if self.fields is not None:
