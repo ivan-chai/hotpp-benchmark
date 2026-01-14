@@ -97,7 +97,6 @@ class HotppDataset(torch.utils.data.IterableDataset):
                  global_target_fields=None,
                  local_targets_fields=None,
                  local_targets_indices_field=None,
-                 allow_empty=False,
                  mbd = False):
         super().__init__()
         if isinstance(data, str):
@@ -217,6 +216,7 @@ class HotppDataset(torch.utils.data.IterableDataset):
                 in_train = h % s <= s * self.random_split
                 if in_train ^ (self.random_part == "train"):
                     continue
+                #print(self.random_split, self.random_part, filename)
             for rec in read_pyarrow_file(filename, use_threads=True):
                 for src, dst in self.rename.items():
                     if src not in rec:

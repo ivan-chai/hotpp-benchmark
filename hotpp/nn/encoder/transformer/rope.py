@@ -425,7 +425,6 @@ def multi_head_attention_rope_forward(
             attn_output_weights = dropout(attn_output_weights, p=dropout_p)
 
         attn_output = torch.bmm(attn_output_weights, v)
-
         attn_output = (
             attn_output.transpose(0, 1).contiguous().view(tgt_len * bsz, embed_dim)
         )
@@ -464,7 +463,6 @@ def multi_head_attention_rope_forward(
         attn_output = (
             attn_output.permute(2, 0, 1, 3).contiguous().view(bsz * tgt_len, embed_dim)
         )
-
         attn_output = linear(attn_output, out_proj_weight, out_proj_bias)
         attn_output = attn_output.view(tgt_len, bsz, attn_output.size(1))
         return attn_output, None
@@ -478,12 +476,14 @@ class MultiheadAttentionRoPE(torch.nn.MultiheadAttention):
                  group_size=1,
                  device=None,
                  dtype=None,
+                 save_masks_params = None,
                  **kwargs
         ):
         super().__init__(embed_dim, num_heads,
                          device=device, dtype=dtype,
                          **kwargs)
         self.group_size = group_size
+        self.save_masks_params = save_masks_params
         if group_size > 1:
             assert embed_dim % num_heads == 0
             head_dim = embed_dim // num_heads
@@ -521,12 +521,39 @@ class MultiheadAttentionRoPE(torch.nn.MultiheadAttention):
     ) -> tuple[Tensor, Optional[Tensor]]:
         rope = rope if rope is not None else getattr(self, "_rope", [None])[0]
         if (rope is None) and (self.group_size == 1):
-            return super().forward(query, key, value,
+            outputs, attn_weights = super().forward(query, key, value,
                                    key_padding_mask=key_padding_mask,
-                                   need_weights=need_weights,
+                                   need_weights=True,
                                    attn_mask=attn_mask,
-                                   average_attn_weights=average_attn_weights,
+                                   average_attn_weights=False,
                                    is_causal=is_causal)
+            import os
+            import sys
+            def save_attention_weights(filename, attn_weights, num_layers, target_len = 20):
+                """Последовательно добавляет тензоры в файл"""
+                data = {
+                    'attn_weights': attn_weights.detach().cpu(),
+                }
+    
+                # Загружаем существующие данные или создаем новый список
+                if os.path.exists(filename):
+                    saved_data = torch.load(filename)
+                else:
+                    saved_data = []
+                if len(saved_data) >= target_len * num_layers:
+                    print('Attention weights saved')
+                    sys.exit()
+                saved_data.append(data)
+                torch.save(saved_data, filename)
+            #print(self)
+            #print(attn_mask.shape)
+            #save_tensors_append('weights.txt', attn_weights, attn_mask)
+            #save_tensors_append('weights_mimiciii.pth', query, key, value, attn_weights, key_padding_mask, attn_mask)
+            if self.save_masks_params is not None:
+                save_attention_weights(self.save_masks_params['name'], attn_weights, self.save_masks_params['num_layers'], self.save_masks_params['example_count'])
+            #print(attn_mask)
+            #assert 1 == 2
+            return outputs#, attn_weights
         if query.dim() != 3:
             if self.batch_first:
                 raise ValueError("Expected batched input with shape (B, L, D).")

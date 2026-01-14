@@ -127,7 +127,8 @@ class HoTPPTransformerEncoderLayer(torch.nn.TransformerEncoderLayer):
                  norm_first=False,
                  bias=True,
                  device=None,
-                 dtype=None):
+                 dtype=None,
+                 save_masks_params = None):
         super().__init__(d_model, nhead,
                          dim_feedforward=dim_feedforward,
                          dropout=dropout,
@@ -166,6 +167,7 @@ class HoTPPTransformerEncoderLayer(torch.nn.TransformerEncoderLayer):
             bias=bias,
             batch_first=batch_first,
             group_size=group_size,
+            save_masks_params = save_masks_params,
             **factory_kwargs,
         )
 
@@ -271,7 +273,7 @@ class SimpleTransformer(torch.nn.Module):
         rope: Either "time[-train]", "none" or None.
         sos: Whether to use start token or not.
     """
-    def __init__(self, input_size, n_positions=1024, n_embd=768, n_layer=12, n_head=12,
+    def __init__(self, input_size, save_masks_params = None, n_positions=1024, n_embd=768, n_layer=12, n_head=12,
                  n_inner=None, dropout=0.1, causal=False,
                  activation=torch.nn.functional.relu,
                  normalization=torch.nn.LayerNorm,
@@ -286,10 +288,14 @@ class SimpleTransformer(torch.nn.Module):
         self.n_inner = n_inner
         self.dropout = dropout
         self.causal = causal
-
+        if save_masks_params is not None:
+            print("="*20)
+            print('\n')
+            print(f'YOU ARE USING PROGRAM IN MODE WHAT ONLY SAVE ATTENTION WEIGHTS AND STOP AFTER FILE {save_masks_params['name']} WILL HAVE {save_masks_params['name']} EXAMPLES IN IT')
+            print('\n')
+            print("="*20)
         self.input_projection = torch.nn.Linear(input_size, n_embd)
         self.sos = torch.nn.Parameter(torch.randn(n_embd)) if sos else None
-
         # We use norm_first by default.
         # See the original paper: Xiong R. et al. "On layer normalization in the transformer architecture" ICML 2020.
         layers = [HoTPPTransformerEncoderLayer(d_model=n_embd,
@@ -301,7 +307,8 @@ class SimpleTransformer(torch.nn.Module):
                                                dropout=dropout,
                                                group_size=group_size,
                                                norm_first=True,
-                                               batch_first=True)
+                                               batch_first=True,
+                                               save_masks_params = save_masks_params)
                   for _ in range(n_layer)]
         self.encoder = HoTPPTransformerEncoder(layers)
         self.positional = PositionalEncoding(n_embd=n_embd,
@@ -409,7 +416,6 @@ class SimpleTransformer(torch.nn.Module):
         """
         if return_states not in {False, "full"}:
             raise ValueError(f"Unknown states mode: {return_states}")
-
         embeddings = PaddedBatch(self.input_projection(x.payload),  # (B, L, D).
                                  x.seq_lens)
         embeddings, timestamps = self.add_sos(embeddings, timestamps)
