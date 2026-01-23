@@ -26,7 +26,7 @@ The HoTPP benchmark focuses on the long-horizon prediction of event sequences. E
 
 🎉 The HoTPP paper have been accepted to Neurocomputing (Q1) 2026.
 
-🎉 DEF (aka DeTPP) have been presented at AAAI-26 (Main track, oral).
+🎉 DEF (aka DeTPP) have been presented at AAAI-26 (main track, oral).
 
 # Features
 * Next event prediction
@@ -45,6 +45,7 @@ The list of implemented papers:
 | Year | Name      | Paper                                                                                                      | Source                           |
 |------|-----------|------------------------------------------------------------------------------------------------------------|----------------------------------|
 | 2026 | DEF (aka DeTPP)     | Detecting the Future: All-at-Once Event Sequence Forecasting with Horizon Matching                                | AAAI 2026                            |
+| 2026 | HoTPP | HoTPP Benchmark: Are We Good at the Long Horizon Events Forecasting? | Neurocomputing |
 | 2025 | Diffusion | Non-autoregressive diffusion-based temporal point processes for continuous-time long-term event prediction | Expert Systems with Applications |
 | 2022 | AttNHP    | Transformer embeddings of irregularly spaced events and their participants                                 | ICLR 2022                        |
 | 2022 | HYPRO     | Hypro: A hybridly normalized probabilistic model for long-horizon prediction of event sequences            | NeurIPS 2022                     |
