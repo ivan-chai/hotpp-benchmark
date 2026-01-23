@@ -24,9 +24,9 @@
 
 The HoTPP benchmark focuses on the long-horizon prediction of event sequences. Each event is characterized by its timestamp, label, and possible additional structured data. Sequences of this type are also known as Marked Temporal Point Processes (Marked TPP, MTPP).
 
-🎉 The HoTPP paper have been accepted to Neurocomputing (Q1) 2026.
+🎉 The HoTPP paper has been accepted to Neurocomputing (Q1) 2026.
 
-🎉 DEF (aka DeTPP) have been presented at AAAI-26 (main track, oral).
+🎉 DEF (aka DeTPP) has been presented at AAAI-26 (main track, oral).
 
 # Features
 * Next event prediction
