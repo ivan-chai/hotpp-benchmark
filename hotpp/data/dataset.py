@@ -7,6 +7,7 @@ import warnings
 import torch
 import numpy as np
 from collections import defaultdict
+from datetime import datetime
 from numbers import Number
 from pyarrow.parquet import ParquetFile
 from random import Random
@@ -99,10 +100,11 @@ class HotppDataset(torch.utils.data.IterableDataset):
                  add_seq_fields=None,
                  global_target_fields=None,
                  local_targets_fields=None,
-                 local_targets_indices_field=None):
+                 local_targets_indices_field=None,
+                 mbd = False):
+        super().__init__()
         if (limit is not None) and (min_required_length or drop_nans):
             raise NotImplementedError("Can't combine `limit` with input filters.")
-        super().__init__()
         if isinstance(data, str):
             self.filenames = list(sorted(parquet_file_scan(data)))
         elif isinstance(data, list):
@@ -140,7 +142,21 @@ class HotppDataset(torch.utils.data.IterableDataset):
         self.drop_nans = parse_fields(drop_nans)
         self.add_seq_fields = add_seq_fields
         self.global_target_fields = parse_fields(global_target_fields)
-
+        self.mbd_target_months =  [
+            'target_1_2022-11-30', 'target_2_2022-11-30', 'target_3_2022-11-30', 'target_4_2022-11-30',
+            'target_1_2022-02-28', 'target_2_2022-02-28', 'target_3_2022-02-28', 'target_4_2022-02-28',
+            'target_1_2022-03-31', 'target_2_2022-03-31', 'target_3_2022-03-31', 'target_4_2022-03-31',
+            'target_1_2022-10-31', 'target_2_2022-10-31', 'target_3_2022-10-31', 'target_4_2022-10-31',
+            'target_1_2022-08-31', 'target_2_2022-08-31', 'target_3_2022-08-31', 'target_4_2022-08-31',
+            'target_1_2022-06-30', 'target_2_2022-06-30', 'target_3_2022-06-30', 'target_4_2022-06-30',
+            'target_1_2022-07-31', 'target_2_2022-07-31', 'target_3_2022-07-31', 'target_4_2022-07-31',
+            'target_1_2022-12-31', 'target_2_2022-12-31', 'target_3_2022-12-31', 'target_4_2022-12-31',
+            'target_1_2022-05-31', 'target_2_2022-05-31', 'target_3_2022-05-31', 'target_4_2022-05-31',
+            'target_1_2023-01-31', 'target_2_2023-01-31', 'target_3_2023-01-31', 'target_4_2023-01-31',
+            'target_1_2022-04-30', 'target_2_2022-04-30', 'target_3_2022-04-30', 'target_4_2022-04-30',
+            'target_1_2022-09-30', 'target_2_2022-09-30', 'target_3_2022-09-30', 'target_4_2022-09-30'
+            ]
+        self.mbd_target_months_dict = {month: f'target_{i % 4 + 1}' for i, month in enumerate(self.mbd_target_months)}
         if local_targets_fields and not local_targets_indices_field:
             raise ValueError("Need indices fol local targets.")
         self.local_targets_fields = parse_fields(local_targets_fields)
@@ -154,6 +170,7 @@ class HotppDataset(torch.utils.data.IterableDataset):
                 known_fields = known_fields + [local_targets_indices_field]
             fields = list(sorted(set(fields) | set(known_fields)))
         self.fields = fields
+        self.mbd = mbd
 
     def replace_files(self, filenames, **kwargs):
         names = set(inspect.signature(self.__init__).parameters.keys())
@@ -219,6 +236,8 @@ class HotppDataset(torch.utils.data.IterableDataset):
                 total += 1
                 if total <= self.offset:
                     continue
+
+            for rec in read_pyarrow_file(filename, use_threads=True):
                 for src, dst in self.rename.items():
                     if src not in rec:
                         raise RuntimeError(f"The field `{src}` not found")
@@ -226,18 +245,45 @@ class HotppDataset(torch.utils.data.IterableDataset):
                 if (self.min_required_length is not None) and (len(rec[self.timestamps_field]) < self.min_required_length):
                     continue
                 if self.fields is not None:
-                    rec = {field: rec[field] for field in self.fields}
-                features = {k: to_torch_if_possible(v) for k, v in rec.items()}
+                    if self.mbd:
+                        rec = {field: rec[field] for field in (set(self.fields) | set(self.mbd_target_months)) - set(self.global_target_fields)}
+                    else:
+                        rec = {field: rec[field] for field in self.fields} #поле : столбец поля
+                features = {k: to_torch_if_possible(v) for k, v in rec.items()} #поле : столбец поля (в тензорах)
                 skip = False
                 for field in self.drop_nans:
-                    if not features[field].isfinite().all():
+                    if not self.mbd and not features[field].isfinite().all():
                         skip = True
                         break
                 if skip:
                     continue
-                yield self.process(features)
-                if (self.limit is not None) and (total - self.offset == self.limit):
-                    return
+
+                if self.mbd:
+                    mt_dict = {i + 1: self.mbd_target_months[i * 4: i * 4 + 4] for i in range(12)}
+                    year = 2022
+                    TSCALE = 3600 * 24
+                    seq_features = [k for k, v in features.items() if self.is_seq_feature(k, v)]
+                    for month in range(1, 12 + 1):
+                        if month == 12:
+                            month_event_time = datetime(year + 1, 1, 1).timestamp() / TSCALE
+                        else:
+                            month_event_time = datetime(year, month + 1, 1).timestamp() / TSCALE
+                        mask = features[self.timestamps_field] < month_event_time
+                        fm = dict(features)
+                        for k in seq_features:
+                            fm[k] = features[k][mask]
+                        fm[self.id_field] = features[self.id_field] + "_month=" + str(month)
+                        fm = {k if k not in self.mbd_target_months_dict else self.mbd_target_months_dict[k] : v for k, v in fm.items() if k not in self.mbd_target_months or k in mt_dict[month]}
+                        mbd_skip = False
+                        for field in self.drop_nans:
+                            if not fm[field].isfinite().all():
+                                mbd_skip = True
+                                break
+                        if mbd_skip:
+                            continue
+                        yield self.process(fm)
+                else:
+                    yield self.process(features)
 
     def _make_batch(self, by_name, batch_size, seq_feature_name=None):
         # Compute lengths.
@@ -276,11 +322,11 @@ class HotppDataset(torch.utils.data.IterableDataset):
         for features in batch:
             for name, value in features.items():
                 by_name[name].append(value)
-
+                
         # Check batch size consistency.
         for name, values in by_name.items():
             if len(values) != batch_size:
-                raise ValueError(f"Missing values for feature {name}")
+                raise ValueError(f"Missing values for feature {name} {values}")
 
         # Pop targets.
         targets_by_name = {name: by_name.pop(name) for name in

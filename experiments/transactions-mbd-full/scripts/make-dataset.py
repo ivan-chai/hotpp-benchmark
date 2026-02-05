@@ -25,6 +25,7 @@ def make_from_folds(folds, data_root, targets_root, dst, n_partitions):
     for fold in folds:
         part = spark.read.parquet(os.path.join(data_root, f"fold={fold}"))
         targets = spark.read.parquet(os.path.join(targets_root, f"fold={fold}"))
+        targets = targets.drop("is_balanced")  # Exclude duplicate column.
         part = part.join(targets, on="client_id", how="inner")
         dataset = dataset.union(part) if dataset is not None else part
     # Compute log_amount.
