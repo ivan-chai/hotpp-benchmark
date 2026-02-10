@@ -51,13 +51,25 @@ def main(args):
                            "time_since_start as timestamps",
                            "type_event as labels").persist()
 
-        udf = F.udf(lambda x: int(np.searchsorted(x, x[0] + MAX_DURATION)), LongType())
-        df = df.withColumn("length", udf("timestamps"))
+        # udf = F.udf(lambda x: int(np.searchsorted(x, x[0] + MAX_DURATION)), LongType())
+        # df = df.withColumn("length", udf("timestamps"))
+        # df = df.withColumn("length", F.when(F.col("length") > MAX_LENGTH, MAX_LENGTH).otherwise(F.col("length")))
+        # df = df.filter(F.col("length") >= MIN_LENGTH)
+        # df = df.withColumn("timestamps", F.slice(F.col("timestamps"), 1, F.col("length")))
+        # df = df.withColumn("labels", F.slice(F.col("labels"), 1, F.col("length")))
+        # df = df.drop("length")
+        df = df.withColumn("cutoff", F.element_at("timestamps", 1) + F.lit(MAX_DURATION))
+
+        # length = сколько элементов timestamps меньше cutoff
+        df = df.withColumn("length", F.expr("size(filter(timestamps, x -> x < cutoff))"))
+
         df = df.withColumn("length", F.when(F.col("length") > MAX_LENGTH, MAX_LENGTH).otherwise(F.col("length")))
         df = df.filter(F.col("length") >= MIN_LENGTH)
+
         df = df.withColumn("timestamps", F.slice(F.col("timestamps"), 1, F.col("length")))
         df = df.withColumn("labels", F.slice(F.col("labels"), 1, F.col("length")))
-        df = df.drop("length")
+
+        df = df.drop("length", "cutoff")
         path = os.path.join(args.root, f"{name}.parquet")
         n_partitions = 32 if part == "train" else 1
         print(f"Dump {name} with {df.count()} records and {n_partitions} partitions to {path}")

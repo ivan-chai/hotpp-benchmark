@@ -1,6 +1,9 @@
 import copy
 import logging
+import os
+import zipfile
 from contextlib import contextmanager
+from pathlib import Path
 
 import hydra
 import pytorch_lightning as pl
@@ -12,6 +15,19 @@ from .evaluate import test
 
 
 logger = logging.getLogger(__name__)
+logging.basicConfig(
+    filename="app.log",
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+
+
+def _find_repo_hotpp(start_dir: Path):
+    for candidate in [start_dir] + list(start_dir.parents):
+        hotpp_dir = candidate / "hotpp"
+        if hotpp_dir.exists() and hotpp_dir.is_dir():
+            return hotpp_dir
+    return None
 
 
 @contextmanager
@@ -44,6 +60,7 @@ def train(conf):
         matmul_precision = conf.trainer.pop("matmul_precision", "highest")
 
         trainer = get_trainer(conf)
+        _log_mlflow_artifacts(trainer, conf)
         if conf.get("init_from_checkpoint", None):
             if resume_from_checkpoint:
                 raise ValueError("Can't mix resume_from_checkpoint with init_from_checkpoint")
@@ -68,8 +85,49 @@ def train(conf):
     return model, metrics
 
 
+def _log_mlflow_artifacts(trainer, conf):
+    if trainer is None:
+        return
+    loggers = trainer.loggers if hasattr(trainer, "loggers") else [trainer.logger]
+    if not loggers:
+        return
+    mlflow_logger = next((l for l in loggers if l.__class__.__name__ == "MLFlowLogger"), None)
+    if mlflow_logger is None:
+        return
+
+    client = mlflow_logger.experiment
+    run_id = mlflow_logger.run_id
+
+    # Log Hydra config files
+    hydra_dir = Path(".hydra")
+    if hydra_dir.exists():
+        client.log_artifacts(run_id, str(hydra_dir))
+
+    # Log resolved and unresolved configs
+    resolved_cfg = Path("config_resolved.yaml")
+    unresolved_cfg = Path("config_unresolved.yaml")
+    resolved_cfg.write_text(OmegaConf.to_yaml(conf, resolve=True))
+    unresolved_cfg.write_text(OmegaConf.to_yaml(conf, resolve=False))
+    client.log_artifact(run_id, str(resolved_cfg))
+    client.log_artifact(run_id, str(unresolved_cfg))
+
+    # Log train.log + app.log
+    for log_name in ("train.log", "app.log"):
+        log_path = Path(log_name)
+        if log_path.exists():
+            client.log_artifact(run_id, str(log_path))
+
+    # Log hotpp folder
+    repo_root = Path(hydra.utils.get_original_cwd())
+    hotpp_dir = _find_repo_hotpp(repo_root)
+    if hotpp_dir is not None:
+        client.log_artifacts(run_id, str(hotpp_dir), artifact_path="hotpp")
+
+
+
 @hydra.main(version_base="1.2", config_path=None)
 def main(conf):
+    print(OmegaConf.to_yaml(conf, resolve=True))
     train(conf)
 
 

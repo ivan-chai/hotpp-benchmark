@@ -1,28 +1,12 @@
-# defaults:
-#   - diffusion_gru_base
-#   - _self_
-
-# diffusion_steps: 15
-
-# module:
-#   seq_encoder:
-#     embedder:
-#       categorical_noise: 0.1
-#   loss:
-#     diffusion_loss_weight: 1.0
-#     decoder_loss_weight: 1.0
-#     embedder_regularizer: 1.0
-#     alpha: 0.5
-#     detach_embeddings_from_step: 1
-#     detach_decoder: false
-
 defaults:
   - default
   - _self_
 
-name: diffusion_gru
+name: diffusion_gru_detpp
 
 diffusion_steps: 15
+
+detection_k: 48
 
 module:
   _target_: hotpp.modules.NextKModule
@@ -39,22 +23,39 @@ module:
   loss:
     _target_: hotpp.losses.DiffusionLoss
     k: ${next_k}
-    diffusion_loss_weight: 1.0
-    decoder_loss_weight: 1.0
-    embedder_regularizer: 1.0
+    diffusion_loss_weight: 1
+    decoder_loss_weight: 1
+    embedder_regularizer: 1
     alpha: 0.5
     detach_embeddings_from_step: 1
     detach_decoder: false
+    padding_prob: 0.0
     next_item_loss:
-      _target_: hotpp.losses.NextItemLoss
-      losses:
-        timestamps:
-          _target_: hotpp.losses.TimeMAELoss
-          max_delta: ${max_duration}
-          smoothing: ${time_smoothing}
-        labels:
-          _target_: hotpp.losses.CrossEntropyLoss
-          num_classes: ${num_classes}
+      _target_: hotpp.losses.DetectionLoss
+      loss_subset: 0.5
+      prefetch_factor: 0.5
+      match_weights:
+        _presence: 4
+        timestamps: 2
+        labels: 1
+      k: ${detection_k}
+      horizon: ${metric.horizon}
+      next_item_adapter:
+        timestamps: mode
+        labels: mean
+      next_item_loss:
+        _target_: hotpp.losses.NextItemLoss
+        losses:
+          _presence:
+            _target_: hotpp.losses.BinaryCrossEntropyLoss
+          timestamps:
+            _target_: hotpp.losses.TimeMAELoss
+            delta: start
+            max_delta: ${max_duration}
+            smoothing: ${time_smoothing}
+          labels:
+            _target_: hotpp.losses.CrossEntropyLoss
+            num_classes: ${num_classes}
     embedder: ${module.seq_encoder.embedder}
     denoiser_partial:
       _target_: hotpp.nn.GRUDenoiser

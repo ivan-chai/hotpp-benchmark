@@ -487,7 +487,9 @@ class DetectionLoss(NextKLoss):
 
         # Compute positive pairwise scores.
         targets = {k: v.reshape(b * l, 1 + n_targets, 1) for k, v in targets.items()}  # (BL, 1 + T, 1).
-        targets["_presence"] = torch.ones(b * l, 1 + n_targets, 1, dtype=torch.long, device=device)  # (BL, 1 + T, 1).
+        # targets["_presence"] = torch.ones(b * l, 1 + n_targets, 1, dtype=torch.long, device=device)  # (BL, 1 + T, 1).
+        if "_presence" not in targets:
+            targets["_presence"] = torch.ones(b * l, 1 + n_targets, 1, dtype=torch.long, device=device)  # (BL, 1 + T, 1).
         outputs = outputs.reshape(b * l, 1, self._k, -1)  # (BL, 1, K, D).
         targets_batch = PaddedBatch(targets,
                                     torch.full([b * l], 1 + n_targets, dtype=torch.long, device=device))
@@ -512,6 +514,8 @@ class DetectionLoss(NextKLoss):
         # Fill out-of-horizon events costs with large cost to prevent them from matching.
         deltas = (targets[self._timestamps_field][:, 1:] - targets[self._timestamps_field][:, :1])  # (BL, T, 1).
         out_horizon_mask = (deltas.reshape(b, l, n_targets) >= self._horizon)  # (B, L, T).
+        masked_targets = (targets["_presence"][:, 1:].squeeze(-1) == 0).reshape(b, l, n_targets)
+        out_horizon_mask.logical_or_(masked_targets)
         out_horizon_mask.logical_or_(tails_mask.unsqueeze(2))  # (B, L, T).
         valid_costs = costs.masked_select(~out_horizon_mask.unsqueeze(2))
         max_cost = valid_costs.max().item() if valid_costs.numel() > 0 else 1

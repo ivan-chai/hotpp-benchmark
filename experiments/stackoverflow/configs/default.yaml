@@ -29,11 +29,19 @@ thinning_params:
 next_k: 16
 hypro_loss_step: 8
 
+# logger:
+#   _target_: pytorch_lightning.loggers.WandbLogger
+#   project: hotpp-stackoverflow
+#   name: ${name}
+#   save_dir: lightning_logs
 logger:
-  _target_: pytorch_lightning.loggers.WandbLogger
-  project: hotpp-stackoverflow
-  name: ${name}
+  _target_: pytorch_lightning.loggers.MLFlowLogger
+  experiment_name: hotpp-stackoverflow
+  run_name: ${name}
+  tracking_uri: sqlite:///lightning_logs/mlflow.db
+  artifact_location: file:S:/jupyter/ucheba/detpp/hotpp-benchmark/lightning_logs/mlruns
   save_dir: lightning_logs
+  
 model_path: checkpoints/${name}.ckpt
 report: results/${name}.yaml
 multiseed_report: results/multiseed_${name}.yaml

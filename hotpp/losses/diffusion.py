@@ -37,7 +37,8 @@ class DiffusionLoss(NextKLoss):
                  timestamps_field="timestamps", max_time_delta=None, loss_step=1,
                  generation_steps=10, alpha=0.1, detach_embeddings_from_step=1, detach_decoder=True,
                  diffusion_loss_weight=1, decoder_loss_weight=1, embedder_regularizer=1,
-                 clamp_from_step=False, prediction="sample"):
+                 clamp_from_step=False, prediction="sample",
+                 padding_prob=0.0):
         super().__init__(next_item_loss, k,
                          timestamps_field=timestamps_field,
                          loss_step=loss_step)
@@ -56,6 +57,15 @@ class DiffusionLoss(NextKLoss):
         self._alpha[0] = 1
         self.register_buffer("_alpha_prods", self._alpha.cumprod(dim=0))
         self._prediction = prediction
+        self._padding_prob = padding_prob
+        self._padding_embedding = None
+        if self._padding_prob and self._padding_prob > 0:
+            self._padding_embedding = torch.nn.Parameter(torch.zeros(embedder.output_size))
+
+        # Exclude presence from diffusion targets when using detection loss
+        self._diffusion_fields = self.fields
+        if hasattr(self._next_item, "data_fields"):
+            self._diffusion_fields = self._next_item.data_fields
 
     @property
     def input_size(self):
@@ -129,6 +139,26 @@ class DiffusionLoss(NextKLoss):
         # Embed.
         embeddings = self._embedder(self._compute_time_deltas(targets))  # (B, 1 + K, D).
         embeddings = PaddedBatch(embeddings.payload[:, 1:], (embeddings.seq_lens - 1).clip(min=0))  # (B, K, D).
+        if self._padding_embedding is not None:
+            # Insert random paddings into GT chain by replacing embeddings
+            mask = embeddings.seq_len_mask.bool()
+            keep = (torch.rand_like(embeddings.payload[..., 0]) < self._padding_prob) & mask
+            if keep.any():
+                embeddings.payload = torch.where(
+                    keep.unsqueeze(-1),
+                    self._padding_embedding.view(1, 1, -1).expand_as(embeddings.payload),
+                    embeddings.payload
+                )
+            # Mark masked positions as not present for DetectionLoss
+            targets = targets.clone()
+            # Build presence for full window (K+1): first element is current step
+            k1 = next(iter(targets.payload.values())).shape[1]
+            presence = torch.ones(len(targets), k1, dtype=torch.long, device=keep.device)
+            presence[:, 1:1 + keep.shape[1]] = (~keep).long()
+            targets.payload["_presence"] = presence
+            seq_names = set(targets.seq_names) if targets.seq_names is not None else set()
+            seq_names.add("_presence")
+            targets = PaddedBatch(targets.payload, targets.seq_lens, seq_names)
 
         # Corrupt.
         steps = torch.randint(1, self._generation_steps + 1, [b], device=embeddings.device)  # (B).
@@ -147,7 +177,8 @@ class DiffusionLoss(NextKLoss):
 
         decoded = self._decoder(PaddedBatch(reconstructed.payload.detach() if self._detach_decoder else reconstructed.payload,
                                             reconstructed.seq_lens))  # (B, K, D).
-        decoded = PaddedBatch(torch.cat([decoded.payload, torch.empty_like(decoded.payload[:, :1])], 1), decoded.seq_lens)  # (B, K + 1, D).
+        decoded_payload = torch.cat([decoded.payload, torch.empty_like(decoded.payload[:, :1])], 1)  # (B, K + 1, D).
+        decoded = PaddedBatch(decoded_payload, targets.seq_lens)  # (B, K + 1, D).
         decoder_losses, metrics = self._next_item(targets, decoded, None)
         metrics.update({"decoder_" + k: v for k, v in metrics.items()})
         losses.update({"decoder_" + k: ScaleGradient.apply(v, self._decoder_loss_weight)
@@ -170,7 +201,7 @@ class DiffusionLoss(NextKLoss):
         """
         # Join targets before windowing.
         b, l = inputs.shape
-        targets = torch.stack([inputs.payload[name] for name in self.fields], -1)  # (B, L, D).
+        targets = torch.stack([inputs.payload[name] for name in self._diffusion_fields], -1)  # (B, L, D).
 
         # Extract windows.
         targets = self.extract_windows(targets, self._k + 1)   # (B, L - k, k + 1, D).
@@ -187,8 +218,8 @@ class DiffusionLoss(NextKLoss):
             outputs = PaddedBatch(outputs.payload[:, self._loss_step::self._loss_step], lengths)  # (B, L', P).
 
         # Split targets.
-        assert len(self.fields) == targets.shape[-1]
-        windows = {name: targets[..., i].to(inputs.payload[name].dtype) for i, name in enumerate(self.fields)}  # (B, L', k + 1).
+        assert len(self._diffusion_fields) == targets.shape[-1]
+        windows = {name: targets[..., i].to(inputs.payload[name].dtype) for i, name in enumerate(self._diffusion_fields)}  # (B, L', k + 1).
         targets = PaddedBatch(windows, lengths, inputs.seq_names)  # (B, L', k + 1).
 
         # Select by mask.
@@ -244,6 +275,11 @@ class DiffusionLoss(NextKLoss):
         x = self._decoder(x)  # (V, N, D).
 
         # Predict.
+        if fields is None:
+            if hasattr(self._next_item, "data_fields"):
+                fields = set(self._next_item.data_fields)
+            else:
+                fields = set(self.fields)
         predictions = self._next_item.predict_next(x, None,
                                                    fields=fields,
                                                    logits_fields_mapping=logits_fields_mapping)  # (V, N) or (V, N, C).
