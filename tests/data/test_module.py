@@ -154,6 +154,7 @@ class TestDDPDataLoader(TestCase):
             self.assertNotEqual(ids1, ids2)
 
         # Joined dataset, file parallelizm.
+        world_size = 2
         data = HotppDataModule(train_path=[self.data15_path, self.data16_path],
                                drop_last=False,
                                parallelize="files",

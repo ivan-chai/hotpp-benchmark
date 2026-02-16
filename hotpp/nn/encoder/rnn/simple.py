@@ -7,7 +7,7 @@ from hotpp.data import PaddedBatch
 
 class GRU(torch.nn.GRU):
     """GRU interface."""
-    def __init__(self, input_size, hidden_size, num_layers=1, dropout=0.0):
+    def __init__(self, input_size, hidden_size, num_layers=1, dropout=0.0, pack=False):
         super().__init__(
             input_size,
             hidden_size,
@@ -16,6 +16,7 @@ class GRU(torch.nn.GRU):
             dropout=dropout
         )
         self._hidden_size = hidden_size
+        self._pack = pack
 
     @property
     def delta_time(self):
@@ -47,7 +48,8 @@ class GRU(torch.nn.GRU):
             Outputs with shape (B, L, D) and states with shape (N, B, D) or (N, B, L, D), where
             N is the number of layers.
         """
-        outputs, _ = super().forward(x.payload, states)  # (B, L, D).
+        outputs, _ = super().forward(x.pack() if self._pack else x.payload, states)  # (B, L, D).
+        outputs = PaddedBatch.unpack(outputs, total_length=x.shape[1]).payload if self._pack else outputs
         if not return_states:
             output_states = None
         elif return_states == "last":
@@ -81,7 +83,7 @@ class GRU(torch.nn.GRU):
 
 class LSTM(torch.nn.LSTM):
     """LSTM interface."""
-    def __init__(self, input_size, hidden_size, num_layers=1, dropout=0.0):
+    def __init__(self, input_size, hidden_size, num_layers=1, dropout=0.0, pack=False):
         super().__init__(
             input_size,
             hidden_size,
@@ -90,6 +92,7 @@ class LSTM(torch.nn.LSTM):
             dropout=dropout
         )
         self._hidden_size = hidden_size
+        self._pack = pack
 
     @property
     def delta_time(self):
@@ -121,7 +124,8 @@ class LSTM(torch.nn.LSTM):
             Outputs with shape (B, L, D) and states with shape (N, B, D) or (N, B, L, D), where
             N is the number of layers.
         """
-        outputs, _ = super().forward(x.payload, states)  # (B, L, D).
+        outputs, _ = super().forward(x.pack() if self._pack else x.payload, states)  # (B, L, D).
+        outputs = PaddedBatch.unpack(outputs, total_length=x.shape[1]).payload if self._pack else outputs
         if not return_states:
             output_states = None
         else:

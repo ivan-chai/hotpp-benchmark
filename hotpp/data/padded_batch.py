@@ -128,8 +128,7 @@ class PaddedBatch:
 
     @property
     def seq_len_mask(self):
-        """mask with B*T size for valid tokens in `payload`
-        """
+        """A mask with (B, L) size for valid tokens in `payload`."""
         if type(self._payload) is dict:
             name = self.seq_names[0]
             l = self._payload[name].shape[1]
@@ -139,3 +138,19 @@ class PaddedBatch:
         if self._left:
             indices = indices.flip(0)
         return indices[None] < self._lengths[:, None]
+
+    def pack(self):
+        """Create a PyTorch packed sequence object."""
+        if self.left:
+            raise NotImplementedError("Can't pack left padding.")
+        if not isinstance(self._payload, torch.Tensor):
+            raise ValueError("Can pack only tensor batches.")
+        return torch.nn.utils.rnn.pack_padded_sequence(self._payload, self._lengths.cpu(), batch_first=True, enforce_sorted=False)
+
+    @staticmethod
+    def unpack(packed, padding_value=0.0, total_length=None):
+        """Create PaddedBatch from a PyTorch packed sequence."""
+        payload, lengths = torch.nn.utils.rnn.pad_packed_sequence(packed, batch_first=True,
+                                                                  padding_value=padding_value,
+                                                                  total_length=total_length)
+        return PaddedBatch(payload, lengths)

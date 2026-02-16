@@ -75,6 +75,8 @@ class HotppDataset(torch.utils.data.IterableDataset):
         position: Sample position (`random` or `last`).
         rename: A dictionary for mapping field names during read.
         fields: A list of fields to keep in data. Other fields will be discarded.
+        offset: Skip some initial records.
+        limit: If set, limit the number of elements in the dataset.
         drop_nans: A list of fields to skip nans for.
         add_seq_fields: A dictionary with additional constant fields.
         global_target_fields: The name of the target field or a list of fields. Global targets are assigned to sequences.
@@ -91,11 +93,15 @@ class HotppDataset(torch.utils.data.IterableDataset):
                  fields=None,
                  id_field="id",
                  timestamps_field="timestamps",
+                 offset=0,
+                 limit=None,
                  drop_nans=None,
                  add_seq_fields=None,
                  global_target_fields=None,
                  local_targets_fields=None,
                  local_targets_indices_field=None):
+        if (limit is not None) and (min_required_length or drop_nans):
+            raise NotImplementedError("Can't combine `limit` with input filters.")
         super().__init__()
         if isinstance(data, str):
             self.filenames = list(sorted(parquet_file_scan(data)))
@@ -105,9 +111,26 @@ class HotppDataset(torch.utils.data.IterableDataset):
             raise ValueError(f"Unknown data type: {type(data)}")
         if not self.filenames:
             raise RuntimeError("Empty dataset")
-        self.total_length = sum(map(get_parquet_length, self.filenames))
-        self.random_split = random_split
-        self.random_part = random_part
+        if self.filenames and ((random_split != 1) or (random_part != "train")):
+            if limit is not None:
+                raise NotImplementedError("Can't combine `limit` with splitting.")
+            if random_part not in {"train", "val"}:
+                raise ValueError(f"Unknown random part: {random_part}. Must be either `train` or `val`.")
+            s = 1000000000
+            root = os.path.commonprefix(self.filenames)
+            selected_filenames = []
+            for filename in self.filenames:
+                h = immutable_hash(os.path.relpath(filename, root))
+                in_train = h % s <= s * random_split
+                if not (in_train ^ (random_part == "train")):
+                    selected_filenames.append(filename)
+            self.filenames = selected_filenames
+        self.offset = offset
+        self.limit = limit
+        self.total_length = max(0, sum(map(get_parquet_length, self.filenames)) - offset)
+        if self.limit is not None:
+            self.total_length = min(self.limit, self.total_length)
+
         self.min_length = min_length
         self.max_length = max_length
         self.position = position
@@ -134,7 +157,7 @@ class HotppDataset(torch.utils.data.IterableDataset):
 
     def replace_files(self, filenames, **kwargs):
         names = set(inspect.signature(self.__init__).parameters.keys())
-        names = names - {"self", "data"}
+        names = names - {"self", "data", "random_split", "random_part"}
         kwargs = {name: getattr(self, name) for name in names} | kwargs
         return HotppDataset(filenames, **kwargs)
 
@@ -190,16 +213,12 @@ class HotppDataset(torch.utils.data.IterableDataset):
         return self.total_length
 
     def __iter__(self):
-        if self.filenames:
-            root = os.path.commonprefix(self.filenames)
+        total = 0
         for filename in self.filenames:
-            if (self.random_split != 1) or (self.random_part != "train"):
-                s = 1000000000
-                h = immutable_hash(os.path.relpath(filename, root))
-                in_train = h % s <= s * self.random_split
-                if in_train ^ (self.random_part == "train"):
+            for rec in read_pyarrow_file(filename):
+                total += 1
+                if total <= self.offset:
                     continue
-            for rec in read_pyarrow_file(filename, use_threads=True):
                 for src, dst in self.rename.items():
                     if src not in rec:
                         raise RuntimeError(f"The field `{src}` not found")
@@ -217,6 +236,8 @@ class HotppDataset(torch.utils.data.IterableDataset):
                 if skip:
                     continue
                 yield self.process(features)
+                if (self.limit is not None) and (total - self.offset == self.limit):
+                    return
 
     def _make_batch(self, by_name, batch_size, seq_feature_name=None):
         # Compute lengths.
@@ -277,7 +298,8 @@ class ShuffledDistributedDataset(torch.utils.data.IterableDataset):
     Args:
         parallelize: Parallel reading mode, either `records` (better granularity) or `files` (faster).
     """
-    def __init__(self, dataset, rank=None, world_size=None, cache_size=None, parallelize=DEFAULT_PARALLELIZM, seed=0):
+    def __init__(self, dataset, rank=None, world_size=None, cache_size=None, parallelize=DEFAULT_PARALLELIZM, seed=0,
+                 drop_last=False):
         super().__init__()
         self.dataset = dataset
         self.rank = rank
@@ -285,6 +307,7 @@ class ShuffledDistributedDataset(torch.utils.data.IterableDataset):
         self.cache_size = cache_size
         self.parallelize = parallelize
         self.seed = seed
+        self.drop_last = drop_last
         self.epoch = 0
 
     def _get_context(self):
@@ -320,19 +343,34 @@ class ShuffledDistributedDataset(torch.utils.data.IterableDataset):
         filenames = list(dataset.filenames)
         if not filenames:
             raise RuntimeError("Empty dataset")
-        root = os.path.commonprefix(filenames)
-        splits = [list() for _ in range(world_size)]
-        for filename in filenames:
-            splits[immutable_hash(os.path.relpath(filename, root)) % world_size].append(filename)
-        if any([len(split) == 0 for split in splits]):
-            if rank == 0:
-                warnings.warn(f"Some workers got zero files, switch to record parallelizm")
-            yield from self._iter_shuffled_records(dataset, seed, rank, world_size)
-            return
-        dataset = dataset.replace_files(splits[rank])
+        rnd = Random(seed)
+        rnd.shuffle(filenames)
+        lengths = list(map(get_parquet_length, filenames))
+        records_per_worker = sum(lengths) // world_size
+        if records_per_worker == 0:
+            raise RuntimeError(f"Very small dataset for {world_size} workers")
+        offset = records_per_worker * rank
+        skipped = 0
+        accepted = 0
+        selected_filenames = []
+        for filename, length in zip(filenames, lengths):
+            if skipped + accepted + length <= offset:
+                skipped += length
+            elif accepted >= records_per_worker:
+                break
+            else:
+                selected_filenames.append(filename)
+                accepted += length - max(0, offset - skipped - accepted)
+        dataset = dataset.replace_files(selected_filenames,
+                                        offset=offset - skipped,
+                                        limit=records_per_worker if self.drop_last or rank != world_size - 1 else None)
         yield from self._iter_shuffled_records_impl(dataset, seed)
 
     def _iter_shuffled_records(self, dataset, seed, rank, world_size):
+        rnd = Random(seed)
+        filenames = list(dataset.filenames)
+        rnd.shuffle(filenames)
+        dataset = dataset.replace_files(filenames)
         for i, item in enumerate(self._iter_shuffled_records_impl(dataset, seed)):
             if i % world_size == rank:
                 yield item
@@ -342,9 +380,6 @@ class ShuffledDistributedDataset(torch.utils.data.IterableDataset):
             yield from dataset
         else:
             rnd = Random(seed)
-            filenames = list(dataset.filenames)
-            rnd.shuffle(filenames)
-            dataset = dataset.replace_files(filenames)
             cache = []
             for item in dataset:
                 cache.append(item)

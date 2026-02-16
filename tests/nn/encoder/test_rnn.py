@@ -4,7 +4,7 @@ from unittest import TestCase, main
 import torch
 
 from hotpp.data import PaddedBatch
-from hotpp.nn.encoder.rnn import ContTimeLSTM, ODEGRU
+from hotpp.nn.encoder.rnn import ContTimeLSTM, ODEGRU, GRU, LSTM
 
 
 EPS = 1e-10
@@ -30,6 +30,29 @@ def lin_rk4(x0, a, b, dt):
     k3 = a * (x0 + dt * k2 / 2) + b
     k4 = a * (x0 + dt * k3) + b
     return x0 + dt * (k1 + 2 * k2 + 2 * k3 + k4) / 6
+
+
+class TestPacking(TestCase):
+    def test_pack_unpack(self):
+        batch = PaddedBatch(
+            torch.tensor([
+                [1, 2, 0],
+                [3, 0, 0],
+                [4, 5, 6]
+            ]).float().unsqueeze(2).expand(3, 3, 8),
+            torch.tensor([2, 1, 3])
+        )
+        time_deltas = None
+        for cls in [GRU, LSTM]:
+            model_gt = cls(8, 16, pack=False)
+            model = cls(8, 16, pack=True)
+            model.load_state_dict(model_gt.state_dict())
+            states = torch.randn(1, 3, 16) if isinstance(model, GRU) else (torch.randn(1, 3, 16), torch.randn(1, 3, 16))
+            output_gt, _ = model_gt(batch, time_deltas, states=states)
+            output_gt.payload.masked_fill_(~output_gt.seq_len_mask.unsqueeze(2), 0)
+            output, _ = model(batch, time_deltas, states=states)
+            self.assertTrue((output_gt.seq_lens == output.seq_lens).all())
+            self.assertTrue(output_gt.payload.isclose(output.payload).all())
 
 
 class TestContTimeLSTM(TestCase):
