@@ -82,7 +82,7 @@ class GatherMetric(Metric):
             if (self.dtypes[key] is not None) and (self.dtypes[key] != dtype):
                 raise RuntimeError(f"Object type changed: {v}")
             self.dtypes[key] = dtype
-            getattr(self, f"_out_{i}").append(v)
+            getattr(self, f"_out_{i}").append(v.cpu())
 
     def compute(self):
         results = []

@@ -1,8 +1,10 @@
 """Compute embeddings and evaluate downstream prediction."""
 import copy
+import multiprocessing as mp
 import os
 import pickle as pkl
 import tempfile
+from collections import defaultdict
 from contextlib import contextmanager
 
 import hydra
@@ -11,12 +13,8 @@ import pandas as pd
 import pytorch_lightning as pl
 import torch
 from omegaconf import OmegaConf
+from sklearn.metrics import make_scorer
 
-try:
-    from embeddings_validation import ReportCollect
-    from embeddings_validation.config import Config
-except ImportError:
-    raise ImportError("Please, install embeddings_validation or hotpp-benchmark[downstream]")
 from .common import get_trainer, dump_report
 from .embed import distributed_predict, extract_embeddings, embeddings_to_pandas
 
@@ -73,7 +71,12 @@ def targets_to_pandas(id_field, target_names, by_split):
     return pd.DataFrame(columns).set_index(id_field)
 
 
-def eval_embeddings(conf):
+def eval_embeddings_ptls(conf):
+    try:
+        from embeddings_validation import ReportCollect
+        from embeddings_validation.config import Config
+    except ImportError:
+        raise ImportError("Please, install embeddings_validation or hotpp-benchmark[downstream]")
     OmegaConf.set_struct(conf, False)
     conf["workers"] = conf.get("workers", 1)
     conf["total_cpu_count"] = conf.get("total_cpu_count", conf.workers)
@@ -85,6 +88,86 @@ def eval_embeddings(conf):
     luigi.build([task], workers=conf.workers,
                         local_scheduler=conf.get("local_scheduler", True),
                         log_level=conf.get("log_level", "INFO"))
+
+    scores = {split: {f"ptls-{k}": v for k, v in results.items()}
+              for split, results in parse_result(conf.report_file).items()}
+    return scores  # split -> metric -> value.
+
+
+def eval_embeddings_impl(conf):
+    id_field = conf.target.cols_id
+    if len(id_field) != 1:
+        raise RuntimeError("Multiple ID fields.")
+    id_field = id_field[0]
+    with open(conf.features.embeddings.read_params.file_name, "rb") as fp:
+        data = pkl.load(fp).set_index(id_field)  # (id, ...features...).
+    targets = pd.read_csv(conf.target.file_name)[[id_field, conf.target.col_target]].set_index(id_field)
+    train_index = pd.read_csv(conf.split.train_id.file_name)[[id_field]].set_index(id_field)
+    val_index = pd.read_csv(conf.split.val_id.file_name)[[id_field]].set_index(id_field) if "val_id" in conf.split else None
+    test_index = pd.read_csv(conf.split.test_id.file_name)[[id_field]].set_index(id_field)
+
+    models = {k: v for k, v in conf.models.items() if v.enabled}
+    if len(models) != 1:
+        raise RuntimeError("Multiple models.")
+    model = next(iter(models.values()))
+    preprocessors = []
+    if "preprocessing" in model:
+        data_train = data[train_index]
+        for p in model.preprocessing:
+            preprocessor =  hydra.utils.instantiate(p)
+            data_train = preprocessor.fit_transform(data_train)
+    model = hydra.utils.instantiate(model.model)
+    metrics = {}
+    for k, spec in conf.metrics.items():
+        spec = dict(spec)
+        if not spec.pop("enabled", True):
+            continue
+        scorer_fn = hydra.utils.get_method(spec.pop("score_func"))
+        scorer_params = dict(spec.pop("scorer_params", {}))
+        if spec:
+            raise ValueError(f"Unknown metric parameters: {spec.keys()}")
+        metrics[k] = make_scorer(scorer_fn, **scorer_params)
+
+    train_targets = targets.join(train_index, how="inner")
+    val_targets = targets.join(val_index, how="inner") if val_index is not None else None
+    test_targets = targets.join(test_index, how="inner")
+
+    train_data = data.loc[train_targets.index]
+    val_data = data.loc[val_targets.index] if val_targets is not None else None
+    test_data = data.loc[test_targets.index]
+
+    for preprocessor in preprocessors:
+        train_data = preprocessor.transform(train_data)
+        val_data = preprocessor.transform(val_data) if val_data is not None else None
+        test_data = preprocessor.transform(test_data)
+
+    model.fit(train_data, train_targets)
+
+    scores = defaultdict(dict)
+    for name, metric in metrics.items():
+        if val_data is not None:
+            scores["val"][f"downstream-{name}"] = metric(model, val_data, val_targets)
+        scores["test"][f"downstream-{name}"] = metric(model, test_data, test_targets)
+    return scores
+
+
+def eval_embeddings_worker(conf, pipe):
+    try:
+        scores = eval_embeddings_impl(conf)
+        pipe.send(scores)
+    finally:
+        pipe.close()
+
+
+def eval_embeddings(conf):
+    parent, child = mp.Pipe(duplex=False)
+    p = mp.Process(target=eval_embeddings_worker, args=(conf, child))
+    p.start()
+    scores = parent.recv()
+    p.join()
+    if p.exitcode != 0:
+        raise RuntimeError(f"Evaluation failed")
+    return scores  # split -> metric -> value.
 
 
 def parse_result(path):
@@ -103,7 +186,8 @@ def parse_result(path):
             tokens = line.strip().split()
             mean = float(tokens[2])
             std = float(tokens[6])
-            scores[split] = (mean, std)
+            scores[split] = {"downstream": mean,
+                             "downstream-std": std}
             split = None
     return scores
 
@@ -126,7 +210,10 @@ def eval_downstream(downstream_config, trainer, datamodule, model,
             embeddings = extract_embeddings(trainer, datamodule, model, splits=splits)
             embeddings = embeddings_to_pandas(datamodule.id_field, embeddings)
         if len(embeddings.index.unique()) != len(embeddings):
-            raise ValueError("Duplicate ids")
+            from collections import Counter
+            duplicates = Counter(embeddings.index.to_list())
+            duplicates = {k: v for k, v in duplicates.items() if v > 1}
+            raise ValueError(f"Duplicate ids {duplicates}")
         if precomputed_targets is not None:
             if isinstance(precomputed_targets, str):
                 targets = pd.read_parquet(precomputed_targets).set_index("id")
@@ -152,14 +239,20 @@ def eval_downstream(downstream_config, trainer, datamodule, model,
         downstream_config.environment.work_dir = root
         downstream_config.features.embeddings.read_params.file_name = embeddings_path
         downstream_config.target.file_name = targets_path
-        downstream_config.split.train_id.file_name = targets_path
+        downstream_config.split.train_id = OmegaConf.create({"file_name": targets_path})
         downstream_config.report_file = os.path.join(root, "downstream_report.txt")
+
+        val_targets = targets[targets["split"] == "val"]
+        if len(val_targets) > 0:
+            val_ids_path = os.path.join(root, "val_ids.csv")
+            val_targets[[]].to_csv(val_ids_path)  # Index only.
+            downstream_config.split.val_id = OmegaConf.create({"file_name": val_ids_path})
 
         test_targets = targets[targets["split"] == "test"]
         if len(test_targets) > 0:
             test_ids_path = os.path.join(root, "test_ids.csv")
             test_targets[[]].to_csv(test_ids_path)  # Index only.
-            downstream_config.split.test_id.file_name = test_ids_path
+            downstream_config.split.test_id = OmegaConf.create({"file_name": test_ids_path})
 
         if os.path.exists(downstream_config.report_file):
             os.remove(downstream_config.report_file)
@@ -170,9 +263,11 @@ def eval_downstream(downstream_config, trainer, datamodule, model,
             is_main_process = True
         if not is_main_process:
             return None
-        eval_embeddings(downstream_config)
-
-        scores = parse_result(downstream_config.report_file)
+        scores = eval_embeddings(downstream_config)
+        if downstream_config.get("eval_ptls", False):
+            ptls_scores = eval_embeddings_ptls(downstream_config)
+            for split, result in ptls_scores.items():
+                scores[split].update(result)
     return scores
 
 
@@ -192,9 +287,9 @@ def main(conf):
     if scores is not None:
         # The main process.
         result = {}
-        for split, (mean, std) in scores.items():
-            result[f"{split}/{conf.downstream.target.col_target} (mean)"] = mean
-            result[f"{split}/{conf.downstream.target.col_target} (std)"] = std
+        for split, metrics in scores.items():
+            for metric, value in metrics.items():
+                result[f"{split}/{metric}"] = value
         with open(downstream_report, "w") as fp:
             dump_report(result, fp)
 
