@@ -42,6 +42,8 @@ class HotppDataModule(pl.LightningDataModule):
         self._train_path = train_path
         self._val_path = val_path
         self._test_path = test_path
+        self._train_params = train_params
+        self._val_params = val_params
         self._test_params = test_params
         self._params = params
 
