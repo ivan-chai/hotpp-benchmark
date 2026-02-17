@@ -78,11 +78,17 @@ class HotppDataModule(pl.LightningDataModule):
 
     def with_test_parameters(self):
         """Return new datamodule with all datasets having test parameters."""
+        keep_params = {"random_split", "random_part"}
+        transfer_test_params = {k: v for k, v in (self._test_params or {}).items() if k not in keep_params}
+        train_params = {k: v for k, v in (self._train_params or {}).items() if k in keep_params}
+        val_params = {k: v for k, v in (self._val_params or {}).items() if k in keep_params}
+        train_params.update(transfer_test_params)
+        val_params.update(transfer_test_params)
         return HotppDataModule(
             train_path=self._train_path,
-            train_params=self._test_params,
+            train_params=train_params,
             val_path=self._val_path,
-            val_params=self._test_params,
+            val_params=val_params,
             test_path=self._test_path,
             test_params=self._test_params,
             **self._params
