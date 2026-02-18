@@ -9,8 +9,8 @@ import pandas as pd
 import pytorch_lightning as pl
 import torch
 from omegaconf import OmegaConf
-from torchmetrics import Metric
 from torchmetrics.utilities import dim_zero_cat
+from torchmetrics.utilities.distributed import gather_all_tensors
 
 from .common import get_trainer
 from .data import ShuffledDistributedDataset, DEFAULT_PARALLELIZM
@@ -35,15 +35,15 @@ class TupleWithCPU(tuple):
         return 1
 
 
-class GatherMetric(Metric):
+class DistributedCollector:
     """Gather predictions across all processes."""
-    def __init__(self, n_values, compute_on_cpu=False):
-        super().__init__(compute_on_cpu=compute_on_cpu)
+    def __init__(self, n_values):
         self.n_values = n_values
-        self.dtypes = {}
-        for i in range(n_values):
-            self.add_state(f"_out_{i}", default=[], dist_reduce_fx="cat")
-            self.dtypes[f"_out_{i}"] = None
+        self.reset()
+
+    def reset(self):
+        self.values = [list() for _ in range(self.n_values)]
+        self.dtypes = [None for _ in range(self.n_values)]
 
     @staticmethod
     def _pack_strings(v):
@@ -78,20 +78,21 @@ class GatherMetric(Metric):
                 dtype = "tensor"
             else:
                 raise ValueError(f"Can't synchronize object: {v}")
-            key = f"_out_{i}"
-            if (self.dtypes[key] is not None) and (self.dtypes[key] != dtype):
-                raise RuntimeError(f"Object type changed: {v}")
-            self.dtypes[key] = dtype
-            getattr(self, f"_out_{i}").append(v)
+            if self.dtypes[i] is None:
+                self.dtypes[i] = dtype
+            elif self.dtypes[i] != dtype:
+                raise RuntimeError(f"Object type changed for output {i}: {v}")
+
+            if torch.distributed.is_initialized() and (torch.distributed.get_world_size(torch.distributed.group.WORLD) > 1):
+                v = dim_zero_cat(gather_all_tensors(v)).cpu()
+            self.values[i].append(v)
 
     def compute(self):
         results = []
         for i in range(self.n_values):
             try:
-                values = getattr(self, f"_out_{i}")
-                values = dim_zero_cat(values)
-                assert isinstance(values, torch.Tensor)
-                dtype = self.dtypes[f"_out_{i}"]
+                values = torch.cat(self.values[i], dim=0)
+                dtype = self.dtypes[i]
                 if dtype == "str":
                     values = TupleWithCPU(self._unpack_strings(values))
                 else:
@@ -104,11 +105,11 @@ class GatherMetric(Metric):
 
 
 class InferenceModule(pl.LightningModule):
-    def __init__(self, model, n_outputs, compute_on_cpu=False):
+    def __init__(self, model, n_outputs):
         super().__init__()
         self.model = model
         self.n_outputs = n_outputs
-        self.gather = GatherMetric(n_outputs, compute_on_cpu=compute_on_cpu)
+        self.gather = DistributedCollector(n_outputs)
         self.result = None
 
     def forward(self, batch):
