@@ -191,7 +191,7 @@ class HotppDataset(torch.utils.data.IterableDataset):
         Args:
             batch: Whether the value is a batch of features.
         """
-        if (name == self.id_field) or (name in self.global_target_fields):
+        if (name == self.id_field) or (name in self.global_target_fields) or (name == self.local_targets_indices_field) or (name in self.local_targets_fields):
             return False
         if isinstance(value, list):
             ndim = 1
@@ -207,9 +207,7 @@ class HotppDataset(torch.utils.data.IterableDataset):
         if self.timestamps_field not in features:
             raise ValueError("Need timestamps feature")
         if (self.min_length > 0) or (self.max_length is not None):
-            if self.local_targets_fields:
-                raise NotImplementedError("Future work: subsequence local targets.")
-            # Select subsequences.
+
             length = len(features[self.timestamps_field])
             max_length = min(length, self.max_length or length)
             min_length = min(length, self.min_length if self.min_length > 0 else max_length)
@@ -220,11 +218,21 @@ class HotppDataset(torch.utils.data.IterableDataset):
                 offset = length - out_length
             else:
                 raise ValueError(f"Unknown position: {self.position}.")
+            if self.local_targets_fields: 
+                if self.mbd:
+                    features[self.local_targets_indices_field] = features[self.local_targets_indices_field] - offset
+                    mask = features[self.local_targets_indices_field] < 0
+                    for local_target in self.local_targets_fields:
+                        features[local_target][mask] = -1
+                    features[self.local_targets_indices_field][features[self.local_targets_indices_field] >= self.max_length - 1] = self.max_length - 1
+                else:
+                    raise NotImplementedError("Future work: subsequence local targets.")            
+
             features = {k: (v[offset:offset + out_length] if self.is_seq_feature(k, v) else v)
                         for k, v in features.items()}
             assert len(features[self.timestamps_field]) == out_length
         features[self.timestamps_field] = features[self.timestamps_field].float()
-        return features  # Tensors.
+        return features
 
     def __len__(self):
         return self.total_length
@@ -248,8 +256,8 @@ class HotppDataset(torch.utils.data.IterableDataset):
                     if self.mbd:
                         rec = {field: rec[field] for field in (set(self.fields) | set(self.mbd_target_months)) - set(self.global_target_fields)}
                     else:
-                        rec = {field: rec[field] for field in self.fields} #поле : столбец поля
-                features = {k: to_torch_if_possible(v) for k, v in rec.items()} #поле : столбец поля (в тензорах)
+                        rec = {field: rec[field] for field in self.fields}
+                features = {k: to_torch_if_possible(v) for k, v in rec.items()}
                 skip = False
                 for field in self.drop_nans:
                     if not self.mbd and not features[field].isfinite().all():
@@ -260,20 +268,16 @@ class HotppDataset(torch.utils.data.IterableDataset):
 
                 if self.mbd:
                     mt_dict = {i + 1: self.mbd_target_months[i * 4: i * 4 + 4] for i in range(12)}
-                    year = 2022
-                    TSCALE = 3600 * 24
                     seq_features = [k for k, v in features.items() if self.is_seq_feature(k, v)]
-                    for month in range(1, 12 + 1):
-                        if month == 12:
-                            month_event_time = datetime(year + 1, 1, 1).timestamp() / TSCALE
-                        else:
-                            month_event_time = datetime(year, month + 1, 1).timestamp() / TSCALE
-                        mask = features[self.timestamps_field] < month_event_time
+
+                    if self.local_targets_indices_field:
+                        month = 12
                         fm = dict(features)
                         for k in seq_features:
-                            fm[k] = features[k][mask]
-                        fm[self.id_field] = features[self.id_field] + "_month=" + str(month)
+                            fm[k] = features[k]
+
                         fm = {k if k not in self.mbd_target_months_dict else self.mbd_target_months_dict[k] : v for k, v in fm.items() if k not in self.mbd_target_months or k in mt_dict[month]}
+
                         mbd_skip = False
                         for field in self.drop_nans:
                             if not fm[field].isfinite().all():
@@ -281,7 +285,30 @@ class HotppDataset(torch.utils.data.IterableDataset):
                                 break
                         if mbd_skip:
                             continue
+
                         yield self.process(fm)
+                    else:
+                        year = 2022
+                        TSCALE = 3600 * 24 * 4
+                        for month in range(1, 12 + 1):
+                            if month == 12:
+                                month_event_time = datetime(year + 1, 1, 1).timestamp() / TSCALE
+                            else:
+                                month_event_time = datetime(year, month + 1, 1).timestamp() / TSCALE
+                            mask = features[self.timestamps_field] < month_event_time
+                            fm = dict(features)
+                            for k in seq_features:
+                                fm[k] = features[k][mask]
+                            fm[self.id_field] = features[self.id_field] + "_month=" + str(month)
+                            fm = {k if k not in self.mbd_target_months_dict else self.mbd_target_months_dict[k] : v for k, v in fm.items() if k not in self.mbd_target_months or k in mt_dict[month]}
+                            mbd_skip = False
+                            for field in self.drop_nans:
+                                if not fm[field].isfinite().all():
+                                    mbd_skip = True
+                                    break
+                            if mbd_skip:
+                                continue
+                            yield self.process(fm)
                 else:
                     yield self.process(features)
 
@@ -291,7 +318,6 @@ class HotppDataset(torch.utils.data.IterableDataset):
             lengths = torch.tensor(list(map(len, by_name[seq_feature_name])))
         else:
             lengths = torch.zeros(batch_size, dtype=torch.long)
-
         # Add padding.
         features = {}
         for k, vs in by_name.items():
@@ -327,10 +353,12 @@ class HotppDataset(torch.utils.data.IterableDataset):
         for name, values in by_name.items():
             if len(values) != batch_size:
                 raise ValueError(f"Missing values for feature {name} {values}")
-
         # Pop targets.
-        targets_by_name = {name: by_name.pop(name) for name in
-                           itertools.chain(self.global_target_fields, self.local_targets_fields)}
+        iter_chain = itertools.chain(self.global_target_fields, self.local_targets_fields)
+        if self.local_targets_indices_field:
+            iter_chain =  itertools.chain(iter_chain, [self.local_targets_indices_field])
+
+        targets_by_name = {name: by_name.pop(name) for name in iter_chain}
 
         # Make PaddedBatch objects.
         features = self._make_batch(by_name, batch_size, self.timestamps_field)
