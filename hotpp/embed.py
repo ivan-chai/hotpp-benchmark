@@ -90,38 +90,17 @@ class DistributedCollector:
     def compute(self):
         results = []
         for i in range(self.n_values):
-            try:
-                values = torch.cat(self.values[i], dim=0)
-                dtype = self.dtypes[i]
-                if dtype == "str":
-                    values = TupleWithCPU(self._unpack_strings(values))
-                else:
-                    assert dtype == "tensor"
-                results.append(values)
-            except ValueError:
+            if len(self.values[i]) == 0:
                 # Empty list.
                 return None
+            values = torch.cat(self.values[i], dim=0)
+            dtype = self.dtypes[i]
+            if dtype == "str":
+                values = TupleWithCPU(self._unpack_strings(values))
+            else:
+                assert dtype == "tensor"
+            results.append(values)
         return results
-
-
-class InferenceModule(pl.LightningModule):
-    def __init__(self, model, n_outputs):
-        super().__init__()
-        self.model = model
-        self.n_outputs = n_outputs
-        self.gather = DistributedCollector(n_outputs)
-        self.result = None
-
-    def forward(self, batch):
-        return self.model(batch)
-
-    def test_step(self, batch):
-        result = self(batch)
-        assert len(result) == self.n_outputs
-        self.gather.update(*result)
-
-    def on_test_epoch_end(self):
-        self.result = self.gather.compute()
 
 
 class InferenceDataModule(pl.LightningDataModule):
@@ -149,17 +128,29 @@ class InferenceDataModule(pl.LightningDataModule):
 
 
 def distributed_predict(trainer, datamodule, model, n_outputs, splits=None):
-    model = InferenceModule(model, n_outputs=n_outputs)
-    if splits is None:
-        splits = datamodule.splits
-    by_split = {}
-    for split in splits:
-        model.gather.reset()
-        split_datamodule = InferenceDataModule(datamodule, split=split,
-                                               rank=trainer.local_rank,
-                                               world_size=trainer.world_size)
-        trainer.test(model, split_datamodule)
-        by_split[split] = model.result
+    if trainer.state.status == pl.trainer.states.TrainerStatus.INITIALIZING:
+        # Initialize trainer.
+        logger.info("Initialize Trainer")
+        empty_dataset = torch.utils.data.TensorDataset(torch.empty([0]), torch.empty([0]))
+        empty_loader = torch.utils.data.DataLoader(empty_dataset)
+        trainer.predict(model, empty_loader)
+    training_mode = model.training
+    model.eval()
+    try:
+        if splits is None:
+            splits = datamodule.splits
+        by_split = {}
+        for split in splits:
+            split_datamodule = InferenceDataModule(datamodule, split=split,
+                                                   rank=trainer.global_rank,
+                                                   world_size=trainer.world_size)
+            collector = DistributedCollector(n_outputs)
+            for batch in split_datamodule.test_dataloader():
+                batch = model.transfer_batch_to_device(batch, trainer.strategy.root_device, 0)
+                collector.update(*model(batch))
+            by_split[split] = collector.compute()
+    finally:
+        model.train(training_mode)
     return by_split
 
 

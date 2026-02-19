@@ -103,7 +103,7 @@ class HotppDataModule(pl.LightningDataModule):
         return splits
 
     def train_dataloader(self, rank=None, world_size=None):
-        rank = self.trainer.local_rank if rank is None else rank
+        rank = self.trainer.global_rank if rank is None else rank
         world_size = self.trainer.world_size if world_size is None else world_size
         loader_params = {"drop_last": True,
                          "pin_memory": torch.cuda.is_available()}
@@ -122,7 +122,7 @@ class HotppDataModule(pl.LightningDataModule):
         return loader
 
     def val_dataloader(self, rank=None, world_size=None):
-        rank = self.trainer.local_rank if rank is None else rank
+        rank = self.trainer.global_rank if rank is None else rank
         world_size = self.trainer.world_size if world_size is None else world_size
         loader_params = {"pin_memory": torch.cuda.is_available()}
         loader_params.update(self.val_loader_params)
@@ -136,7 +136,7 @@ class HotppDataModule(pl.LightningDataModule):
         return loader
 
     def test_dataloader(self, rank=None, world_size=None):
-        rank = self.trainer.local_rank if rank is None else rank
+        rank = self.trainer.global_rank if rank is None else rank
         world_size = self.trainer.world_size if world_size is None else world_size
         loader_params = {"pin_memory": torch.cuda.is_available()}
         loader_params.update(self.test_loader_params)
