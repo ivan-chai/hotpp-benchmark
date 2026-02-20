@@ -94,7 +94,7 @@ def eval_embeddings_ptls(conf):
     return scores  # split -> metric -> value.
 
 
-def eval_embeddings_impl(conf):
+def eval_embeddings(conf):
     id_field = conf.target.cols_id
     if len(id_field) != 1:
         raise RuntimeError("Multiple ID fields.")
@@ -149,25 +149,6 @@ def eval_embeddings_impl(conf):
             scores["val"][f"downstream-{name}"] = metric(model, val_data, val_targets)
         scores["test"][f"downstream-{name}"] = metric(model, test_data, test_targets)
     return scores
-
-
-def eval_embeddings_worker(conf, pipe):
-    try:
-        scores = eval_embeddings_impl(conf)
-        pipe.send(scores)
-    finally:
-        pipe.close()
-
-
-def eval_embeddings(conf):
-    parent, child = mp.Pipe(duplex=False)
-    p = mp.Process(target=eval_embeddings_worker, args=(conf, child))
-    p.start()
-    scores = parent.recv()
-    p.join()
-    if p.exitcode != 0:
-        raise RuntimeError(f"Evaluation failed")
-    return scores  # split -> metric -> value.
 
 
 def parse_result(path):
@@ -242,6 +223,11 @@ def eval_downstream(downstream_config, trainer, datamodule, model,
         downstream_config.split.train_id = OmegaConf.create({"file_name": targets_path})
         downstream_config.report_file = os.path.join(root, "downstream_report.txt")
 
+        train_targets = targets[targets["split"] == "train"]
+        train_ids_path = os.path.join(root, "train_ids.csv")
+        train_targets[[]].to_csv(train_ids_path)  # Index only.
+        downstream_config.split.train_id = OmegaConf.create({"file_name": train_ids_path})
+
         val_targets = targets[targets["split"] == "val"]
         if len(val_targets) > 0:
             val_ids_path = os.path.join(root, "val_ids.csv")
@@ -249,10 +235,9 @@ def eval_downstream(downstream_config, trainer, datamodule, model,
             downstream_config.split.val_id = OmegaConf.create({"file_name": val_ids_path})
 
         test_targets = targets[targets["split"] == "test"]
-        if len(test_targets) > 0:
-            test_ids_path = os.path.join(root, "test_ids.csv")
-            test_targets[[]].to_csv(test_ids_path)  # Index only.
-            downstream_config.split.test_id = OmegaConf.create({"file_name": test_ids_path})
+        test_ids_path = os.path.join(root, "test_ids.csv")
+        test_targets[[]].to_csv(test_ids_path)  # Index only.
+        downstream_config.split.test_id = OmegaConf.create({"file_name": test_ids_path})
 
         if os.path.exists(downstream_config.report_file):
             os.remove(downstream_config.report_file)
