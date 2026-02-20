@@ -85,6 +85,8 @@ class DistributedCollector:
 
             if torch.distributed.is_initialized() and (torch.distributed.get_world_size(torch.distributed.group.WORLD) > 1):
                 v = dim_zero_cat(gather_all_tensors(v)).cpu()
+            else:
+                v = v.cpu()
             self.values[i].append(v)
 
     def compute(self):
@@ -128,12 +130,14 @@ class InferenceDataModule(pl.LightningDataModule):
 
 
 def distributed_predict(trainer, datamodule, model, n_outputs, splits=None):
+    need_teardown = False
     if trainer.state.status == pl.trainer.states.TrainerStatus.INITIALIZING:
         # Initialize trainer.
         logger.info("Initialize Trainer")
-        empty_dataset = torch.utils.data.TensorDataset(torch.empty([0]), torch.empty([0]))
-        empty_loader = torch.utils.data.DataLoader(empty_dataset)
-        trainer.predict(model, empty_loader)
+        trainer.strategy.connect(model)
+        trainer.strategy.setup_environment()
+        trainer.strategy.setup(trainer)
+        need_teardown = True
     training_mode = model.training
     model.eval()
     try:
@@ -145,11 +149,14 @@ def distributed_predict(trainer, datamodule, model, n_outputs, splits=None):
                                                    rank=trainer.global_rank,
                                                    world_size=trainer.world_size)
             collector = DistributedCollector(n_outputs)
-            for batch in split_datamodule.test_dataloader():
-                batch = model.transfer_batch_to_device(batch, trainer.strategy.root_device, 0)
-                collector.update(*model(batch))
+            with torch.no_grad():
+                for batch in split_datamodule.test_dataloader():
+                    batch = model.transfer_batch_to_device(batch, trainer.strategy.root_device, 0)
+                    collector.update(*model(batch))
             by_split[split] = collector.compute()
     finally:
+        if need_teardown:
+            trainer.strategy.teardown()
         model.train(training_mode)
     return by_split
 
