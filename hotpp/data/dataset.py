@@ -365,7 +365,7 @@ class ShuffledDistributedDataset(torch.utils.data.IterableDataset):
                                         offset=offset - skipped,
                                         limit=records_per_worker)
         yield from self._iter_shuffled_records_impl(dataset, seed,
-                                                    min_records=records_per_worker)
+                                                    exact_records=records_per_worker)
 
     def _iter_shuffled_records(self, dataset, seed, rank, world_size):
         rnd = Random(seed)
@@ -376,13 +376,15 @@ class ShuffledDistributedDataset(torch.utils.data.IterableDataset):
             if i % world_size == rank:
                 yield item
 
-    def _iter_shuffled_records_impl(self, dataset, seed, min_records=None):
+    def _iter_shuffled_records_impl(self, dataset, seed, exact_records=None):
         total = 0
         while True:
             if self.cache_size is None:
                 for record in dataset:
                     yield record
                     total += 1
+                    if (exact_records is not None) and (total >= exact_records):
+                        return
             else:
                 rnd = Random(seed)
                 cache = []
@@ -390,13 +392,19 @@ class ShuffledDistributedDataset(torch.utils.data.IterableDataset):
                     cache.append(item)
                     if len(cache) >= self.cache_size:
                         rnd.shuffle(cache)
-                        yield from cache
-                        total += len(cache)
+                        for record in cache:
+                            yield record
+                            total += 1
+                            if (exact_records is not None) and (total >= exact_records):
+                                return
                         cache = []
                 if len(cache) > 0:
                     rnd.shuffle(cache)
-                    yield from cache
-                    total += len(cache)
+                    for record in cache:
+                        yield record
+                        total += 1
+                        if (exact_records is not None) and (total >= exact_records):
+                            return
                     cache = []
-            if (total == 0) or (min_records is None) or (total >= min_records):
+            if (total == 0) or (exact_records is None) or (total >= exact_records):
                 break
