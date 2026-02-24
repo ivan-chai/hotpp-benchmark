@@ -35,6 +35,12 @@ class TestDDPDataLoader(TestCase):
         self.data16_path = os.path.join(self.root, "part16.parquet")
         pa.parquet.write_table(table, self.data16_path)
 
+        ids = pa.array(list(range(15 + 16, 15 + 32)))
+        timestamps = pa.array([list(range(i)) for i in range(16)])
+        table = pa.Table.from_arrays([ids, timestamps], names=["id", "timestamps"])
+        self.data16_2_path = os.path.join(self.root, "part16_2.parquet")
+        pa.parquet.write_table(table, self.data16_2_path)
+
     def tearDown(self):
         """ Called after every test. """
         self.tmp.cleanup()
@@ -155,8 +161,8 @@ class TestDDPDataLoader(TestCase):
 
         # Joined dataset, file parallelizm.
         world_size = 2
-        data = HotppDataModule(train_path=[self.data15_path, self.data16_path],
-                               drop_last=False,
+        data = HotppDataModule(train_path=[self.data16_path, self.data16_2_path],
+                               drop_last=True,
                                parallelize="files",
                                train_params={
                                    "batch_size": 4,
@@ -170,8 +176,8 @@ class TestDDPDataLoader(TestCase):
         items = sum(items, [])
         ids2 = torch.cat([v.payload["id"] for v, _ in items]).tolist()
 
-        self.assertEqual(set(ids1), set(range(15 + 16)))
-        self.assertEqual(set(ids2), set(range(15 + 16)))
+        self.assertEqual(set(ids1), set(range(15, 15 + 32)))
+        self.assertEqual(set(ids2), set(range(15, 15 + 32)))
         self.assertNotEqual(ids1, ids2)
 
 

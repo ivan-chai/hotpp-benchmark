@@ -9,8 +9,8 @@ import pandas as pd
 import pytorch_lightning as pl
 import torch
 from omegaconf import OmegaConf
-from torchmetrics import Metric
 from torchmetrics.utilities import dim_zero_cat
+from torchmetrics.utilities.distributed import gather_all_tensors
 
 from .common import get_trainer
 from .data import ShuffledDistributedDataset, DEFAULT_PARALLELIZM
@@ -35,15 +35,15 @@ class TupleWithCPU(tuple):
         return 1
 
 
-class GatherMetric(Metric):
+class DistributedCollector:
     """Gather predictions across all processes."""
-    def __init__(self, n_values, compute_on_cpu=False):
-        super().__init__(compute_on_cpu=compute_on_cpu)
+    def __init__(self, n_values):
         self.n_values = n_values
-        self.dtypes = {}
-        for i in range(n_values):
-            self.add_state(f"_out_{i}", default=[], dist_reduce_fx="cat")
-            self.dtypes[f"_out_{i}"] = None
+        self.reset()
+
+    def reset(self):
+        self.values = [list() for _ in range(self.n_values)]
+        self.dtypes = [None for _ in range(self.n_values)]
 
     @staticmethod
     def _pack_strings(v):
@@ -78,49 +78,31 @@ class GatherMetric(Metric):
                 dtype = "tensor"
             else:
                 raise ValueError(f"Can't synchronize object: {v}")
-            key = f"_out_{i}"
-            if (self.dtypes[key] is not None) and (self.dtypes[key] != dtype):
-                raise RuntimeError(f"Object type changed: {v}")
-            self.dtypes[key] = dtype
-            getattr(self, f"_out_{i}").append(v)
+            if self.dtypes[i] is None:
+                self.dtypes[i] = dtype
+            elif self.dtypes[i] != dtype:
+                raise RuntimeError(f"Object type changed for output {i}: {v}")
+
+            if torch.distributed.is_initialized() and (torch.distributed.get_world_size(torch.distributed.group.WORLD) > 1):
+                v = dim_zero_cat(gather_all_tensors(v)).cpu()
+            else:
+                v = v.cpu()
+            self.values[i].append(v)
 
     def compute(self):
         results = []
         for i in range(self.n_values):
-            try:
-                values = getattr(self, f"_out_{i}")
-                values = dim_zero_cat(values)
-                assert isinstance(values, torch.Tensor)
-                dtype = self.dtypes[f"_out_{i}"]
-                if dtype == "str":
-                    values = TupleWithCPU(self._unpack_strings(values))
-                else:
-                    assert dtype == "tensor"
-                results.append(values)
-            except ValueError:
+            if len(self.values[i]) == 0:
                 # Empty list.
                 return None
+            values = torch.cat(self.values[i], dim=0)
+            dtype = self.dtypes[i]
+            if dtype == "str":
+                values = TupleWithCPU(self._unpack_strings(values))
+            else:
+                assert dtype == "tensor"
+            results.append(values)
         return results
-
-
-class InferenceModule(pl.LightningModule):
-    def __init__(self, model, n_outputs, compute_on_cpu=False):
-        super().__init__()
-        self.model = model
-        self.n_outputs = n_outputs
-        self.gather = GatherMetric(n_outputs, compute_on_cpu=compute_on_cpu)
-        self.result = None
-
-    def forward(self, batch):
-        return self.model(batch)
-
-    def test_step(self, batch):
-        result = self(batch)
-        assert len(result) == self.n_outputs
-        self.gather.update(*result)
-
-    def on_test_epoch_end(self):
-        self.result = self.gather.compute()
 
 
 class InferenceDataModule(pl.LightningDataModule):
@@ -148,17 +130,34 @@ class InferenceDataModule(pl.LightningDataModule):
 
 
 def distributed_predict(trainer, datamodule, model, n_outputs, splits=None):
-    model = InferenceModule(model, n_outputs=n_outputs)
-    if splits is None:
-        splits = datamodule.splits
-    by_split = {}
-    for split in splits:
-        model.gather.reset()
-        split_datamodule = InferenceDataModule(datamodule, split=split,
-                                               rank=trainer.local_rank,
-                                               world_size=trainer.world_size)
-        trainer.test(model, split_datamodule)
-        by_split[split] = model.result
+    need_teardown = False
+    if trainer.state.status == pl.trainer.states.TrainerStatus.INITIALIZING:
+        # Initialize trainer.
+        logger.info("Initialize Trainer")
+        trainer.strategy.connect(model)
+        trainer.strategy.setup_environment()
+        trainer.strategy.setup(trainer)
+        need_teardown = True
+    training_mode = model.training
+    model.eval()
+    try:
+        if splits is None:
+            splits = datamodule.splits
+        by_split = {}
+        for split in splits:
+            split_datamodule = InferenceDataModule(datamodule, split=split,
+                                                   rank=trainer.global_rank,
+                                                   world_size=trainer.world_size)
+            collector = DistributedCollector(n_outputs)
+            with torch.no_grad():
+                for batch in split_datamodule.test_dataloader():
+                    batch = model.transfer_batch_to_device(batch, trainer.strategy.root_device, 0)
+                    collector.update(*model(batch))
+            by_split[split] = collector.compute()
+    finally:
+        if need_teardown:
+            trainer.strategy.teardown()
+        model.train(training_mode)
     return by_split
 
 

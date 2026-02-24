@@ -114,8 +114,6 @@ class HotppDataset(torch.utils.data.IterableDataset):
         if not self.filenames:
             raise RuntimeError("Empty dataset")
         if self.filenames and ((random_split != 1) or (random_part != "train")):
-            if limit is not None:
-                raise NotImplementedError("Can't combine `limit` with splitting.")
             if random_part not in {"train", "val"}:
                 raise ValueError(f"Unknown random part: {random_part}. Must be either `train` or `val`.")
             s = 1000000000
@@ -218,7 +216,7 @@ class HotppDataset(torch.utils.data.IterableDataset):
                 offset = length - out_length
             else:
                 raise ValueError(f"Unknown position: {self.position}.")
-            if self.local_targets_fields: 
+            if self.local_targets_fields:
                 if self.mbd:
                     features[self.local_targets_indices_field] = features[self.local_targets_indices_field] - offset
                     mask = features[self.local_targets_indices_field] < 0
@@ -226,7 +224,7 @@ class HotppDataset(torch.utils.data.IterableDataset):
                         features[local_target][mask] = -1
                     features[self.local_targets_indices_field][features[self.local_targets_indices_field] >= self.max_length - 1] = self.max_length - 1
                 else:
-                    raise NotImplementedError("Future work: subsequence local targets.")            
+                    raise NotImplementedError("Future work: subsequence local targets.")
 
             features = {k: (v[offset:offset + out_length] if self.is_seq_feature(k, v) else v)
                         for k, v in features.items()}
@@ -238,14 +236,15 @@ class HotppDataset(torch.utils.data.IterableDataset):
         return self.total_length
 
     def __iter__(self):
-        total = 0
+        total_seen = 0
+        total_yielded = 0
         for filename in self.filenames:
             for rec in read_pyarrow_file(filename):
-                total += 1
-                if total <= self.offset:
+                total_seen += 1
+                if total_seen <= self.offset:
                     continue
-
-            for rec in read_pyarrow_file(filename, use_threads=True):
+                if (self.limit is not None) and (total_yielded >= self.limit):
+                    return
                 for src, dst in self.rename.items():
                     if src not in rec:
                         raise RuntimeError(f"The field `{src}` not found")
@@ -287,6 +286,7 @@ class HotppDataset(torch.utils.data.IterableDataset):
                             continue
 
                         yield self.process(fm)
+                        total_yielded += 1
                     else:
                         year = 2022
                         TSCALE = 3600 * 24 * 4
@@ -309,8 +309,10 @@ class HotppDataset(torch.utils.data.IterableDataset):
                             if mbd_skip:
                                 continue
                             yield self.process(fm)
+                            total_yielded += 1
                 else:
                     yield self.process(features)
+                    total_yielded += 1
 
     def _make_batch(self, by_name, batch_size, seq_feature_name=None):
         # Compute lengths.
@@ -348,7 +350,7 @@ class HotppDataset(torch.utils.data.IterableDataset):
         for features in batch:
             for name, value in features.items():
                 by_name[name].append(value)
-                
+
         # Check batch size consistency.
         for name, values in by_name.items():
             if len(values) != batch_size:
@@ -414,6 +416,8 @@ class ShuffledDistributedDataset(torch.utils.data.IterableDataset):
             raise ValueError(f"Unknown parallelize mode: {self.parallelize}")
 
     def _iter_shuffled_files(self, dataset, seed, rank, world_size):
+        if not self.drop_last:
+            raise ValueError("File parallelizm can be applied only to training set with drop_last=True.")
         filenames = list(dataset.filenames)
         if not filenames:
             raise RuntimeError("Empty dataset")
@@ -437,8 +441,9 @@ class ShuffledDistributedDataset(torch.utils.data.IterableDataset):
                 accepted += length - max(0, offset - skipped - accepted)
         dataset = dataset.replace_files(selected_filenames,
                                         offset=offset - skipped,
-                                        limit=records_per_worker if self.drop_last or rank != world_size - 1 else None)
-        yield from self._iter_shuffled_records_impl(dataset, seed)
+                                        limit=records_per_worker)
+        yield from self._iter_shuffled_records_impl(dataset, seed,
+                                                    exact_records=records_per_worker)
 
     def _iter_shuffled_records(self, dataset, seed, rank, world_size):
         rnd = Random(seed)
@@ -449,18 +454,35 @@ class ShuffledDistributedDataset(torch.utils.data.IterableDataset):
             if i % world_size == rank:
                 yield item
 
-    def _iter_shuffled_records_impl(self, dataset, seed):
-        if self.cache_size is None:
-            yield from dataset
-        else:
-            rnd = Random(seed)
-            cache = []
-            for item in dataset:
-                cache.append(item)
-                if len(cache) >= self.cache_size:
+    def _iter_shuffled_records_impl(self, dataset, seed, exact_records=None):
+        total = 0
+        while True:
+            if self.cache_size is None:
+                for record in dataset:
+                    yield record
+                    total += 1
+                    if (exact_records is not None) and (total >= exact_records):
+                        return
+            else:
+                rnd = Random(seed)
+                cache = []
+                for item in dataset:
+                    cache.append(item)
+                    if len(cache) >= self.cache_size:
+                        rnd.shuffle(cache)
+                        for record in cache:
+                            yield record
+                            total += 1
+                            if (exact_records is not None) and (total >= exact_records):
+                                return
+                        cache = []
+                if len(cache) > 0:
                     rnd.shuffle(cache)
-                    yield from cache
+                    for record in cache:
+                        yield record
+                        total += 1
+                        if (exact_records is not None) and (total >= exact_records):
+                            return
                     cache = []
-            if len(cache) > 0:
-                rnd.shuffle(cache)
-                yield from cache
+            if (total == 0) or (exact_records is None) or (total >= exact_records):
+                break
