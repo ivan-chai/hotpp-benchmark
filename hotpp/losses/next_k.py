@@ -49,7 +49,8 @@ class NextKLoss(torch.nn.Module):
         """Get time delta type."""
         return self._next_item.get_delta_type(field)
 
-    def forward(self, inputs, outputs, states):
+    # def forward(self, inputs, outputs, states):
+    def forward(self, inputs, outputs, states, **kwargs):
         """Extract targets and compute loss between predictions and targets.
 
         Args:
