@@ -66,7 +66,8 @@ class BaseModule(pl.LightningModule):
                  optimizer_partial=None,
                  lr_scheduler_partial=None,
                  val_metric=None,
-                 test_metric=None):
+                 test_metric=None,
+                 **kwargs):
 
         super().__init__()
         self._timestamps_field = timestamps_field
@@ -131,28 +132,28 @@ class BaseModule(pl.LightningModule):
         """
         pass
 
-        def get_loss_indices(self, inputs): #переношу сюда из detectionLoss
-            """Get positions to evaluate loss at.
+    def get_loss_indices(self, inputs): #переношу сюда из detectionLoss
+        """Get positions to evaluate loss at.
 
-            Args:
-            inputs: Input features with shape (B, L).
+        Args:
+        inputs: Input features with shape (B, L).
 
-            Returns:
-            indices: Batch of indices with shape (B, I) or None if loss must be evaluated at each step.
-            """
-            if self._loss_subset >= 1.0:
-                return None
-            k = getattr(self._loss, "prefetch_k", None)
-            if k is None:
-                return None
-            b, l = inputs.shape
-            n_indices = min(max(int(round(l * self._loss_subset)), 1), l)
-            mask = torch.arange(l, device=inputs.device)[None] + k < inputs.seq_lens[:, None]  # (B, L).
-            weights = torch.rand(b, l, device=inputs.device) * mask
-            indices = weights.topk(n_indices, dim=1)[1].sort(dim=1)[0]  # (B, I).
-            lengths = (indices < inputs.seq_lens[:, None]).sum(1)
-            full_mask = indices + k < inputs.seq_lens[:, None]
-            return PaddedBatch({"index": indices, "full_mask": full_mask}, lengths)
+        Returns:
+        indices: Batch of indices with shape (B, I) or None if loss must be evaluated at each step.
+        """
+        if self._loss_subset >= 1.0:
+            return None
+        k = getattr(self._loss, "prefetch_k", None)
+        if k is None:
+            return None
+        b, l = inputs.shape
+        n_indices = min(max(int(round(l * self._loss_subset)), 1), l)
+        mask = torch.arange(l, device=inputs.device)[None] + k < inputs.seq_lens[:, None]  # (B, L).
+        weights = torch.rand(b, l, device=inputs.device) * mask
+        indices = weights.topk(n_indices, dim=1)[1].sort(dim=1)[0]  # (B, I).
+        lengths = (indices < inputs.seq_lens[:, None]).sum(1)
+        full_mask = indices + k < inputs.seq_lens[:, None]
+        return PaddedBatch({"index": indices, "full_mask": full_mask}, lengths)
 
     def compute_loss(self, x, outputs, states):
         """Compute loss for the batch.
