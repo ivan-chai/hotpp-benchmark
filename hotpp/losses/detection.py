@@ -125,6 +125,11 @@ class DetectionLoss(NextKLoss):
     @property
     def num_events(self):
         return self._k
+    
+    @property
+    def prefetch_k(self):
+        """Number of future events for a valid loss window (for loss_subset)"""
+        return self._prefetch_k    
 
     @property
     def data_fields(self):
@@ -134,18 +139,21 @@ class DetectionLoss(NextKLoss):
     def input_size(self):
         return self._k * self._next_item.input_size  # One for the presence score.
 
-    def forward(self, inputs, outputs, states):
+    # def forward(self, inputs, outputs, states):
+    def forward(self, inputs, outputs, states, loss_indices=None, **kwargs):
         """Extract targets and compute loss between predictions and targets.
 
         Args:
             inputs: Input features with shape (B, L).
             outputs: Predicted values with shape (B, L, P).
             states: Hidden model states with shape (N, B, L, D), where N is the number of layers.
+            loss_subset: positions to evaluate loss.
 
         Returns:
             Losses dict and metrics dict.
         """
-        indices, matching, losses, matching_metrics = self.get_subset_matching(inputs, outputs)
+        # indices, matching, losses, matching_metrics = self.get_subset_matching(inputs, outputs)
+        indices, matching, losses, matching_metrics = self.get_subset_matching(inputs, outputs, loss_indices=loss_indices)
         # (B, I), (B, I, K), (B, I, K, T), dict.
 
         # Update statistics.
@@ -406,7 +414,8 @@ class DetectionLoss(NextKLoss):
             subset_lengths = torch.zeros_like(lengths)
         return PaddedBatch(payload, subset_lengths)
 
-    def get_loss_indices(self, inputs):
+    # def get_loss_indices(self, inputs):
+    def get_loss_indices(self, inputs, subset_fraction=None):
         """Get positions to evaluate loss at.
 
         Args:
@@ -417,7 +426,9 @@ class DetectionLoss(NextKLoss):
         """
         b, l = inputs.shape
         k = self._prefetch_k
-        n_indices = min(max(int(round(l * self._loss_subset)), 1), l)
+        # n_indices = min(max(int(round(l * self._loss_subset)), 1), l)
+        frac = self._loss_subset if subset_fraction is None else subset_fraction
+        n_indices = min(max(int(round(l * frac)), 1), l)
         # Take full windows first.
         mask = torch.arange(l, device=inputs.device)[None] + k < inputs.seq_lens[:, None]  # (B, L).
         weights = torch.rand(b, l, device=inputs.device) * mask
@@ -547,12 +558,14 @@ class DetectionLoss(NextKLoss):
         metrics["match_cost_std"] = matched_costs.std()
         return PaddedBatch(matches, lengths), losses, metrics
 
-    def get_subset_matching(self, inputs, outputs):
+    # def get_subset_matching(self, inputs, outputs):
+    def get_subset_matching(self, inputs, outputs, loss_indices=None):
         """Apply stride and compute matching.
 
         Args:
             inputs: Model input features with shape (B, L).
             outputs: Model outputs model output features with shape (B, L, D).
+            loss_indices: 
 
         Returns:
             A tuple of:
@@ -571,7 +584,12 @@ class DetectionLoss(NextKLoss):
         assert (target_windows.seq_lens == outputs.seq_lens).all()
 
         # Subset outputs and targets.
-        indices = self.get_loss_indices(inputs)
+        # indices = self.get_loss_indices(inputs)
+        indices = loss_indices
+        # if loss_indices is not None:
+        #     indices = loss_indices
+        # else:
+        #     indices = self.get_loss_indices(inputs, subset_fraction=1.0)        
         target_windows = self.select_subset(target_windows, indices)  # (B, I, K + 1).
         outputs = self.select_subset(outputs, indices)  # (B, I, K, P).
 

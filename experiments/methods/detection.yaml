@@ -11,6 +11,7 @@ conditional_head:
 
 module:
   _target_: hotpp.modules.NextKModule
+  loss_subset: 0.25
   seq_encoder:
     rnn_partial:
       _target_: hotpp.nn.GRU
