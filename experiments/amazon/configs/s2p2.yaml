@@ -5,6 +5,7 @@ defaults:
 name: s2p2
 rnn_hidden_size: 128  # From d128 run: 2x capacity (NHP LSTM has 4x gates, so 128 is fair).
 s2p2_num_layers: 4
+max_intensity: 4
 
 head:
   use_batch_norm: false  # Cont-time models are worse with BN.
