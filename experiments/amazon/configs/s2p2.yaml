@@ -3,8 +3,8 @@ defaults:
   - _self_
 
 name: s2p2
-s2p2_num_layers: 4  # Default number of S2P2 layers
-max_intensity: 4  # Match NHP: prevent single class from dominating.
+rnn_hidden_size: 128  # From d128 run: 2x capacity (NHP LSTM has 4x gates, so 128 is fair).
+s2p2_num_layers: 4
 
 head:
   use_batch_norm: false  # Cont-time models are worse with BN.
@@ -19,13 +19,14 @@ module:
       embeddings:
         labels:
           in: ${num_classes}
-          out: ${rnn_hidden_size}  # 128-dim, same as EasyTPP layers_mark_emb
-      # NOTE: timestamps removed from embedder - S2P2 uses time_deltas separately
+          out: ${rnn_hidden_size}
+      numeric_values:
+        timestamps: identity  # From d128 run: keep timestamp input.
     rnn_partial:
       _target_: hotpp.nn.S2P2Encoder
       _partial_: true
       hidden_size: ${rnn_hidden_size}
-      state_dim: 16  # P in EasyTPP
+      state_dim: 32  # From d128 run: 2x state dims for richer dynamics.
       num_layers: ${s2p2_num_layers}
       num_event_types: ${num_classes}
       dt_init_min: 0.0001
@@ -37,12 +38,18 @@ module:
       post_norm: true
       simple_mark: true
       relative_time: false
-      complex_values: true
+      complex_values: false  # From d128 run: real-valued states worked better.
       int_forward_variant: false
       int_backward_variant: true
     max_time_delta: ${max_time_delta}
     max_inference_context: ${rnn_inference_context}
     inference_context_step: ${rnn_inference_context_step}
+  optimizer_partial:
+    _partial_: true
+    _target_: torch.optim.Adam
+    lr: 0.01  # From d128 run: 10x higher LR.
+    weight_decay: 0.0
+  lr_scheduler_partial: null  # From d128 run: no decay.
   head_partial: ${head}
   loss:
     _target_: hotpp.losses.NHPLoss
@@ -53,4 +60,4 @@ module:
   autoreg_max_steps: ${max_predictions}
 
 trainer:
-  precision: 32  # Prevent explosion.
+  precision: 32

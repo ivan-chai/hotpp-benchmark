@@ -179,7 +179,10 @@ class LLH(nn.Module):
                 self.delta_net.bias.copy_(bias)
         else:
             self.log_step_size_P = nn.Parameter(
-                th.zeros(size=(self.P,)), requires_grad=False
+                th.linspace(th.tensor(self.dt_init_min).log().item(),
+                            th.tensor(self.dt_init_max).log().item(),
+                            self.P),
+                requires_grad=True,
             )
 
     @property
