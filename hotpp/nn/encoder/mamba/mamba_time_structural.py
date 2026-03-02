@@ -66,13 +66,17 @@ class StructuralMambaMixer(nn.Module):
         self.activation = nn.SiLU()
         self.in_proj = nn.Linear(d_model, self.d_inner * 2, bias=False)
 
-        # Structural modes: dt comes purely from time_delta
+        # Structural modes: dt comes purely from time_delta, per-d_state scale (S2P2-style)
         if time_mode in ("structural", "structural_channel"):
             self.x_proj = nn.Linear(self.d_inner, self.d_state * 2, bias=False)
             if time_mode == "structural_channel":
-                self.dt_scale = nn.Parameter(torch.full((self.d_inner,), time_scale_init))
+                self.log_step = nn.Parameter(
+                    torch.linspace(math.log(1e-4), math.log(0.1), self.d_state)[None, :].expand(self.d_inner, -1).clone()
+                )  # (d_inner, d_state)
             else:
-                self.dt_scale = nn.Parameter(torch.tensor(time_scale_init))
+                self.log_step = nn.Parameter(
+                    torch.linspace(math.log(1e-4), math.log(0.1), self.d_state)
+                )  # (d_state,)
         elif time_mode == "exp_decay":
             # Exponential decay mode: dt = exp(time_delta * scale) - 1
             self.dt_rank = math.ceil(d_model / 16)
@@ -226,7 +230,8 @@ class StructuralMambaMixer(nn.Module):
         nn.init.zeros_(self.conv1d.bias)
         nn.init.kaiming_uniform_(self.out_proj.weight, a=math.sqrt(5))
 
-    def forward(self, hidden_states: Tensor, time_deltas: Tensor, attention_mask: Optional[Tensor] = None) -> Tensor:
+    def forward(self, hidden_states: Tensor, time_deltas: Tensor,
+                attention_mask: Optional[Tensor] = None, save_ssm_state: bool = False):
         B, L, _ = hidden_states.shape
         dtype = hidden_states.dtype
         attn = attention_mask.to(dtype).unsqueeze(-1) if attention_mask is not None else None
@@ -247,18 +252,12 @@ class StructuralMambaMixer(nn.Module):
         time_deltas = torch.clamp(time_deltas, min=0.0, max=100.0)
 
         # Compute dt based on time_mode
-        if self.time_mode == "structural":
-            # dt = time_delta * softplus(scale)
+        if self.time_mode in ("structural", "structural_channel"):
+            # S2P2-style: dt per d_state, computed in SSM loop
             B_param, C_param = self.x_proj(x_conv_t).split(self.d_state, dim=-1)
-            scale = F.softplus(self.dt_scale)
-            discrete_time_step = (time_deltas * scale).unsqueeze(1).expand(B, self.d_inner, L)
-            
-        elif self.time_mode == "structural_channel":
-            # dt = time_delta * softplus(scale[channel])
-            B_param, C_param = self.x_proj(x_conv_t).split(self.d_state, dim=-1)
-            scale = F.softplus(self.dt_scale)
-            discrete_time_step = time_deltas.unsqueeze(1) * scale.unsqueeze(0).unsqueeze(-1)
-            
+            step = torch.exp(self.log_step)  # (d_state,) or (d_inner, d_state)
+            discrete_time_step = None
+
         elif self.time_mode == "additive":
             # dt = softplus(dt_proj(x) + time_scale * time_delta)
             dt_input, B_param, C_param = self.x_proj(x_conv_t).split(
@@ -364,25 +363,32 @@ class StructuralMambaMixer(nn.Module):
             )
             discrete_time_step = F.softplus(self.dt_proj(dt_input)).transpose(1, 2)
 
-        # Save dt for debugging/analysis
-        self._last_dt = discrete_time_step.detach()
-        self._last_time_deltas = time_deltas.detach()
-
         # SSM recurrence
         A = -torch.exp(self.A_log.float())
         ssm_state = hidden_states.new_zeros(B, self.d_inner, self.d_state)
         outputs = []
-        
+        ssm_state_list = [] if save_ssm_state else None
+        is_structural = self.time_mode in ("structural", "structural_channel")
+
         for t in range(L):
-            dt_t = discrete_time_step[:, :, t]
-            ssm_state = torch.exp(A.unsqueeze(0) * dt_t.unsqueeze(-1)) * ssm_state + \
-                        (dt_t.unsqueeze(-1) * B_param[:, t].unsqueeze(1).float()) * x_conv[:, :, t].unsqueeze(-1).float()
+            if is_structural:
+                # Per-d_state dt: time_delta * exp(log_step)
+                dt_t = time_deltas[:, t].view(-1, 1, 1) * step  # (B, 1, d_state) or (B, d_inner, d_state)
+            else:
+                dt_t = discrete_time_step[:, :, t].unsqueeze(-1)  # (B, d_inner, 1)
+            ssm_state = torch.exp(A.unsqueeze(0) * dt_t) * ssm_state + \
+                        (dt_t * B_param[:, t].unsqueeze(1).float()) * x_conv[:, :, t].unsqueeze(-1).float()
+            if ssm_state_list is not None:
+                ssm_state_list.append(ssm_state)
             outputs.append((ssm_state.to(dtype) * C_param[:, t].unsqueeze(1)).sum(dim=-1))
 
         scan_output = torch.stack(outputs, dim=-1) + x_conv * self.D.view(1, -1, 1)
         out = self.out_proj((scan_output * self.activation(gate)).transpose(1, 2))
-        
-        return out * attn if attn is not None else out
+        out = out * attn if attn is not None else out
+
+        if save_ssm_state:
+            return out, torch.stack(ssm_state_list, dim=2), C_param, x_conv, gate
+        return out
 
 
 class StructuralMambaBlock(nn.Module):
@@ -391,7 +397,13 @@ class StructuralMambaBlock(nn.Module):
         self.norm = RMSNorm(hidden_size)
         self.mixer = StructuralMambaMixer(hidden_size, **mixer_kwargs)
 
-    def forward(self, hidden_states: Tensor, time_deltas: Tensor, attention_mask: Optional[Tensor] = None) -> Tensor:
+    def forward(self, hidden_states: Tensor, time_deltas: Tensor,
+                attention_mask: Optional[Tensor] = None, save_ssm_state: bool = False):
+        if save_ssm_state:
+            out, ssm_states, C_param, x_conv, gate = self.mixer(
+                self.norm(hidden_states), time_deltas, attention_mask, save_ssm_state=True
+            )
+            return hidden_states + out, ssm_states, C_param, x_conv, gate
         return hidden_states + self.mixer(self.norm(hidden_states), time_deltas, attention_mask)
 
 
@@ -443,6 +455,7 @@ class StructuralMambaTimeEmbedding(nn.Module):
     ):
         super().__init__()
         self.hidden_size = hidden_size
+        self.time_mode = time_mode
         self.pos_type = pos_type
         
         # Match HF RNG order: embedding creation -> blocks creation -> embedding init -> blocks init -> input_proj
@@ -490,10 +503,14 @@ class StructuralMambaTimeEmbedding(nn.Module):
     def delta_time(self) -> bool:
         return False
 
+    @property
+    def _supports_nhp(self) -> bool:
+        return self.time_mode in ("structural", "structural_channel")
+
     def forward(self, x: PaddedBatch, timestamps: PaddedBatch, states: Optional[Tensor] = None,
-                return_states: bool = False, attention_mask: Optional[Tensor] = None) -> Tuple[PaddedBatch, Optional[Tensor]]:
-        if return_states:
-            raise ValueError("StructuralMambaTimeEmbedding does not support return_states")
+                return_states=False, attention_mask: Optional[Tensor] = None) -> Tuple[PaddedBatch, Optional[Tensor]]:
+        if return_states and return_states != "last" and not self._supports_nhp:
+            raise ValueError(f"return_states='full' only supported for structural/structural_channel, got time_mode={self.time_mode}")
 
         x_payload, ts = x.payload, timestamps.payload
         B, L = ts.shape
@@ -503,22 +520,92 @@ class StructuralMambaTimeEmbedding(nn.Module):
             for i, l in enumerate(x.seq_lens):
                 attention_mask[i, :l] = True
 
-        # ts = absolute timestamps (since delta_time=False)
-        # Compute deltas
         deltas = torch.zeros_like(ts)
         deltas[:, 1:] = (ts[:, 1:] - ts[:, :-1])
-        
         # Compute "delta of deltas" for SSM - this was the "bug" that worked well
-        delta_of_deltas = torch.zeros_like(ts)
-        delta_of_deltas[:, 1:] = deltas[:, 1:] - deltas[:, :-1]
-        delta_of_deltas = delta_of_deltas * attention_mask
+        # delta_of_deltas = torch.zeros_like(ts)
+        # delta_of_deltas[:, 1:] = deltas[:, 1:] - deltas[:, :-1]
+        # delta_of_deltas = delta_of_deltas * attention_mask
 
         # Input projection + optional positional encoding
         hidden = self.input_projection(x_payload)
         if self.positional is not None:
-            hidden = self.positional(hidden, ts)  # positional gets absolute timestamps
-        
-        for layer in self.layers:
-            hidden = layer(hidden, deltas, attention_mask)
+            hidden = self.positional(hidden, ts)
 
-        return PaddedBatch(self.norm_f(hidden), x.seq_lens), None
+        need_ssm = (return_states == "full")
+        for i, layer in enumerate(self.layers):
+            if need_ssm and i == len(self.layers) - 1:
+                last_residual = hidden
+                hidden, ssm_states, C_param, x_conv, gate = layer(
+                    hidden, deltas, attention_mask, save_ssm_state=True
+                )
+            else:
+                hidden = layer(hidden, deltas, attention_mask)
+
+        output = self.norm_f(hidden)
+        output_states = None
+
+        if return_states == "full":
+            mixer = self.layers[-1].mixer
+            d_inner, d_state = mixer.d_inner, mixer.d_state
+            # ssm_states: (B, d_inner, L, d_state) -> (B, L, d_inner*d_state)
+            ssm_flat = ssm_states.permute(0, 2, 1, 3).reshape(B, L, d_inner * d_state)
+            state = torch.cat([
+                ssm_flat,
+                C_param.float(),                           # (B, L, d_state)
+                x_conv.transpose(1, 2).float(),            # (B, L, d_inner)
+                gate.transpose(1, 2).float(),              # (B, L, d_inner)
+                last_residual.float(),                     # (B, L, hidden_size)
+            ], dim=-1)
+            output_states = state.unsqueeze(0)             # (1, B, L, state_dim)
+        elif return_states == "last":
+            last_idx = (x.seq_lens - 1).clip(min=0)[:, None, None]
+            output_states = output.take_along_dim(last_idx, 1).squeeze(1).unsqueeze(0)
+        elif return_states and return_states is not False:
+            raise ValueError(f"Unknown return_states: {return_states}")
+
+        return PaddedBatch(output, x.seq_lens), output_states
+
+    def interpolate(self, states: Tensor, time_deltas: PaddedBatch) -> PaddedBatch:
+        """Evolve SSM state by delta and reconstruct output (S2P2-style)."""
+        state = states[0]                                  # (B, L, state_dim)
+        dt = time_deltas.payload                           # (B, L, S)
+        B, L, S = dt.shape
+
+        mixer = self.layers[-1].mixer
+        d_inner, d_state = mixer.d_inner, mixer.d_state
+        step = torch.exp(mixer.log_step)                   # (d_state,) or (d_inner, d_state)
+        A = -torch.exp(mixer.A_log.float())                # (d_inner, d_state)
+
+        # Unpack state
+        idx = 0
+        ssm_state = state[..., idx:idx + d_inner * d_state].reshape(B, L, d_inner, d_state)
+        idx += d_inner * d_state
+        C = state[..., idx:idx + d_state]
+        idx += d_state
+        x_conv = state[..., idx:idx + d_inner]
+        idx += d_inner
+        gate = state[..., idx:idx + d_inner]
+        idx += d_inner
+        residual = state[..., idx:]                        # (B, L, hidden_size)
+
+        # A_eff = A * step — effective decay rate per unit real time (same as forward)
+        A_eff = A * step                                   # (d_inner, d_state) or broadcastable
+
+        results = []
+        for s in range(S):
+            delta = dt[:, :, s]                            # (B, L)
+            # h(t+δ) = exp(A_eff * δ) * h(t)
+            decay = torch.exp(A_eff[None, None] * delta[:, :, None, None])
+            evolved = ssm_state * decay                    # (B, L, d_inner, d_state)
+
+            ssm_out = (evolved * C[:, :, None, :]).sum(-1) # (B, L, d_inner)
+            scan_out = ssm_out + x_conv * mixer.D[None, None]
+            gated = scan_out * mixer.activation(gate)
+            mixer_out = mixer.out_proj(gated)              # (B, L, hidden_size)
+
+            block_out = residual + mixer_out
+            results.append(self.norm_f(block_out))
+
+        outputs = torch.stack(results, dim=2)              # (B, L, S, hidden_size)
+        return PaddedBatch(outputs, time_deltas.seq_lens)
