@@ -352,7 +352,13 @@ class SimpleTransformer(torch.nn.Module):
         if self.sos is None:
             return outputs
         if isinstance(outputs, PaddedBatch):
-            return PaddedBatch(outputs.payload[:, 1:], (outputs.seq_lens - 1).clip(min=0))
+            if isinstance(outputs.payload, dict):
+                new_payload = dict(outputs.payload)
+                for name in outputs.seq_names:
+                    new_payload[name] = outputs.payload[name][:, 1:]
+            else:
+                new_payload = outputs.payload[:, 1:]
+            return PaddedBatch(new_payload, (outputs.seq_lens - 1).clip(min=0))
         else:
             return outputs[:, 1:]
 
