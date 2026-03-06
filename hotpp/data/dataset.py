@@ -99,7 +99,8 @@ class HotppDataset(torch.utils.data.IterableDataset):
                  add_seq_fields=None,
                  global_target_fields=None,
                  local_targets_fields=None,
-                 local_targets_indices_field=None):
+                 local_targets_indices_field=None,
+                 mbd=False):
         super().__init__()
         if isinstance(data, str):
             self.filenames = list(sorted(parquet_file_scan(data)))
@@ -136,7 +137,6 @@ class HotppDataset(torch.utils.data.IterableDataset):
         self.drop_nans = parse_fields(drop_nans)
         self.add_seq_fields = add_seq_fields
         self.global_target_fields = parse_fields(global_target_fields)
-
         if local_targets_fields and not local_targets_indices_field:
             raise ValueError("Need indices fol local targets.")
         self.local_targets_fields = parse_fields(local_targets_fields)
@@ -150,6 +150,7 @@ class HotppDataset(torch.utils.data.IterableDataset):
                 known_fields = known_fields + [local_targets_indices_field]
             fields = list(sorted(set(fields) | set(known_fields)))
         self.fields = fields
+        self.mbd = mbd
 
     def replace_files(self, filenames, **kwargs):
         names = set(inspect.signature(self.__init__).parameters.keys())
@@ -170,7 +171,7 @@ class HotppDataset(torch.utils.data.IterableDataset):
         Args:
             batch: Whether the value is a batch of features.
         """
-        if (name == self.id_field) or (name in self.global_target_fields):
+        if (name == self.id_field) or (name in self.global_target_fields) or (name == self.local_targets_indices_field) or (name in self.local_targets_fields):
             return False
         if isinstance(value, list):
             ndim = 1
@@ -186,24 +187,33 @@ class HotppDataset(torch.utils.data.IterableDataset):
         if self.timestamps_field not in features:
             raise ValueError("Need timestamps feature")
         if (self.min_length > 0) or (self.max_length is not None):
-            if self.local_targets_fields:
-                raise NotImplementedError("Future work: subsequence local targets.")
-            # Select subsequences.
             length = len(features[self.timestamps_field])
             max_length = min(length, self.max_length or length)
             min_length = min(length, self.min_length if self.min_length > 0 else max_length)
-            out_length = random.randint(min_length, max_length)
+            out_length = min(length, random.randint(min_length, max_length))
             if self.position == "random":
                 offset = random.randint(0, length - out_length)
             elif self.position == "last":
                 offset = length - out_length
             else:
                 raise ValueError(f"Unknown position: {self.position}.")
+            if self.local_targets_fields:
+                if self.mbd:
+                    mask = features[self.local_targets_indices_field] >= offset
+                    features[self.local_targets_indices_field] = (features[self.local_targets_indices_field][mask] - offset).clip_(out_length - 1)
+                    for local_target in self.local_targets_fields:
+                        features[local_target] = features[local_target][mask]
+                else:
+                    mask = torch.logical_and(features[self.local_targets_indices_field] >= offset, features[self.local_targets_indices_field] < offset + out_length)
+                    features[self.local_targets_indices_field] = features[self.local_targets_indices_field][mask] - offset
+                    for local_target in self.local_targets_fields:
+                        features[local_target] = features[local_target][mask]
+
             features = {k: (v[offset:offset + out_length] if self.is_seq_feature(k, v) else v)
                         for k, v in features.items()}
             assert len(features[self.timestamps_field]) == out_length
         features[self.timestamps_field] = features[self.timestamps_field].float()
-        return features  # Tensors.
+        return features
 
     def __len__(self):
         return self.total_length
@@ -278,11 +288,13 @@ class HotppDataset(torch.utils.data.IterableDataset):
         # Check batch size consistency.
         for name, values in by_name.items():
             if len(values) != batch_size:
-                raise ValueError(f"Missing values for feature {name}")
+                raise ValueError(f"Missing values for feature {name} {values}")
 
         # Pop targets.
         targets_by_name = {name: by_name.pop(name) for name in
                            itertools.chain(self.global_target_fields, self.local_targets_fields)}
+        if self.local_targets_indices_field:
+            targets_by_name[self.local_targets_indices_field] = by_name.pop(self.local_targets_indices_field)
 
         # Make PaddedBatch objects.
         features = self._make_batch(by_name, batch_size, self.timestamps_field)
