@@ -100,8 +100,6 @@ class Encoder(BaseEncoder):
         Returns:
             Outputs with shape (B, L, S, D).
         """
-        if not self.model.delta_time:
-            raise NotImplementedError("Interpolation is not supported for general models with raw time input.")
         return self.model.interpolate(states, time_deltas)
 
     def generate(self, x, indices, predict_fn, n_steps):
@@ -168,7 +166,10 @@ class Encoder(BaseEncoder):
 
     def _generate_autoreg(self, prefixes, predict_fn, n_steps):
         # prefixes: (B, L).
-        # predict_fn: (B, L, D), None -> (B, L).
+        # predict_fn: (B, L, D), states -> (B, L).
+        need_states = getattr(self.model, '_supports_nhp', False)
+        return_states_mode = "full" if need_states else False
+
         embeddings = self.apply_embedder(prefixes)  # (B, L, D).
         b, l, d = embeddings.payload.shape
         extra_space = torch.zeros(b, n_steps, d, dtype=embeddings.payload.dtype, device=embeddings.device)
@@ -189,10 +190,13 @@ class Encoder(BaseEncoder):
                 start = 0
             truncated_embeddings = PaddedBatch(embeddings.payload[:, start:l + i], embeddings.seq_lens - start)
             truncated_times = PaddedBatch(times.payload[:, start:l + i], times.seq_lens - start)
-            model_outputs, _ = self.model(truncated_embeddings, truncated_times, return_states=False)  # (B, L', D).
+            model_outputs, states = self.model(truncated_embeddings, truncated_times, return_states=return_states_mode)  # (B, L', D).
             last_outputs = model_outputs.payload.take_along_dim((model_outputs.seq_lens - 1).clip(min=0)[:, None, None], dim=1)  # (B, 1, D).
             last_outputs = PaddedBatch(last_outputs, lengths1)
-            features = predict_fn(last_outputs, None)  # (B, 1).
+            if states is not None:
+                last_idx = (model_outputs.seq_lens - 1).clip(min=0)[:, None, None]  # (B, 1, 1).
+                states = states.take_along_dim(last_idx.unsqueeze(0), dim=2)  # (N, B, 1, D).
+            features = predict_fn(last_outputs, states)  # (B, 1).
             for k, v in features.payload.items():
                 outputs[k].append(v.squeeze(1))  # (B).
             if i == n_steps - 1:
