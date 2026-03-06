@@ -48,6 +48,7 @@ class BaseModule(pl.LightningModule):
         amounts_field (optional): The name of the amount field for some metrics.
         head_partial: FC head model class which accepts input and output dimensions.
         aggregator: Embeddings aggregator.
+        loss_subset: Fraction of positions to compute loss (for ex. 25% in amazon dataset)
         optimizer_partial:
             optimizer init partial. Network parameters are missed.
         lr_scheduler_partial:
@@ -61,15 +62,18 @@ class BaseModule(pl.LightningModule):
                  amounts_field=None,
                  head_partial=None,
                  aggregator=None,
+                 loss_subset=1.0,
                  optimizer_partial=None,
                  lr_scheduler_partial=None,
                  val_metric=None,
-                 test_metric=None):
+                 test_metric=None,
+                 **kwargs):
 
         super().__init__()
         self._timestamps_field = timestamps_field
         self._labels_field = labels_field
         self._amounts_field = amounts_field
+        self._loss_subset = loss_subset
 
         self._loss = loss
         self._seq_encoder = seq_encoder
@@ -101,10 +105,10 @@ class BaseModule(pl.LightningModule):
             results.payload[self._timestamps_field] += inputs.payload[self._timestamps_field]
         return results
 
-    def forward(self, x, return_states=False):
+    def forward(self, x, return_states=False, loss_indices = None):
         """Extract hidden activations and states."""
         hiddens, states = self._seq_encoder(x, return_states=return_states)  # (B, L, D), (N, B, L, D).
-        outputs = self._head(hiddens)  # (B, L, D).
+        outputs = self._head(hiddens, indices = loss_indices)  # (B, L, D).
         return outputs, states
 
     def embed(self, x):
@@ -128,7 +132,30 @@ class BaseModule(pl.LightningModule):
         """
         pass
 
-    def compute_loss(self, x, outputs, states):
+    def get_loss_indices(self, inputs): #переношу сюда из detectionLoss
+        """Get positions to evaluate loss at.
+
+        Args:
+        inputs: Input features with shape (B, L).
+
+        Returns:
+        indices: Batch of indices with shape (B, I) or None if loss must be evaluated at each step.
+        """
+        if self._loss_subset >= 1.0:
+            return None
+        k = getattr(self._loss, "prefetch_k", None)
+        if k is None:
+            return None
+        b, l = inputs.shape
+        n_indices = min(max(int(round(l * self._loss_subset)), 1), l)
+        mask = torch.arange(l, device=inputs.device)[None] + k < inputs.seq_lens[:, None]  # (B, L).
+        weights = torch.rand(b, l, device=inputs.device) * mask
+        indices = weights.topk(n_indices, dim=1)[1].sort(dim=1)[0]  # (B, I).
+        lengths = (indices < inputs.seq_lens[:, None]).sum(1)
+        full_mask = indices + k < inputs.seq_lens[:, None]
+        return PaddedBatch({"index": indices, "full_mask": full_mask}, lengths)
+
+    def compute_loss(self, x, outputs, states, loss_indices):
         """Compute loss for the batch.
 
         Args:
@@ -139,13 +166,16 @@ class BaseModule(pl.LightningModule):
         Returns:
             A dict of losses and a dict of metrics.
         """
-        losses, metrics = self._loss(x, outputs, states)
+        # losses, metrics = self._loss(x, outputs, states)
+        # loss_indices = self.get_loss_indices(x)
+        losses, metrics = self._loss(x, outputs, states, loss_indices=loss_indices)
         return losses, metrics
 
     def training_step(self, batch, batch_idx):
         x, _ = batch
-        outputs, states = self(x, return_states="full" if self._need_states else False)  # (B, L, D), (N, B, L, D).
-        losses, metrics = self.compute_loss(x, outputs, states)
+        loss_indices = self.get_loss_indices(x)
+        outputs, states = self(x, return_states="full" if self._need_states else False, loss_indices = loss_indices)  # (B, L, D), (N, B, L, D).
+        losses, metrics = self.compute_loss(x, outputs, states, loss_indices)
         loss = sum(losses.values())
 
         # Log statistics.
