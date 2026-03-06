@@ -105,10 +105,10 @@ class BaseModule(pl.LightningModule):
             results.payload[self._timestamps_field] += inputs.payload[self._timestamps_field]
         return results
 
-    def forward(self, x, return_states=False):
+    def forward(self, x, return_states=False, loss_indices = None):
         """Extract hidden activations and states."""
         hiddens, states = self._seq_encoder(x, return_states=return_states)  # (B, L, D), (N, B, L, D).
-        outputs = self._head(hiddens)  # (B, L, D).
+        outputs = self._head(hiddens, indices = loss_indices)  # (B, L, D).
         return outputs, states
 
     def embed(self, x):
@@ -155,7 +155,7 @@ class BaseModule(pl.LightningModule):
         full_mask = indices + k < inputs.seq_lens[:, None]
         return PaddedBatch({"index": indices, "full_mask": full_mask}, lengths)
 
-    def compute_loss(self, x, outputs, states):
+    def compute_loss(self, x, outputs, states, loss_indices):
         """Compute loss for the batch.
 
         Args:
@@ -167,14 +167,15 @@ class BaseModule(pl.LightningModule):
             A dict of losses and a dict of metrics.
         """
         # losses, metrics = self._loss(x, outputs, states)
-        loss_indices = self.get_loss_indices(x)
+        # loss_indices = self.get_loss_indices(x)
         losses, metrics = self._loss(x, outputs, states, loss_indices=loss_indices)
         return losses, metrics
 
     def training_step(self, batch, batch_idx):
         x, _ = batch
-        outputs, states = self(x, return_states="full" if self._need_states else False)  # (B, L, D), (N, B, L, D).
-        losses, metrics = self.compute_loss(x, outputs, states)
+        loss_indices = self.get_loss_indices(x)
+        outputs, states = self(x, return_states="full" if self._need_states else False, loss_indices = loss_indices)  # (B, L, D), (N, B, L, D).
+        losses, metrics = self.compute_loss(x, outputs, states, loss_indices)
         loss = sum(losses.values())
 
         # Log statistics.
