@@ -21,7 +21,7 @@ module:
     inference_context_step: ${rnn_inference_context_step}
   head_partial: ${head}
   loss:
-    _target_: hotpp.losses.DiffusionLoss
+    _target_: hotpp.losses.HorizonDiffusionLoss
     k: ${next_k}
     diffusion_loss_weight: 1
     decoder_loss_weight: 1
