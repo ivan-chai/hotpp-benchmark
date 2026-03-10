@@ -2,6 +2,7 @@ import copy
 import datetime
 import functools
 import logging
+import time
 import yaml
 
 import hydra
@@ -37,6 +38,53 @@ def patch_precision_plugin(trainer):
         return base_method(self, data)
     plugin.convert_input = convert_input.__get__(plugin, plugin.__class__)
     return trainer
+
+
+class TrainingTimeCallback(pl.Callback):
+    """Tracks cumulative wall-clock training time across restarts.
+
+    The accumulated time is saved in checkpoints via state_dict / load_state_dict
+    so that resuming from a checkpoint picks up where it left off.
+    The metric ``train_time_hours`` is logged at the end of every training epoch.
+    """
+
+    def __init__(self):
+        self._elapsed_seconds = 0.0  # time accumulated from all previous runs
+        self._start_time = None      # wall-clock time of the current run's start
+
+    # ------------------------------------------------------------------
+    # Checkpoint persistence
+    # ------------------------------------------------------------------
+
+    def state_dict(self):
+        return {"elapsed_seconds": self._total_elapsed()}
+
+    def load_state_dict(self, state_dict):
+        self._elapsed_seconds = state_dict["elapsed_seconds"]
+
+    # ------------------------------------------------------------------
+    # Training hooks
+    # ------------------------------------------------------------------
+
+    def on_train_start(self, trainer, pl_module):
+        self._start_time = time.monotonic()
+
+    def on_train_end(self, trainer, pl_module):
+        if self._start_time is not None:
+            self._elapsed_seconds += time.monotonic() - self._start_time
+            self._start_time = None
+
+    def on_train_epoch_end(self, trainer, pl_module):
+        pl_module.log("train_time_hours", self._total_elapsed() / 3600.0,
+                      on_step=False, on_epoch=True, prog_bar=True)
+
+    # ------------------------------------------------------------------
+
+    def _total_elapsed(self):
+        elapsed = self._elapsed_seconds
+        if self._start_time is not None:
+            elapsed += time.monotonic() - self._start_time
+        return elapsed
 
 
 def get_trainer(conf, **trainer_params_additional):
@@ -75,6 +123,7 @@ def get_trainer(conf, **trainer_params_additional):
 
     lr_monitor = LearningRateMonitor(logging_interval="step")
     trainer_params_callbacks.append(lr_monitor)
+    trainer_params_callbacks.append(TrainingTimeCallback())
 
     if len(trainer_params_callbacks) > 0:
         trainer_params_additional["callbacks"] = trainer_params_callbacks
