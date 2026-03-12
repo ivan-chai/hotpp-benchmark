@@ -139,7 +139,6 @@ class DetectionLoss(NextKLoss):
     def input_size(self):
         return self._k * self._next_item.input_size  # One for the presence score.
 
-    # def forward(self, inputs, outputs, states):
     def forward(self, inputs, outputs, states, loss_indices=None, **kwargs):
         """Extract targets and compute loss between predictions and targets.
 
@@ -428,7 +427,6 @@ class DetectionLoss(NextKLoss):
                 subset_lengths = torch.zeros_like(lengths)
             return PaddedBatch(payload, subset_lengths)
 
-    # def get_loss_indices(self, inputs):
     def get_loss_indices(self, inputs, subset_fraction=None):
         """Get positions to evaluate loss at.
 
@@ -440,7 +438,6 @@ class DetectionLoss(NextKLoss):
         """
         b, l = inputs.shape
         k = self._prefetch_k
-        # n_indices = min(max(int(round(l * self._loss_subset)), 1), l)
         frac = self._loss_subset if subset_fraction is None else subset_fraction
         n_indices = min(max(int(round(l * frac)), 1), l)
         # Take full windows first.
@@ -572,8 +569,7 @@ class DetectionLoss(NextKLoss):
         metrics["match_cost_std"] = matched_costs.std()
         return PaddedBatch(matches, lengths), losses, metrics
 
-    # def get_subset_matching(self, inputs, outputs):
-    def get_subset_matching(self, inputs, outputs, loss_indices = None):
+    def get_subset_matching(self, inputs, outputs, loss_indices=None):
         """Apply stride and compute matching.
 
         Args:

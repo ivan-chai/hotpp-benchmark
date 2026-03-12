@@ -155,7 +155,7 @@ class BaseModule(pl.LightningModule):
         full_mask = indices + k < inputs.seq_lens[:, None]
         return PaddedBatch({"index": indices, "full_mask": full_mask}, lengths)
 
-    def compute_loss(self, x, outputs, states, loss_indices = None):
+    def compute_loss(self, x, outputs, states, loss_indices=None):
         """Compute loss for the batch.
 
         Args:
@@ -166,8 +166,6 @@ class BaseModule(pl.LightningModule):
         Returns:
             A dict of losses and a dict of metrics.
         """
-        # losses, metrics = self._loss(x, outputs, states)
-        # loss_indices = self.get_loss_indices(x)
         losses, metrics = self._loss(x, outputs, states, loss_indices=loss_indices)
         return losses, metrics
 
