@@ -105,10 +105,10 @@ class BaseModule(pl.LightningModule):
             results.payload[self._timestamps_field] += inputs.payload[self._timestamps_field]
         return results
 
-    def forward(self, x, return_states=False, loss_indices = None):
+    def forward(self, x, return_states=False, loss_indices=None):
         """Extract hidden activations and states."""
         hiddens, states = self._seq_encoder(x, return_states=return_states)  # (B, L, D), (N, B, L, D).
-        outputs = self._head(hiddens, indices = loss_indices)  # (B, L, D).
+        outputs = self._head(hiddens, indices=loss_indices)  # (B, L, K*P).
         return outputs, states
 
     def embed(self, x):
@@ -146,7 +146,7 @@ class BaseModule(pl.LightningModule):
         k = getattr(self._loss, "prefetch_k", None)
         if k is None:
             return None
-        b, l = inputs.shape
+        b, l = inputs.shape # inputs - (64, 90)
         n_indices = min(max(int(round(l * self._loss_subset)), 1), l)
         mask = torch.arange(l, device=inputs.device)[None] + k < inputs.seq_lens[:, None]  # (B, L).
         weights = torch.rand(b, l, device=inputs.device) * mask
@@ -155,7 +155,7 @@ class BaseModule(pl.LightningModule):
         full_mask = indices + k < inputs.seq_lens[:, None]
         return PaddedBatch({"index": indices, "full_mask": full_mask}, lengths)
 
-    def compute_loss(self, x, outputs, states, loss_indices):
+    def compute_loss(self, x, outputs, states, loss_indices = None):
         """Compute loss for the batch.
 
         Args:
@@ -172,10 +172,11 @@ class BaseModule(pl.LightningModule):
         return losses, metrics
 
     def training_step(self, batch, batch_idx):
-        x, _ = batch
-        loss_indices = self.get_loss_indices(x)
-        outputs, states = self(x, return_states="full" if self._need_states else False, loss_indices = loss_indices)  # (B, L, D), (N, B, L, D).
-        losses, metrics = self.compute_loss(x, outputs, states, loss_indices)
+        x, _ = batch # x - (B, L) (64, 90)
+        loss_indices = self.get_loss_indices(x) # (B, I)
+        # outputs - (B, I, K*P), states - (1, B, I, D)
+        outputs, states = self(x, return_states="full" if self._need_states else False, loss_indices=loss_indices)  # (B, L, D), (N, B, L, D).
+        losses, metrics = self.compute_loss(x, outputs, states, loss_indices=loss_indices)
         loss = sum(losses.values())
 
         # Log statistics.

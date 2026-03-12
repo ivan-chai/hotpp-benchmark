@@ -19,17 +19,14 @@ class NextKModule(BaseModule):
         loss: Training loss.
         max_predicitions: Limit the maximum number of predictions.
         loss_subset: Fraction of positions to compute loss.
-        loss_subset: Fraction of positions to compute loss at.
     """
     def __init__(self, seq_encoder, loss,
                  max_predictions=None,
-                 loss_subset=1.0,
                  **kwargs):
 
         super().__init__(
             seq_encoder=seq_encoder,
             loss=loss,
-            loss_subset=loss_subset,
             **kwargs
         )
         self._max_predictions = max_predictions
