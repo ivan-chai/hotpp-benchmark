@@ -8,12 +8,13 @@ import pytorch_lightning as pl
 import torch
 from omegaconf import OmegaConf
 
-from .common import get_trainer, dump_report
+from .common import get_trainer, dump_report, initialize
 
 logger = logging.getLogger(__name__)
 
 
 def test(conf, model, dm, trainer=None):
+    initialize()
     pl.seed_everything(42)
 
     if trainer is None:

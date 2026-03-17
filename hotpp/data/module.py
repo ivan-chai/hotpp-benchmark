@@ -5,7 +5,7 @@ from .dataset import HotppDataset, ShuffledDistributedDataset, DEFAULT_PARALLELI
 
 def pop_loader_params(params):
     loader_params = {}
-    for key in ["seed", "num_workers", "batch_size", "cache_size", "parallelize", "drop_last", "prefetch_factor"]:
+    for key in ["seed", "num_workers", "batch_size", "cache_size", "parallelize", "drop_last", "prefetch_factor", "persistent_workers"]:
         if key in params:
             loader_params[key] = params.pop(key)
     return loader_params
