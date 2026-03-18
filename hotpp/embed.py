@@ -13,7 +13,7 @@ from torchmetrics.utilities import dim_zero_cat
 from torchmetrics.utilities.distributed import gather_all_tensors
 
 from .common import get_trainer
-from .data import ShuffledDistributedDataset, DEFAULT_PARALLELIZM
+from .data import ShuffledDistributedDataset, DEFAULT_PARALLELIZM, get_default_loader_params
 
 logger = logging.getLogger(__name__)
 
@@ -125,7 +125,8 @@ class InferenceDataModule(pl.LightningDataModule):
             collate_fn=dataset.dataset.collate_fn,
             shuffle=False,
             num_workers=num_workers,
-            batch_size=loader_params.get("batch_size", 1)
+            batch_size=loader_params.get("batch_size", 1),
+            **get_default_loader_params()
         )
 
 

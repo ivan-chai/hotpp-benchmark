@@ -1,15 +1,29 @@
-import torch
+import multiprocessing as mp
 import pytorch_lightning as pl
+import torch
 from .dataset import HotppDataset, ShuffledDistributedDataset, DEFAULT_PARALLELIZM
 
 
 def pop_loader_params(params):
     loader_params = {}
     for key in ["seed", "num_workers", "batch_size", "cache_size", "parallelize", "drop_last", "prefetch_factor",
-                "persistent_workers", "multiprocessing_context"]:
+                "pin_memory", "persistent_workers", "multiprocessing_context"]:
         if key in params:
             loader_params[key] = params.pop(key)
     return loader_params
+
+
+def get_default_loader_params():
+    default_loader_params = {
+        "persistent_workers": True,
+        "pin_memory": torch.cuda.is_available()
+    }
+    available_contexts = mp.get_all_start_methods()
+    for context in ["forkserver", "spawn", "fork"]:
+        if context in available_contexts:
+            default_loader_params["multiprocessing_context"] = context
+            break
+    return default_loader_params
 
 
 class HotppSampler(torch.utils.data.DistributedSampler):
@@ -106,10 +120,8 @@ class HotppDataModule(pl.LightningDataModule):
     def train_dataloader(self, rank=None, world_size=None):
         rank = self.trainer.global_rank if rank is None else rank
         world_size = self.trainer.world_size if world_size is None else world_size
-        loader_params = {"drop_last": True,
-                         "multiprocessing_context": "spawn",
-                         "persistent_workers": True,
-                         "pin_memory": torch.cuda.is_available()}
+        loader_params = get_default_loader_params()
+        loader_params.update({"drop_last": True})
         loader_params.update(self.train_loader_params)
         dataset = ShuffledDistributedDataset(self.train_data, rank=rank, world_size=world_size,
                                              cache_size=loader_params.pop("cache_size", 4096),
@@ -127,9 +139,7 @@ class HotppDataModule(pl.LightningDataModule):
     def val_dataloader(self, rank=None, world_size=None):
         rank = self.trainer.global_rank if rank is None else rank
         world_size = self.trainer.world_size if world_size is None else world_size
-        loader_params = {"multiprocessing_context": "spawn",
-                         "persistent_workers": True,
-                         "pin_memory": torch.cuda.is_available()}
+        loader_params = get_default_loader_params()
         loader_params.update(self.val_loader_params)
         dataset = ShuffledDistributedDataset(self.val_data, rank=rank, world_size=world_size,
                                              parallelize=loader_params.pop("parallelize", DEFAULT_PARALLELIZM))  # Disable shuffle.
@@ -143,9 +153,7 @@ class HotppDataModule(pl.LightningDataModule):
     def test_dataloader(self, rank=None, world_size=None):
         rank = self.trainer.global_rank if rank is None else rank
         world_size = self.trainer.world_size if world_size is None else world_size
-        loader_params = {"multiprocessing_context": "spawn",
-                         "persistent_workers": True,
-                         "pin_memory": torch.cuda.is_available()}
+        loader_params = get_default_loader_params()
         loader_params.update(self.test_loader_params)
         dataset = ShuffledDistributedDataset(self.test_data, rank=rank, world_size=world_size,
                                              parallelize=loader_params.pop("parallelize", DEFAULT_PARALLELIZM))  # Disable shuffle.
