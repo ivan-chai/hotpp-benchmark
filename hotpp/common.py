@@ -2,7 +2,6 @@ import copy
 import datetime
 import functools
 import logging
-import multiprocessing
 import yaml
 
 import hydra
@@ -16,10 +15,6 @@ from hotpp.utils.config import as_flat_config
 
 
 logger = logging.getLogger(__name__)
-
-
-def initialize():
-    multiprocessing.set_start_method("spawn", force=True)
 
 
 def dump_report(metrics, fp):

@@ -5,7 +5,8 @@ from .dataset import HotppDataset, ShuffledDistributedDataset, DEFAULT_PARALLELI
 
 def pop_loader_params(params):
     loader_params = {}
-    for key in ["seed", "num_workers", "batch_size", "cache_size", "parallelize", "drop_last", "prefetch_factor", "persistent_workers"]:
+    for key in ["seed", "num_workers", "batch_size", "cache_size", "parallelize", "drop_last", "prefetch_factor",
+                "persistent_workers", "multiprocessing_context"]:
         if key in params:
             loader_params[key] = params.pop(key)
     return loader_params
@@ -106,6 +107,8 @@ class HotppDataModule(pl.LightningDataModule):
         rank = self.trainer.global_rank if rank is None else rank
         world_size = self.trainer.world_size if world_size is None else world_size
         loader_params = {"drop_last": True,
+                         "multiprocessing_context": "spawn",
+                         "persistent_workers": True,
                          "pin_memory": torch.cuda.is_available()}
         loader_params.update(self.train_loader_params)
         dataset = ShuffledDistributedDataset(self.train_data, rank=rank, world_size=world_size,
@@ -124,7 +127,9 @@ class HotppDataModule(pl.LightningDataModule):
     def val_dataloader(self, rank=None, world_size=None):
         rank = self.trainer.global_rank if rank is None else rank
         world_size = self.trainer.world_size if world_size is None else world_size
-        loader_params = {"pin_memory": torch.cuda.is_available()}
+        loader_params = {"multiprocessing_context": "spawn",
+                         "persistent_workers": True,
+                         "pin_memory": torch.cuda.is_available()}
         loader_params.update(self.val_loader_params)
         dataset = ShuffledDistributedDataset(self.val_data, rank=rank, world_size=world_size,
                                              parallelize=loader_params.pop("parallelize", DEFAULT_PARALLELIZM))  # Disable shuffle.
@@ -138,7 +143,9 @@ class HotppDataModule(pl.LightningDataModule):
     def test_dataloader(self, rank=None, world_size=None):
         rank = self.trainer.global_rank if rank is None else rank
         world_size = self.trainer.world_size if world_size is None else world_size
-        loader_params = {"pin_memory": torch.cuda.is_available()}
+        loader_params = {"multiprocessing_context": "spawn",
+                         "persistent_workers": True,
+                         "pin_memory": torch.cuda.is_available()}
         loader_params.update(self.test_loader_params)
         dataset = ShuffledDistributedDataset(self.test_data, rank=rank, world_size=world_size,
                                              parallelize=loader_params.pop("parallelize", DEFAULT_PARALLELIZM))  # Disable shuffle.
