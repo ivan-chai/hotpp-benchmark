@@ -306,7 +306,15 @@ class ShuffledDistributedDataset(torch.utils.data.IterableDataset):
         self.parallelize = parallelize
         self.seed = seed
         self.drop_last = drop_last
-        self.epoch = 0
+        self._epoch = torch.tensor(0, dtype=torch.int32).share_memory_()  # Shared across persistent workers.
+
+    @property
+    def epoch(self):
+        return self._epoch.item()
+
+    @epoch.setter
+    def epoch(self, value):
+        self._epoch.fill_(value)
 
     def _get_context(self):
         dataset = self.dataset
