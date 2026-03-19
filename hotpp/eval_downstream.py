@@ -16,7 +16,8 @@ from omegaconf import OmegaConf
 from sklearn.metrics import make_scorer
 
 from .common import get_trainer, dump_report
-from .embed import distributed_predict, extract_embeddings, embeddings_to_pandas
+from .common import DistributedPredictor
+from .embed import EmbeddingsExtractor
 
 
 @contextmanager
@@ -44,31 +45,73 @@ class TargetsModule(pl.LightningModule):
         return ids, targets
 
 
-def extract_targets(trainer, datamodule, splits=None):
-    target_names = datamodule.train_data.global_target_fields
-    model = TargetsModule(datamodule.id_field, target_names)
-    by_split = distributed_predict(trainer, datamodule, model, 2, splits=splits)
-    by_split = {split: (ids.cpu().tolist(), targets) for split, (ids, targets) in by_split.items()}
-    return target_names, by_split
+class TargetsExtractor(DistributedPredictor):
+    """Extract targets for dataloaders.
+
+    Returns target_names and a mapping from split name to a tuple of ids and targets tensor (CPU).
+    """
+    def __call__(self, pandas=False):
+        target_names = self.datamodule.train_data.global_target_fields
+        module = TargetsModule(self.datamodule.id_field, target_names)
+        by_split = super().__call__(module, 2)
+        by_split = {split: (ids.cpu().tolist(), targets) for split, (ids, targets) in by_split.items()}
+        if pandas:
+            return self._targets_to_pandas(self.datamodule.id_field, target_names, by_split)
+        return target_names, by_split
+
+    @staticmethod
+    def _targets_to_pandas(id_field, target_names, by_split):
+        all_ids = []
+        all_splits = []
+        all_targets = []
+        for split, (ids, targets) in by_split.items():
+            assert len(ids) == len(targets)
+            all_ids.extend(ids)
+            all_splits.extend([split] * len(ids))
+            all_targets.append(targets)
+        all_targets = torch.cat(all_targets).cpu().numpy()
+
+        columns = {id_field: all_ids,
+                   "split": all_splits}
+        assert all_targets.shape[1] == len(target_names)
+        for i, name in enumerate(target_names):
+            columns[name] = all_targets[:, i]
+        return pd.DataFrame(columns).set_index(id_field)
 
 
-def targets_to_pandas(id_field, target_names, by_split):
-    all_ids = []
-    all_splits = []
-    all_targets = []
-    for split, (ids, targets) in by_split.items():
-        assert len(ids) == len(targets)
-        all_ids.extend(ids)
-        all_splits.extend([split] * len(ids))
-        all_targets.append(targets)
-    all_targets = torch.cat(all_targets).cpu().numpy()
+class EmbeddingsAndTargetsModule(pl.LightningModule):
+    def __init__(self, model, id_field, target_names):
+        super().__init__()
+        self.model = model
+        self.id_field = id_field
+        self.target_names = target_names
 
-    columns = {id_field: all_ids,
-               "split": all_splits}
-    assert all_targets.shape[1] == len(target_names)
-    for i, name in enumerate(target_names):
-        columns[name] = all_targets[:, i]
-    return pd.DataFrame(columns).set_index(id_field)
+    def forward(self, batch):
+        data, y = batch
+        embeddings = self.model.embed(data)  # (B, D).
+        assert embeddings.ndim == 2
+        ids = data.payload[self.id_field]  # (B).
+        targets = torch.stack([y.payload[name] for name in self.target_names], -1)  # (B, T).
+        return ids, embeddings, targets
+
+
+class EmbeddingsAndTargetsExtractor(DistributedPredictor):
+    """Extract embeddings and targets in a single pass over the data.
+
+    Returns (embeddings_df, targets_df) when pandas=True, otherwise
+    (by_split_embeddings, target_names, by_split_targets).
+    """
+    def __call__(self, model, pandas=False):
+        target_names = self.datamodule.train_data.global_target_fields
+        module = EmbeddingsAndTargetsModule(model, self.id_field, target_names)
+        by_split = super().__call__(module, 3)
+        by_split_emb = {split: (vals[0].cpu().tolist(), vals[1]) for split, vals in by_split.items()}
+        by_split_tgt = {split: (vals[0].cpu().tolist(), vals[2]) for split, vals in by_split.items()}
+        if pandas:
+            embeddings_df = EmbeddingsExtractor._embeddings_to_pandas(self.id_field, by_split_emb)
+            targets_df = TargetsExtractor._targets_to_pandas(self.id_field, target_names, by_split_tgt)
+            return embeddings_df, targets_df
+        return by_split_emb, target_names, by_split_tgt
 
 
 def eval_embeddings_ptls(conf):
@@ -180,31 +223,32 @@ def eval_downstream(downstream_config, trainer, datamodule, model,
     OmegaConf.set_struct(downstream_config, False)
     with maybe_temporary_directory(downstream_config.get("root", None)) as root:
         splits = downstream_config.get("data_splits", datamodule.splits)
-        if precomputed_embeddings is not None:
-            if isinstance(precomputed_embeddings, str):
-                embeddings = pd.read_parquet(precomputed_embeddings).set_index("id")
-            elif isinstance(precomputed_embeddings, pd.DataFrame):
-                embeddings = precomputed_embeddings
-            else:
-                raise ValueError(f"Unexpected embeddings type: {type(precomputed_embeddings)}")
+        if precomputed_embeddings is None and precomputed_targets is None:
+            embeddings, targets = EmbeddingsAndTargetsExtractor(trainer, datamodule, splits=splits)(model, pandas=True)
         else:
-            embeddings = extract_embeddings(trainer, datamodule, model, splits=splits)
-            embeddings = embeddings_to_pandas(datamodule.id_field, embeddings)
+            if precomputed_embeddings is not None:
+                if isinstance(precomputed_embeddings, str):
+                    embeddings = pd.read_parquet(precomputed_embeddings).set_index("id")
+                elif isinstance(precomputed_embeddings, pd.DataFrame):
+                    embeddings = precomputed_embeddings
+                else:
+                    raise ValueError(f"Unexpected embeddings type: {type(precomputed_embeddings)}")
+            else:
+                embeddings = EmbeddingsExtractor(trainer, datamodule, splits=splits)(model, pandas=True)
+            if precomputed_targets is not None:
+                if isinstance(precomputed_targets, str):
+                    targets = pd.read_parquet(precomputed_targets).set_index("id")
+                elif isinstance(precomputed_targets, pd.DataFrame):
+                    targets = precomputed_targets
+                else:
+                    raise ValueError(f"Unexpected targets type: {type(precomputed_targets)}")
+            else:
+                targets = TargetsExtractor(trainer, datamodule, splits=splits)(pandas=True)
         if len(embeddings.index.unique()) != len(embeddings):
             from collections import Counter
             duplicates = Counter(embeddings.index.to_list())
             duplicates = {k: v for k, v in duplicates.items() if v > 1}
             raise ValueError(f"Duplicate ids {duplicates}")
-        if precomputed_targets is not None:
-            if isinstance(precomputed_targets, str):
-                targets = pd.read_parquet(precomputed_targets).set_index("id")
-            elif isinstance(precomputed_targets, pd.DataFrame):
-                targets = precomputed_targets
-            else:
-                raise ValueError(f"Unexpected targets type: {type(precomputed_targets)}")
-        else:
-            target_names, targets = extract_targets(trainer, datamodule, splits=splits)
-            targets = targets_to_pandas(datamodule.id_field, target_names, targets)
 
         assert len(embeddings) == len(targets), "Embeddings and targets mismatch."
 
