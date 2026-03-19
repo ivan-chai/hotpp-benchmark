@@ -2,6 +2,7 @@ import copy
 import datetime
 import functools
 import logging
+import time
 import yaml
 from contextlib import contextmanager
 
@@ -15,11 +16,14 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 from torchmetrics.utilities import dim_zero_cat
 from torchmetrics.utilities.distributed import gather_all_tensors
 
-from hotpp.data import PaddedBatch, ShuffledDistributedDataset, DEFAULT_PARALLELIZM, get_default_loader_params
+from hotpp.data import PaddedBatch, ShuffledDistributedDataset, DEFAULT_PARALLELIZM, update_loader_params_with_defaults
 from hotpp.utils.config import as_flat_config
 
 
 logger = logging.getLogger(__name__)
+
+
+MAX_STRING_LENGTH = 255
 
 
 def dump_report(metrics, fp):
@@ -44,6 +48,53 @@ def patch_precision_plugin(trainer):
     return trainer
 
 
+class TrainingTimeCallback(pl.Callback):
+    """Tracks cumulative wall-clock training time across restarts.
+
+    The accumulated time is saved in checkpoints via state_dict / load_state_dict
+    so that resuming from a checkpoint picks up where it left off.
+    The metric ``train_time_hours`` is logged at the end of every training epoch.
+    """
+
+    def __init__(self):
+        self._elapsed_seconds = 0.0  # time accumulated from all previous runs
+        self._start_time = None      # wall-clock time of the current run's start
+
+    # ------------------------------------------------------------------
+    # Checkpoint persistence
+    # ------------------------------------------------------------------
+
+    def state_dict(self):
+        return {"elapsed_seconds": self._total_elapsed()}
+
+    def load_state_dict(self, state_dict):
+        self._elapsed_seconds = state_dict["elapsed_seconds"]
+
+    # ------------------------------------------------------------------
+    # Training hooks
+    # ------------------------------------------------------------------
+
+    def on_train_start(self, trainer, pl_module):
+        self._start_time = time.monotonic()
+
+    def on_train_end(self, trainer, pl_module):
+        if self._start_time is not None:
+            self._elapsed_seconds += time.monotonic() - self._start_time
+            self._start_time = None
+
+    def on_train_epoch_end(self, trainer, pl_module):
+        pl_module.log("train_time_hours", self._total_elapsed() / 3600.0,
+                      on_step=False, on_epoch=True, prog_bar=True)
+
+    # ------------------------------------------------------------------
+
+    def _total_elapsed(self):
+        elapsed = self._elapsed_seconds
+        if self._start_time is not None:
+            elapsed += time.monotonic() - self._start_time
+        return elapsed
+
+
 @contextmanager
 def model_eval(model):
     """Context manager that switches a model to eval mode and restores its original training state on exit."""
@@ -53,9 +104,6 @@ def model_eval(model):
         yield model
     finally:
         model.train(training_mode)
-
-
-MAX_STRING_LENGTH = 255
 
 
 class TupleWithCPU(tuple):
@@ -169,10 +217,9 @@ class InferenceDataModule(pl.LightningDataModule):
 
     def test_dataloader(self):
         dataset = getattr(self.data, f"{self.split}_data")
-        loader_params = get_default_loader_params()
-        loader_params.update(getattr(self.data, f"{self.split}_loader_params"))
+        loader_params = update_loader_params_with_defaults(getattr(self.data, f"{self.split}_loader_params"))
         parallelize = loader_params.pop("parallelize", DEFAULT_PARALLELIZM)
-        loader_params = {k: loader_params[k] for k in list(get_default_loader_params()) + ["batch_size", "num_workers"]}
+        loader_params = {k: loader_params[k] for k in ["batch_size", "num_workers", "pin_memory", "persistent_workers", "multiprocessing_context"]}
 
         dataset = ShuffledDistributedDataset(dataset, rank=self.rank, world_size=self.world_size,
                                              parallelize=parallelize)
@@ -252,6 +299,7 @@ def get_trainer(conf, **trainer_params_additional):
 
     lr_monitor = LearningRateMonitor(logging_interval="step")
     trainer_params_callbacks.append(lr_monitor)
+    trainer_params_callbacks.append(TrainingTimeCallback())
 
     if len(trainer_params_callbacks) > 0:
         trainer_params_additional["callbacks"] = trainer_params_callbacks

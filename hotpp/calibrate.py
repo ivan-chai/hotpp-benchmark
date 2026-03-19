@@ -5,7 +5,7 @@ import pytorch_lightning as pl
 import torch
 from omegaconf import OmegaConf
 
-from hotpp.data import ShuffledDistributedDataset, DEFAULT_PARALLELIZM, get_default_loader_params
+from hotpp.data import ShuffledDistributedDataset, DEFAULT_PARALLELIZM, update_loader_params_with_defaults
 from hotpp.data.module import HotppSampler
 from tqdm import tqdm
 
@@ -13,8 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 def get_loader(dm):
-    loader_params = get_default_loader_params()
-    loader_params.update(dm.train_loader_params)
+    loader_params = update_loader_params_with_defaults(dm.train_loader_params)
     dataset = ShuffledDistributedDataset(dm.val_data, rank=None, world_size=None,
                                          num_workers=loader_params.get("num_workers", 0),
                                          cache_size=loader_params.pop("cache_size", 4096),
