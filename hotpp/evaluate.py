@@ -8,7 +8,7 @@ import pytorch_lightning as pl
 import torch
 from omegaconf import OmegaConf
 
-from .common import get_trainer, dump_report
+from .common import get_trainer, dump_report, initialize
 
 logger = logging.getLogger(__name__)
 
@@ -48,8 +48,7 @@ def test(conf, model, dm, trainer=None):
 
 
 def evaluate(conf):
-    if "seed_everything" in conf:
-        pl.seed_everything(conf.seed_everything)
+    initialize(conf)
 
     conf = copy.deepcopy(conf)
     OmegaConf.set_struct(conf, False)

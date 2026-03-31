@@ -26,6 +26,15 @@ logger = logging.getLogger(__name__)
 MAX_STRING_LENGTH = 255
 
 
+def initialize(conf):
+    """Set random seed and torch multiprocessing sharing strategy from config."""
+    if "seed_everything" in conf:
+        pl.seed_everything(conf.seed_everything)
+    sharing_strategy = conf.get("multiprocessing_sharing_strategy", None)
+    if sharing_strategy is not None:
+        torch.multiprocessing.set_sharing_strategy(sharing_strategy)
+
+
 def dump_report(metrics, fp):
     result = dict(metrics)
     result["date"] = f"{datetime.datetime.now():%Y-%m-%d %H:%M:%S}"

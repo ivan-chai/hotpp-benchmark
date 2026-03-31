@@ -3,11 +3,10 @@ import logging
 from contextlib import contextmanager
 
 import hydra
-import pytorch_lightning as pl
 import torch
 from omegaconf import OmegaConf
 
-from .common import get_trainer
+from .common import get_trainer, initialize
 from .evaluate import test
 
 
@@ -24,8 +23,7 @@ def torch_matmul_precision(precision="highest"):
 
 
 def train(conf):
-    if "seed_everything" in conf:
-        pl.seed_everything(conf.seed_everything)
+    initialize(conf)
 
     conf = copy.deepcopy(conf)
     OmegaConf.set_struct(conf, False)
