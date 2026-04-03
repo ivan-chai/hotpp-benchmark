@@ -1,0 +1,47 @@
+date: '2026-02-11 01:18:36'
+test/T-mAP: 0.22053039073944092
+test/T-mAP-weighted: 0.41139891743659973
+test/horizon-max-f-score: 0.2987649738788605
+test/horizon-max-f-score-weighted: 0.4831562042236328
+test/horizon-mean-time-step: 1.0072299242019653
+test/loss: 2.5376269817352295
+test/loss_nhp: 2.5376269817352295
+test/mean-predicted-length: 9.962787628173828
+test/mean-target-length: 19.20047378540039
+test/next-item-accuracy: 0.17474476993083954
+test/next-item-mae: 0.3986167907714844
+test/next-item-map: 0.07585670053958893
+test/next-item-map-weighted: 0.16280242800712585
+test/next-item-max-f-score: 0.13884569704532623
+test/next-item-max-f-score-weighted: 0.26398736238479614
+test/next-item-mean-time-step: 0.5514675378799438
+test/next-item-rmse: 0.700168788433075
+test/next-k-label-distribution-delta: 7.3750457763671875
+test/optimal-transport-distance: 8.333558082580566
+test/sequence-labels-entropy: 0.6121237277984619
+test/target-sequence-labels-entropy: 1.0759520530700684
+test/thinning_accepted: 6.210788249969482
+val/T-mAP: 0.22569385170936584
+val/T-mAP-weighted: 0.4090447425842285
+val/horizon-max-f-score: 0.30441194772720337
+val/horizon-max-f-score-weighted: 0.47917652130126953
+val/horizon-mean-time-step: 1.003684401512146
+val/loss: 2.519477605819702
+val/loss_nhp: 2.519477605819702
+val/mean-predicted-length: 10.014880180358887
+val/mean-target-length: 19.335750579833984
+val/next-item-accuracy: 0.1737319529056549
+val/next-item-mae: 0.40509724617004395
+val/next-item-map: 0.0766606479883194
+val/next-item-map-weighted: 0.15871550142765045
+val/next-item-max-f-score: 0.14223329722881317
+val/next-item-max-f-score-weighted: 0.25949737429618835
+val/next-item-mean-time-step: 0.5475600957870483
+val/next-item-rmse: 0.7151758670806885
+val/next-k-label-distribution-delta: 7.412437915802002
+val/optimal-transport-distance: 8.334122657775879
+val/sequence-labels-entropy: 0.5983047485351562
+val/target-sequence-labels-entropy: 1.0590906143188477
+val/thinning_accepted: 6.405555725097656
+
+
