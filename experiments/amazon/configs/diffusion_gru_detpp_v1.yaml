@@ -1,0 +1,178 @@
+seed_everything: 42
+num_evaluation_seeds: 5
+
+name: diffusion_gru_detpp_v1
+
+max_predictions: 48
+num_classes: 16
+max_time_delta: 12
+max_duration: 12
+time_smoothing: null
+history_density_horizons: [1, 2, 3, 5, 10]
+
+rnn_hidden_size: 64
+rnn_inference_context: 94
+rnn_inference_context_step: 30
+
+transformer_context: 128
+transformer_hidden_size: 32
+transformer_heads: 2
+transformer_layers: 1
+transformer_positions: 126
+transformer_pos_m: 0.1
+transformer_pos_M: 100
+
+max_intensity: null
+ode_lipschitz: 2
+thinning_params:
+  max_steps: 100
+  max_delta: ${max_time_delta}
+  bound_samples: 100
+next_k: 16
+hypro_loss_step: 8
+
+logger:
+  _target_: pytorch_lightning.loggers.MLFlowLogger
+  experiment_name: hotpp-amazon
+  run_name: ${name}
+  tracking_uri: sqlite:///lightning_logs/mlflow.db
+  artifact_location: file:S:/jupyter/ucheba/detpp/hotpp-benchmark/lightning_logs/mlruns
+  save_dir: lightning_logs
+
+model_path: checkpoints/${name}.ckpt
+report: results/${name}.yaml
+multiseed_report: results/multiseed_${name}.yaml
+
+data_module:
+  _target_: hotpp.data.HotppDataModule
+  batch_size: 64
+  min_length: 64
+  max_length: 94
+  num_workers: 4
+  train_path: data/train.parquet
+  val_path: data/val.parquet
+  test_path: data/test.parquet
+
+metric:
+  _target_: hotpp.metrics.HorizonMetric
+  max_time_delta: ${max_time_delta}
+  horizon: 10
+  horizon_evaluation_step: 4
+  map_deltas: [2]
+  map_target_length: 32
+  otd_steps: 5
+  otd_insert_cost: 1
+  otd_delete_cost: 1
+
+head:
+  _target_: hotpp.nn.Head
+  _partial_: true
+  hidden_dims: [64]
+  use_batch_norm: true
+
+conditional_head:
+  _target_: hotpp.nn.ConditionalHead
+  _partial_: true
+  hidden_dims: [128, 256]
+  use_batch_norm: true
+
+module:
+  _target_: hotpp.modules.NextKModule
+  seq_encoder:
+    _target_: hotpp.nn.RnnEncoder
+    embedder:
+      _target_: hotpp.nn.Embedder
+      embeddings:
+        labels:
+          in: ${num_classes}
+          out: 32
+      numeric_values:
+        timestamps: identity
+      categorical_noise: 0.1
+    max_time_delta: ${max_time_delta}
+    rnn_partial:
+      _target_: hotpp.nn.GRU
+      _partial_: true
+      hidden_size: ${rnn_hidden_size}
+    max_inference_context: ${rnn_inference_context}
+    inference_context_step: ${rnn_inference_context_step}
+  optimizer_partial:
+    _partial_: true
+    _target_: torch.optim.Adam
+    lr: 0.001
+    weight_decay: 0.0
+  lr_scheduler_partial:
+    _partial_: true
+    _target_: torch.optim.lr_scheduler.StepLR
+    step_size: 5
+    gamma: 0.8
+  val_metric: ${metric}
+  test_metric: ${metric}
+  head_partial: ${head}
+  loss:
+    _target_: hotpp.losses.HorizonDiffusionLossV1
+    k: ${next_k}
+    horizon: ${metric.horizon}
+    diffusion_loss_weight: 0.5
+    decoder_loss_weight: 2.0
+    embedder_regularizer: 1.0
+    alpha: 0.5
+    detach_embeddings_from_step: 1
+    detach_decoder: false
+    use_detection_calibration_threshold: true
+    presence_threshold_bias: 0
+    presence_selection: calibrated
+    topk_target_length: null
+    next_item_loss:
+      _target_: hotpp.losses.DetectionLoss
+      k: 48
+      horizon: ${metric.horizon}
+      loss_subset: 1.0
+      prefetch_factor: 1.0
+      next_item_adapter: head
+      next_item_loss_weight: 4
+      next_item_loss:
+        _target_: hotpp.losses.NextItemLoss
+        losses:
+          _presence:
+            _target_: hotpp.losses.BinaryCrossEntropyLoss
+          timestamps:
+            _target_: hotpp.losses.TimeMAELoss
+            delta: start
+            max_delta: ${max_duration}
+            smoothing: ${time_smoothing}
+          labels:
+            _target_: hotpp.losses.CrossEntropyLoss
+            num_classes: ${num_classes}
+    embedder: ${module.seq_encoder.embedder}
+    denoiser_partial:
+      _target_: hotpp.nn.GRUDenoiser
+      _partial_: true
+      hidden_size: ${rnn_hidden_size}
+      generation_steps: 15
+      num_layers: 1
+    decoder_partial:
+      _target_: hotpp.nn.Head
+      _partial_: true
+      hidden_dims: []
+    detection_sequence_decoder_partial:
+      _target_: hotpp.nn.Head
+      _partial_: true
+      hidden_dims: []
+    max_time_delta: ${max_time_delta}
+    loss_step: 1
+    generation_steps: 15
+  max_predictions: 48
+
+trainer:
+  accelerator: cuda
+  devices: 1
+  max_epochs: 60
+  enable_checkpointing: true
+  deterministic: true
+  precision: 16-mixed
+  gradient_clip_val: 1
+  check_val_every_n_epoch: 6
+  model_selection:
+    metric: val/T-mAP
+    mode: max

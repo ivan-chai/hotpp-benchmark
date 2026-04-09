@@ -1,5 +1,6 @@
 import torch
 from torchmetrics.aggregation import MeanMetric
+import os
 
 from ..data import PaddedBatch
 from .horizon_binary_targets import HorizonBinaryTargetsMetric
@@ -28,14 +29,21 @@ class HorizonMetric(torch.nn.Module):
                  map_deltas=None, map_target_length=None,
                  otd_steps=None, otd_insert_cost=None, otd_delete_cost=None,
                  horizon_binary_targets=None, log_amount=False,
+                 use_predicted_probabilities_for_tmap=True,
                  compute_on_cpu=False):
         super().__init__()
         self.horizon = horizon
         self.horizon_evaluation_step = horizon_evaluation_step
+        self.use_predicted_probabilities_for_tmap = use_predicted_probabilities_for_tmap
+        self._debug_horizon = os.environ.get("HOTPP_DEBUG_HORIZON", "0") == "1"
+        self._debug_printed = False
 
         self._target_lengths = MeanMetric(compute_on_cpu=compute_on_cpu)
         self._predicted_lengths = MeanMetric(compute_on_cpu=compute_on_cpu)
+        self._predicted_lengths_after_presence = MeanMetric(compute_on_cpu=compute_on_cpu)
         self._horizon_predicted_deltas = MeanMetric(compute_on_cpu=compute_on_cpu)
+        self._predicted_negative_delta_ratio = MeanMetric(compute_on_cpu=compute_on_cpu)
+        self._predicted_out_of_horizon_ratio = MeanMetric(compute_on_cpu=compute_on_cpu)
         self._sequence_labels_entropies = MeanMetric(compute_on_cpu=compute_on_cpu)
         self._target_sequence_labels_entropies = MeanMetric(compute_on_cpu=compute_on_cpu)
 
@@ -79,7 +87,10 @@ class HorizonMetric(torch.nn.Module):
     def reset(self):
         self._target_lengths.reset()
         self._predicted_lengths.reset()
+        self._predicted_lengths_after_presence.reset()
         self._horizon_predicted_deltas.reset()
+        self._predicted_negative_delta_ratio.reset()
+        self._predicted_out_of_horizon_ratio.reset()
         self._sequence_labels_entropies.reset()
         self._target_sequence_labels_entropies.reset()
 
@@ -153,6 +164,45 @@ class HorizonMetric(torch.nn.Module):
         """
         b, l, n = seq_predicted_timestamps.shape
         device = seq_predicted_timestamps.device
+        # Guard against silent metric skew when model returns fewer/more evaluation positions than requested.
+        if indices.shape != (b, l):
+            raise ValueError(
+                f"Inconsistent horizon dimensions: indices shape {tuple(indices.shape)} "
+                f"!= predicted shape {(b, l)} for (B, I)."
+            )
+        if seq_predicted_labels.shape[:3] != (b, l, n):
+            raise ValueError(
+                f"Inconsistent predicted labels shape {tuple(seq_predicted_labels.shape)} "
+                f"!= {(b, l, n)}."
+            )
+        if seq_predicted_labels_logits.shape[:3] != (b, l, n):
+            raise ValueError(
+                f"Inconsistent predicted logits shape {tuple(seq_predicted_labels_logits.shape)} "
+                f"!= {(b, l, n, 'C')} in leading dims."
+            )
+        if (seq_predicted_mask is not None) and (seq_predicted_mask.shape != (b, l, n)):
+            raise ValueError(
+                f"Inconsistent predicted mask shape {tuple(seq_predicted_mask.shape)} != {(b, l, n)}."
+            )
+        if (seq_predicted_probabilities is not None) and (seq_predicted_probabilities.shape != (b, l, n)):
+            raise ValueError(
+                f"Inconsistent predicted probabilities shape {tuple(seq_predicted_probabilities.shape)} != {(b, l, n)}."
+            )
+        if (seq_predicted_amounts is not None) and (seq_predicted_amounts.shape != (b, l, n)):
+            raise ValueError(
+                f"Inconsistent predicted amounts shape {tuple(seq_predicted_amounts.shape)} != {(b, l, n)}."
+            )
+        if self._debug_horizon and (not self._debug_printed):
+            print(
+                "[HORIZON-DEBUG]",
+                f"seq_lens_mean={seq_lens.float().mean().item():.3f}",
+                f"indices_shape={tuple(indices.shape)}",
+                f"indices_lens_mean={indices_lens.float().mean().item():.3f}",
+                f"pred_shape={tuple(seq_predicted_timestamps.shape)}",
+                f"map_target_length={self.map_target_length}",
+                f"otd_steps={self.otd_steps}",
+            )
+            self._debug_printed = True
         features = {"timestamps": timestamps, "labels": labels}
         if amounts is not None:
             features["amounts"] = amounts
@@ -198,8 +248,15 @@ class HorizonMetric(torch.nn.Module):
         horizon_targets_mask = target_timestamps - initial_timestamps.unsqueeze(1) < self.horizon  # (V, N).
         horizon_predicted_mask = torch.logical_and(predicted_timestamps - initial_timestamps.unsqueeze(1) < self.horizon,
                                                    predicted_mask)  # (V, N).
+        predicted_deltas = predicted_timestamps - initial_timestamps.unsqueeze(1)  # (V, N).
+        valid_prediction_counts = predicted_mask.sum(1).clip(min=1)
+        negative_delta_mask = torch.logical_and(predicted_mask, predicted_deltas < 0)
+        out_of_horizon_mask = torch.logical_and(predicted_mask, predicted_deltas >= self.horizon)
         self._target_lengths.update(horizon_targets_mask.sum(1))  # (V).
         self._predicted_lengths.update(horizon_predicted_mask.sum(1).flatten())  # (BI).
+        self._predicted_lengths_after_presence.update(predicted_mask.sum(1))
+        self._predicted_negative_delta_ratio.update(negative_delta_mask.sum(1).float() / valid_prediction_counts)
+        self._predicted_out_of_horizon_ratio.update(out_of_horizon_mask.sum(1).float() / valid_prediction_counts)
 
         # Update deltas stats.
         if (len(predicted_timestamps) > 0) and (predicted_timestamps.shape[1] >= 2):
@@ -219,7 +276,7 @@ class HorizonMetric(torch.nn.Module):
         if self.tmap is not None:
             tmap_predicted_labels_scores = predicted_labels_logits
             tmap_predicted_mask = predicted_mask
-            if predicted_probabilities is not None:
+            if self.use_predicted_probabilities_for_tmap and (predicted_probabilities is not None):
                 predicted_logprobs = predicted_probabilities.log().clip(min=-100)  # (V, N).
                 tmap_predicted_labels_scores = tmap_predicted_labels_scores + predicted_logprobs.unsqueeze(2)  # (V, N, C).
                 tmap_predicted_mask = torch.ones_like(tmap_predicted_mask)
@@ -279,6 +336,9 @@ class HorizonMetric(torch.nn.Module):
             values.update({
                 "mean-target-length": target_length,
                 "mean-predicted-length": self._predicted_lengths.compute(),
+                "mean-predicted-length-after-presence": self._predicted_lengths_after_presence.compute(),
+                "predicted-negative-delta-ratio": self._predicted_negative_delta_ratio.compute(),
+                "predicted-out-of-horizon-ratio": self._predicted_out_of_horizon_ratio.compute(),
                 "sequence-labels-entropy": self._sequence_labels_entropies.compute(),
                 "target-sequence-labels-entropy": self._target_sequence_labels_entropies.compute()
             })

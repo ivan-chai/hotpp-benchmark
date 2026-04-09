@@ -1,0 +1,10 @@
+defaults:
+  - diffusion_gru_detpp_v1
+  - _self_
+
+name: diffusion_gru_detpp_v1_balance_a
+
+module:
+  loss:
+    diffusion_loss_weight: 1.0
+    decoder_loss_weight: 1.5

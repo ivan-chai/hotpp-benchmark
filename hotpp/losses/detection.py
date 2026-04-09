@@ -169,6 +169,17 @@ class DetectionLoss(NextKLoss):
                     full_matching = matching
                     presence_logits = PaddedBatch(presence_logits, outputs.seq_lens)
                 self.update_calibration_statistics(full_matching, presence_logits)
+                logits_flat = presence_logits.payload[presence_logits.seq_len_mask]
+                if len(logits_flat) > 0:
+                    matching_metrics["matching_priors_mean"] = self._matching_priors.mean()
+                    matching_metrics["matching_priors_std"] = self._matching_priors.std()
+                    matching_metrics["calibration_threshold_mean"] = self._matching_thresholds.mean()
+                    matching_metrics["calibration_threshold_std"] = self._matching_thresholds.std()
+                    matching_metrics["presence_logit_mean"] = logits_flat.mean()
+                    matching_metrics["presence_logit_std"] = logits_flat.std()
+                    matching_metrics["presence_positive_rate_at_threshold"] = (
+                        (logits_flat > self._matching_thresholds).float().mean()
+                    )
 
         # Compute matching losses.
         if (matching.payload < 0).all():

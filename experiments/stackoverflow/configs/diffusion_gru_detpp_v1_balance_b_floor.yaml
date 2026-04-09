@@ -1,0 +1,10 @@
+defaults:
+  - diffusion_gru_detpp_v1_balance_b
+  - _self_
+
+name: diffusion_gru_detpp_v1_balance_b_floor
+
+module:
+  loss:
+    presence_selection: calibrated_floor
+    min_presence_count: null
