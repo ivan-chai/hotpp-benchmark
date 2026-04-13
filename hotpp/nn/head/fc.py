@@ -9,10 +9,12 @@ class Head(torch.nn.Sequential):
         input_size: Embedding size.
         output_size: Output dimension.
         hidden_dims: Sizes of linear layers. If None, disable additional linear layers.
+        activation_partial: A function used to construct an activation module.
         use_batch_norm: Whether to use BatchNorm.
     """
     def __init__(self, input_size, output_size,
                  hidden_dims=None,
+                 activation_partial=torch.nn.ReLU,
                  use_batch_norm=False):
         layers = []
 
@@ -24,7 +26,7 @@ class Head(torch.nn.Sequential):
             layers.append(torch.nn.Linear(last_dim, dim, bias=not use_batch_norm))
             if use_batch_norm:
                 layers.append(torch.nn.BatchNorm1d(dim))
-            layers.append(torch.nn.ReLU())
+            layers.append(activation_partial())
             last_dim = dim
 
         layers.append(torch.nn.Linear(last_dim, output_size))

@@ -9,12 +9,14 @@ class ConditionalHead(torch.nn.Sequential):
         input_size: Embedding size.
         output_size: Output dimension (K x P, where K is the number of output tokens).
         k: The number of output tokens.
-        num_layers: The number of transformer blocks.
-        fc_dim: The hidden size of FC transformer layer. Default is equal to input_size.
+        query_size: The dimension of the query. By default it is equal to input size.
+        hidden_dims: Sizes of linear layers. If None, disable additional linear layers.
+        activation_partial: A function used to construct an activation module.
         use_batch_norm: Whether to use BatchNorm before final projection.
     """
     def __init__(self, input_size, output_size, k,
-                 query_size=None, hidden_dims=None, use_batch_norm=False):
+                 query_size=None, hidden_dims=None,
+                 activation_partial=torch.nn.ReLU, use_batch_norm=False):
         if output_size % k != 0:
             raise ValueError("Output size must be divisible by K.")
         if query_size is None:
@@ -28,7 +30,7 @@ class ConditionalHead(torch.nn.Sequential):
             layers.append(torch.nn.Linear(last_dim, dim, bias=not use_batch_norm))
             if use_batch_norm:
                 layers.append(torch.nn.BatchNorm1d(dim))
-            layers.append(torch.nn.ReLU())
+            layers.append(activation_partial())
             last_dim = dim
 
         layers.append(torch.nn.Linear(last_dim, output_size // k))
