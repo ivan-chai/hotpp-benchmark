@@ -420,7 +420,7 @@ class SimpleTransformer(torch.nn.Module):
                                  x.seq_lens)
         embeddings, timestamps = self.add_sos(embeddings, timestamps)
         embeddings = self.positional(embeddings.payload, timestamps.payload)  # (B, L, D).
-        embeddings = PaddedBatch(embeddings, x.seq_lens)
+        embeddings = PaddedBatch(embeddings, timestamps.seq_lens)
         if self.rope is not None:
             with self.rope.cache(timestamps.payload):
                 outputs, states = self.transform(embeddings, attention_mask=attention_mask)
