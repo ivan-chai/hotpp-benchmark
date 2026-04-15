@@ -302,6 +302,10 @@ def get_trainer(conf, **trainer_params_additional):
         trainer_params_additional["logger"] = hydra.utils.instantiate(conf.logger)
         trainer_params_additional["logger"].log_hyperparams(as_flat_config(OmegaConf.to_container(conf, resolve=True)))
 
+    if "profiler" in trainer_params:
+        trainer_params_additional["profiler"] = hydra.utils.instantiate(trainer_params.profiler)
+        del trainer_params.profiler
+
     if not isinstance(trainer_params.get("strategy", ""), str): # if strategy not exist or str do nothing,
         trainer_params_additional["strategy"] = hydra.utils.instantiate(trainer_params.strategy)
         del trainer_params.strategy
