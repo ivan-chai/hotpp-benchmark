@@ -47,13 +47,43 @@ class ConditionalHead(torch.nn.Sequential):
         x = super().forward(x)  # (BK, O).
         return x.reshape(b, self.output_size)  # (B, KO).
 
-    def forward(self, x):
-        x, lengths, mask = x.payload, x.seq_lens, x.seq_len_mask.bool()
-        assert x.ndim > 2  # (B, L, *, D).
-        shape = list(x.shape)
-        x_masked = x[mask]  # (V, *, D).
-        v = len(x_masked)
-        x_mapped = self.forward_impl(x_masked.flatten(0, -2)).reshape(*([v] + shape[2:-1] + [self.output_size]))  # (V, *, D).
-        x_new = torch.zeros(*[shape[:-1] + [self.output_size]], dtype=x_mapped.dtype, device=x_mapped.device)  # (B, L, *, D).
-        x_new[mask] = x_mapped
-        return PaddedBatch(x_new, lengths)
+    def forward(self, x, indices=None):
+        if indices is None:
+            # val/test
+            x, lengths, mask = x.payload, x.seq_lens, x.seq_len_mask.bool()
+            assert x.ndim > 2  # (B, L, D)
+            shape = list(x.shape)
+            x_masked = x[mask]
+            v = len(x_masked)
+            x_mapped = self.forward_impl(x_masked.flatten(0, -2)).reshape(*([v] + shape[2:-1] + [self.output_size]))  # (V, K*P)
+            x_new = torch.zeros(*[shape[:-1] + [self.output_size]], dtype=x_mapped.dtype, device=x_mapped.device)      #(B, L, K*P)
+            x_new[mask] = x_mapped
+            return PaddedBatch(x_new, lengths)
+
+        else: 
+            # train
+            # indices - (B, I) , x.payload - (B, L, D)
+            # x - (B, L, D), lengths - (B), mask - (B, L)
+            x, lengths, mask = x.payload, x.seq_lens, x.seq_len_mask.bool()
+            assert x.ndim > 2  # (B, L, *, D).
+            # indices.payload["index"] - (B, I)
+            idx = indices.payload["index"]      # (B, I) positions in [0, L-1]
+            out_lengths = indices.seq_lens      # (B,)  valid ones from I
+            B, I = idx.shape
+            D = x.shape[-1] #D
+
+            #(B, L, D) -> (B, I, D)
+            selected = x.take_along_dim(idx.unsqueeze(-1).expand(-1, -1, D), dim=1)  # (B, I, D)
+
+            #masking padding inside I positions
+            #seq_len_mask for subset
+            idx_mask = indices.seq_len_mask.bool()  # (B, I)
+            selected_masked = selected[idx_mask]    # (V_i, D), V_i = sum(out_lengths)
+
+            # predict only for V_i positions
+            x_mapped = self.forward_impl(selected_masked)  # (V_i, K*P)
+
+            # convert back to (B, I, K*P)
+            x_new = torch.zeros(B, I, self.output_size,dtype=x_mapped.dtype, device=x_mapped.device)
+            x_new[idx_mask] = x_mapped
+            return PaddedBatch(x_new, out_lengths)
