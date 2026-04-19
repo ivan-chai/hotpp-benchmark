@@ -279,20 +279,13 @@ class S2P2Encoder(nn.Module):
         
         fwd = self.model.forward_core_with_alpha(dt_BN, alpha_BNH, ssm_initial_states=ssm_init)
         
-        # For backward variant, use left_u directly (already computed in forward)
-        # For non-backward variant, use right_u (will be evolved in interpolate)
-        if "left_u_BNm1H" in fwd:
-            # Backward variant: left_u at [t_1, ..., t_N], pad with zeros at t_0
-            left_u = fwd["left_u_BNm1H"]  # (B, N-1, H)
-            if left_u.is_complex():
-                left_u = left_u.real
-            # Pad to match sequence length: prepend zeros for t_0
-            outputs = torch.cat([torch.zeros(B, 1, left_u.shape[-1], device=left_u.device, dtype=left_u.dtype), left_u], dim=1)
-        else:
-            # Non-backward variant: use right_u, will evolve in interpolate
-            outputs = fwd["right_us_BNH"][-1]  # (B, N, H)
-            if outputs.is_complex():
-                outputs = outputs.real
+        # Use right_u of the last layer as output (state after processing each event).
+        # For backward variant, left_u_BNm1H has N-1 elements (shifted by 1), which
+        # produces empty/zero outputs when N=1 (autoregressive single-token steps).
+        # right_u is always available for all N positions and carries the same information.
+        outputs = fwd["right_us_BNH"][-1]  # (B, N, H)
+        if outputs.is_complex():
+            outputs = outputs.real
         
         output_states = None
         if return_states:

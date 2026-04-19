@@ -53,12 +53,16 @@ class StructuralMambaMixer(nn.Module):
         expand: int = 2,
         time_mode: Optional[str] = None,
         time_scale_init: float = 0.1,
+        jump: bool = False,
+        jump_mode: str = "b_jump",
     ):
         super().__init__()
         self.d_model = d_model
         self.d_state = d_state
         self.d_inner = int(expand * d_model)
         self.time_mode = time_mode
+        self.jump = jump
+        self.jump_mode = jump_mode if jump else None
 
         # Layer creation order matches HF MambaMixer
         self.conv1d = nn.Conv1d(self.d_inner, self.d_inner, kernel_size=d_conv,
@@ -174,6 +178,22 @@ class StructuralMambaMixer(nn.Module):
         self.D = nn.Parameter(torch.ones(self.d_inner))
         self.out_proj = nn.Linear(self.d_inner, d_model, bias=False)
 
+        if jump:
+            if self.jump_mode == "b_jump":
+                self.B_jump = nn.Parameter(torch.zeros(self.d_inner, d_state))
+            elif self.jump_mode in ("e_shared", "e_channel"):
+                self.E_proj = nn.Linear(d_model, d_state, bias=False)
+            elif self.jump_mode == "no_dt_input":
+                pass
+            elif self.jump_mode == "e_both":
+                self.B_jump = nn.Parameter(torch.zeros(self.d_inner, d_state))
+                self.E_proj = nn.Linear(d_model, d_state, bias=False)
+            elif self.jump_mode == "e_gate":
+                self.E_proj = nn.Linear(d_model, d_state, bias=False)
+                self.E_gate = nn.Linear(d_model, d_state, bias=True)
+            else:
+                raise ValueError(f"Unknown jump_mode: {self.jump_mode}")
+
     def apply_hf_initialization(self):
         """Apply HF-style initialization. Called by parent after all blocks created."""
         nn.init.normal_(self.in_proj.weight, std=0.1)
@@ -229,6 +249,16 @@ class StructuralMambaMixer(nn.Module):
         nn.init.kaiming_uniform_(self.conv1d.weight, a=math.sqrt(5))
         nn.init.zeros_(self.conv1d.bias)
         nn.init.kaiming_uniform_(self.out_proj.weight, a=math.sqrt(5))
+
+        if self.jump:
+            if self.jump_mode in ("e_shared", "e_channel"):
+                nn.init.zeros_(self.E_proj.weight)
+            elif self.jump_mode == "e_both":
+                nn.init.zeros_(self.E_proj.weight)
+            elif self.jump_mode == "e_gate":
+                nn.init.zeros_(self.E_proj.weight)
+                nn.init.zeros_(self.E_gate.weight)
+                nn.init.constant_(self.E_gate.bias, -5.0)  # sigmoid(-5)≈0, starts OFF
 
     def forward(self, hidden_states: Tensor, time_deltas: Tensor,
                 attention_mask: Optional[Tensor] = None, save_ssm_state: bool = False):
@@ -370,14 +400,36 @@ class StructuralMambaMixer(nn.Module):
         ssm_state_list = [] if save_ssm_state else None
         is_structural = self.time_mode in ("structural", "structural_channel")
 
+        if self.jump and self.jump_mode in ("e_shared", "e_channel", "e_both", "e_gate"):
+            with torch.amp.autocast('cuda', enabled=False):
+                jump_e = self.E_proj(hidden_states.float())  # (B, L, d_state)
+            if self.jump_mode == "e_gate":
+                with torch.amp.autocast('cuda', enabled=False):
+                    gate = torch.sigmoid(self.E_gate(hidden_states.float()))  # (B, L, d_state)
+                jump_e = gate * jump_e
+
         for t in range(L):
             if is_structural:
                 # Per-d_state dt: time_delta * exp(log_step)
                 dt_t = time_deltas[:, t].view(-1, 1, 1) * step  # (B, 1, d_state) or (B, d_inner, d_state)
             else:
                 dt_t = discrete_time_step[:, :, t].unsqueeze(-1)  # (B, d_inner, 1)
-            ssm_state = torch.exp(A.unsqueeze(0) * dt_t) * ssm_state + \
-                        (dt_t * B_param[:, t].unsqueeze(1).float()) * x_conv[:, :, t].unsqueeze(-1).float()
+            x_conv_t_col = x_conv[:, :, t].unsqueeze(-1).float()  # (B, d_inner, 1)
+            if self.jump and self.jump_mode == "no_dt_input":
+                ssm_state = torch.exp(A.unsqueeze(0) * dt_t) * ssm_state + \
+                            B_param[:, t].unsqueeze(1).float() * x_conv_t_col
+            else:
+                ssm_state = torch.exp(A.unsqueeze(0) * dt_t) * ssm_state + \
+                            (dt_t * B_param[:, t].unsqueeze(1).float()) * x_conv_t_col
+            if self.jump:
+                if self.jump_mode == "b_jump":
+                    ssm_state = ssm_state + self.B_jump.unsqueeze(0).float() * x_conv_t_col
+                elif self.jump_mode in ("e_shared", "e_gate"):
+                    ssm_state = ssm_state + jump_e[:, t].unsqueeze(1)
+                elif self.jump_mode == "e_channel":
+                    ssm_state = ssm_state + x[:, :, t].unsqueeze(-1).float() * jump_e[:, t].unsqueeze(1)
+                elif self.jump_mode == "e_both":
+                    ssm_state = ssm_state + self.B_jump.unsqueeze(0).float() * x_conv_t_col + jump_e[:, t].unsqueeze(1)
             if ssm_state_list is not None:
                 ssm_state_list.append(ssm_state)
             outputs.append((ssm_state.to(dtype) * C_param[:, t].unsqueeze(1)).sum(dim=-1))
@@ -452,6 +504,8 @@ class StructuralMambaTimeEmbedding(nn.Module):
         n_positions: int = 1024,
         dropout: float = 0.1,
         vocab_size: int = 0,
+        jump: bool = False,
+        jump_mode: str = "b_jump",
     ):
         super().__init__()
         self.hidden_size = hidden_size
@@ -469,6 +523,8 @@ class StructuralMambaTimeEmbedding(nn.Module):
                 expand=expand,
                 time_mode=time_mode,
                 time_scale_init=time_scale_init,
+                jump=jump,
+                jump_mode=jump_mode,
             )
             for _ in range(num_layers)
         ])
