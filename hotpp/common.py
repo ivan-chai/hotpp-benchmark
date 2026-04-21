@@ -13,7 +13,7 @@ import torch
 from omegaconf import OmegaConf
 from pytorch_lightning.callbacks import LearningRateMonitor
 from pytorch_lightning.callbacks import ModelCheckpoint
-from torchmetrics.utilities import dim_zero_cat
+from torchmetrics.utilities.data import dim_zero_cat
 from torchmetrics.utilities.distributed import gather_all_tensors
 
 from hotpp.data import PaddedBatch, ShuffledDistributedDataset, DEFAULT_PARALLELIZM, update_loader_params_with_defaults
@@ -206,13 +206,23 @@ def initialize_trainer(trainer, model):
     if trainer.state.status == pl.trainer.states.TrainerStatus.INITIALIZING:
         logger.info("Initialize Trainer")
         trainer.strategy.connect(model)
-        trainer.strategy.setup_environment()
+        if not torch.distributed.is_initialized():
+            # Only init the process group when it hasn't been set up yet (e.g. standalone
+            # inference). When called from within a training run, the group is already
+            # initialized; calling setup_environment() again would raise
+            # "trying to initialize the default process group twice!" on all ranks
+            # except the one that happens to win the race, causing a rendezvous timeout.
+            trainer.strategy.setup_environment()
+            need_teardown = True
         trainer.strategy.setup(trainer)
-        need_teardown = True
+    if need_teardown and torch.distributed.is_initialized():
+        torch.distributed.barrier()
     try:
         yield
     finally:
         if need_teardown:
+            if torch.distributed.is_initialized():
+                torch.distributed.barrier()
             trainer.strategy.teardown()
 
 
