@@ -1,0 +1,40 @@
+defaults:
+  - default
+  - _self_
+
+name: next_item_mamba_combo
+
+# Комбинация: позиционное кодирование на входе + additive dt в SSM
+
+module:
+  _target_: hotpp.modules.NextItemModule
+
+  seq_encoder:
+    _target_: hotpp.nn.Encoder
+    model_partial:
+      _target_: hotpp.nn.StructuralMambaTimeEmbedding
+      _partial_: true
+
+      hidden_size: ${transformer_hidden_size}
+      num_layers: ${transformer_layers}
+      time_mode: additive
+      pos_type: time-angular-rel
+      max_duration: ${max_duration}
+      vocab_size: ${num_classes}
+
+    max_context: ${transformer_context}
+
+  head_partial: ${head}
+
+  loss:
+    _target_: hotpp.losses.NextItemLoss
+    losses:
+      timestamps:
+        _target_: hotpp.losses.TimeMAELoss
+        max_delta: ${max_time_delta}
+        smoothing: ${time_smoothing}
+      labels:
+        _target_: hotpp.losses.CrossEntropyLoss
+        num_classes: ${num_classes}
+
+  autoreg_max_steps: ${max_predictions}
