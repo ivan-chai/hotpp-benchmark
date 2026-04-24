@@ -215,8 +215,11 @@ def initialize_trainer(trainer, model):
             trainer.strategy.setup_environment()
             need_teardown = True
         trainer.strategy.setup(trainer)
-    if need_teardown and torch.distributed.is_initialized():
-        torch.distributed.barrier()
+        # Sync all ranks after setup() — DDPStrategy._sync_module_params_and_buffers()
+        # inside setup() is collective; without this barrier a faster rank can enter the
+        # inference loop and issue gather_all_tensors before others finish setup().
+        if torch.distributed.is_initialized():
+            torch.distributed.barrier()
     try:
         yield
     finally:
