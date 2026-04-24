@@ -1,0 +1,19 @@
+defaults:
+  - detection_hybrid
+  - _self_
+
+name: detection_transformer_hybrid
+
+transformer_decoder_head:
+  _target_: hotpp.nn.TransformerDecoderHead
+  _partial_: true
+  k: ${detection_k}
+  query_size: 64        # Internal decoder dimension. input_proj is added if != input_size.
+  n_heads: 4            # Must evenly divide query_size.
+  n_layers: 2
+  dim_feedforward: 256  # FFN hidden size. Default would be 4 * query_size = 256.
+  dropout: 0.1
+  use_self_attention: true
+
+module:
+  head_partial: ${transformer_decoder_head}
