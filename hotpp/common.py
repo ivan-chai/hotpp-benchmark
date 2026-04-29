@@ -206,6 +206,7 @@ def initialize_trainer(trainer, model):
     if trainer.state.status == pl.trainer.states.TrainerStatus.INITIALIZING:
         logger.info("Initialize Trainer")
         trainer.strategy.connect(model)
+        model.trainer = trainer
         if not torch.distributed.is_initialized():
             # Only init the process group when it hasn't been set up yet (e.g. standalone
             # inference). When called from within a training run, the group is already
