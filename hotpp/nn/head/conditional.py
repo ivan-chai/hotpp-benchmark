@@ -9,14 +9,17 @@ class ConditionalHead(torch.nn.Sequential):
         input_size: Embedding size.
         output_size: Output dimension (K x P, where K is the number of output tokens).
         k: The number of output tokens.
+        output_size_per_query: Whether output_size provided per K, or total (default).
         query_size: The dimension of the query. By default it is equal to input size.
         hidden_dims: Sizes of linear layers. If None, disable additional linear layers.
         activation_partial: A function used to construct an activation module.
         use_batch_norm: Whether to use BatchNorm before final projection.
     """
     def __init__(self, input_size, output_size, k,
-                 query_size=None, hidden_dims=None,
+                 output_size_per_query=False, query_size=None, hidden_dims=None,
                  activation_partial=torch.nn.ReLU, use_batch_norm=False):
+        if output_size_per_query:
+            output_size = output_size * k
         if output_size % k != 0:
             raise ValueError("Output size must be divisible by K.")
         if query_size is None:
