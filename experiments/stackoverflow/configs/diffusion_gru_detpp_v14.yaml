@@ -1,0 +1,16 @@
+defaults:
+  - diffusion_gru_detpp_v9
+  - _self_
+
+name: diffusion_gru_detpp_v14
+
+# Warm-start V9 from a pre-trained detection_hybrid checkpoint. The
+# `v14_warmstart.ckpt` (produced by scripts/analysis/prepare_v14_warmstart.py)
+# copies seq_encoder + base ConditionalHead + inner DetectionLoss from
+# detection_hybrid into V9's layout, leaving diffusion modules
+# (denoiser, per-slot decoder, mask_embedding) at fresh init.
+#
+# Hypothesis: V9 base can't find the DeTPP optimum from random init due to
+# diffusion gradient pulling representations away. Starting from DeTPP's
+# local minimum should anchor the base while diffusion learns on top.
+init_from_checkpoint: checkpoints/v14_warmstart.ckpt

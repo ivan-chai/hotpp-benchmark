@@ -1,0 +1,11 @@
+defaults:
+  - diffusion_gru_detpp_v7
+  - _self_
+
+name: diffusion_gru_detpp_v7_alpha005
+
+# V7 with halved residual alpha. v7_residual_to_base_ratio was 0.36 at alpha=0.1
+# which overwhelmed the DeTPP base. alpha=0.05 should bring ratio near 0.18.
+module:
+  loss:
+    residual_alpha: 0.05

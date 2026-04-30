@@ -1,0 +1,12 @@
+defaults:
+  - diffusion_gru_detpp_v44
+  - _self_
+
+name: diffusion_gru_detpp_v46
+
+# V44 + diffusion conditioned on multi-scale raw event history (NOT RNN context).
+# DeTPP path still uses RNN context as before; diffusion gets orthogonal signal.
+module:
+  loss:
+    _target_: hotpp.losses.HorizonDiffusionLossV46
+    history_scales: [1, 5, 32, 128]

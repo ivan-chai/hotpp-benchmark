@@ -1,0 +1,20 @@
+defaults:
+  - diffusion_gru_detpp_v3
+  - _self_
+
+name: diffusion_gru_detpp_v43
+
+# V42 (pure diffusion supervision, no horizon mask) + per-slot learnable
+# queries on the decoder side (DeTPP-style ConditionalHead). Each slot k
+# uses (denoised_latent_k ⊕ query_k) -> shared MLP -> (presence, time, label).
+# Combines diffusion's K-way diversity with DeTPP's K-way query
+# specialization.
+module:
+  loss:
+    _target_: hotpp.losses.HorizonDiffusionLossV43
+    diffusion_loss_weight: 1.5
+    decoder_loss_weight: 1.0
+    query_size: 64
+    query_hidden_dims: [128, 256]
+    query_use_batch_norm: true
+    query_init_scale: 0.02

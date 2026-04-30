@@ -1,0 +1,18 @@
+defaults:
+  - diffusion_gru_detpp_v3
+  - _self_
+
+name: diffusion_gru_detpp_v3_fat
+
+# User hypothesis: if V1 monolithic beats V3 because of parameter count
+# (1.8M vs ~800), bulk up per-slot decoder to close the gap. Hidden
+# [256,256,256] gives ~170K params per-slot shared across K=48 slots.
+module:
+  loss:
+    diffusion_loss_weight: 1.5
+    decoder_loss_weight: 1.0
+    decoder_partial:
+      _target_: hotpp.nn.Head
+      _partial_: true
+      hidden_dims: [256, 256, 256]
+      use_batch_norm: true

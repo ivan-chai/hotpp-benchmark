@@ -1,0 +1,13 @@
+defaults:
+  - diffusion_gru_detpp_v14
+  - _self_
+
+name: diffusion_gru_detpp_v28
+
+# V14 + 120 epochs. Hypothesis: diffusion modules are fresh after warm-start
+# (only base + seq_encoder are transferred). The default 60 epochs may be
+# insufficient for the diffusion/residual path to meaningfully complement
+# the already-good base, especially with zero_init_residual=true (residual
+# starts at 0 and needs time to learn useful corrections).
+trainer:
+  max_epochs: 120

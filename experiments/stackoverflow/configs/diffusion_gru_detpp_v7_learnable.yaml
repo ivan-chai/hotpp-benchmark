@@ -1,0 +1,14 @@
+defaults:
+  - diffusion_gru_detpp_v7
+  - _self_
+
+name: diffusion_gru_detpp_v7_learnable
+
+# Let the optimizer choose how much to trust the DeTR residual.
+# Init alpha at small value (0.03) + zero_init_residual=true -> model
+# starts at pure DeTPP behaviour and can ramp up residual only if it helps.
+module:
+  loss:
+    residual_alpha: 0.03
+    learnable_alpha: true
+    zero_init_residual: true

@@ -1,0 +1,14 @@
+defaults:
+  - diffusion_gru_detpp_v14
+  - _self_
+
+name: diffusion_gru_detpp_v29
+
+# V14 + learnable residual alpha starting at 0.05 (halved from default 0.1).
+# Hypothesis: the optimizer can find a better base-vs-residual balance than
+# any fixed value; starting low + zero_init_residual=true guarantees we
+# begin at near-pure DeTPP behavior and grow alpha only if it helps.
+module:
+  loss:
+    residual_alpha: 0.05
+    learnable_alpha: true

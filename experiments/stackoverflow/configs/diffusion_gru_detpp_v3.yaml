@@ -1,0 +1,9 @@
+# Backwards-compat alias.
+# Renamed to diffusion_gru_fixed_perslot_decoder.yaml. Kept as a thin
+# Hydra-defaults stub so legacy configs (V40-V43) and scripts that
+# reference `diffusion_gru_detpp_v3` keep loading the same content.
+defaults:
+  - diffusion_gru_fixed_perslot_decoder
+  - _self_
+
+name: diffusion_gru_detpp_v3

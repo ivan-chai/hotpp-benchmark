@@ -1,0 +1,16 @@
+defaults:
+  - diffusion_gru_detpp_v5
+  - _self_
+
+name: diffusion_gru_detpp_v12
+
+# Diagnostic: V5 pipeline with alpha=0 — diffusion trains, but its residual
+# is multiplied by 0 so the final prediction = ConditionalHead(base) alone.
+# Tests whether the shallow head + diffusion training flow hurts the base.
+# If test T-mAP >= multiseed detection_hybrid (0.2272), the V5 base pipeline
+# is clean; if lower, V5 architecture is hurting the base.
+module:
+  loss:
+    residual_alpha: 0.0
+    learnable_alpha: false
+    zero_init_residual: true

@@ -1,0 +1,9 @@
+# Backwards-compat alias.
+# Renamed to diffusion_gru_detpp_all_comps_in_decoder.yaml. Kept as a
+# thin Hydra-defaults stub so legacy configs (V45, V46, V48 stub) and
+# scripts that reference `diffusion_gru_detpp_v44` keep working.
+defaults:
+  - diffusion_gru_detpp_all_comps_in_decoder
+  - _self_
+
+name: diffusion_gru_detpp_v44

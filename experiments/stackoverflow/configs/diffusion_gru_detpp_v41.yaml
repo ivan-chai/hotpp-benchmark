@@ -1,0 +1,17 @@
+defaults:
+  - diffusion_gru_detpp_v3
+  - _self_
+
+name: diffusion_gru_detpp_v41
+
+# V3 with presence-masked diffusion MSE: don't supervise absent slots in
+# the reconstruction loss. Denoiser is only pulled toward real event
+# embeddings for present slots; absent slots' latents are shaped purely
+# by DetectionLoss BCE-negative signal (unmatched -> low presence).
+# Avoids both V3 (mask-collapse to single vector) and V40 (per-slot mask
+# diversity broke calibration).
+module:
+  loss:
+    _target_: hotpp.losses.HorizonDiffusionLossV41
+    diffusion_loss_weight: 1.5
+    decoder_loss_weight: 1.0

@@ -1,0 +1,14 @@
+defaults:
+  - diffusion_gru_detpp_all_comps_in_decoder
+  - _self_
+
+name: diffusion_gru_detpp_all_comps_in_decoder_far_target
+
+# V44 + diffusion target = events at LONG-RANGE future (delta in [10, 30]).
+# DeTPP matching still on near-horizon [0, 10]; diffusion provides orthogonal
+# long-range signal to decoder via the latents.
+module:
+  loss:
+    _target_: hotpp.losses.HorizonDiffusionLossDetppAllCompsInDecoderFarTarget
+    diffusion_target_min_delta: 10.0
+    diffusion_target_max_delta: 30.0

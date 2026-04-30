@@ -1,0 +1,18 @@
+defaults:
+  - diffusion_gru_fixed_perslot_decoder
+  - _self_
+
+name: diffusion_gru_detpp_all_comps_in_decoder
+
+# V42 supervision (no horizon mask) + decoder fuses
+# (denoised_latent_k, query_k, RNN context) -> shared MLP [128, 256] -> P_base.
+# Adds direct context access to the V43 query+latent decoder.
+module:
+  loss:
+    _target_: hotpp.losses.HorizonDiffusionLossDetppAllCompsInDecoder
+    diffusion_loss_weight: 1.5
+    decoder_loss_weight: 1.0
+    query_size: 64
+    query_hidden_dims: [128, 256]
+    query_use_batch_norm: true
+    query_init_scale: 0.02

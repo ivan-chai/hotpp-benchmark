@@ -1,0 +1,18 @@
+defaults:
+  - diffusion_gru_detpp_v48
+  - _self_
+
+name: diffusion_gru_detpp_v50
+
+# V48 + three typed mask embeddings.
+#   * mask_near : event present but delta < target_min (too soon)
+#   * mask_far  : event present but delta >= target_max (too late)
+#   * mask_pad  : out of input sequence
+# Lets the denoiser distinguish the three "absent" semantics instead
+# of collapsing them into one shared mask vector.
+module:
+  loss:
+    _target_: hotpp.losses.HorizonDiffusionLossV50
+    diffusion_target_min_delta: 10.0
+    diffusion_target_max_delta: 30.0
+    mask_embedding_init_scale: 0.02

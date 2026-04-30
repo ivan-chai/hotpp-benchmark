@@ -1,0 +1,15 @@
+defaults:
+  - diffusion_gru_detpp_v44
+  - _self_
+
+name: diffusion_gru_detpp_v47
+
+# V44 + multi-sample inference. Test-only mode: load V44 weights and run
+# test eval with multi-sample averaging. State dict 1:1 compatible.
+test_only: true
+model_path: checkpoints/diffusion_gru_detpp_v44.ckpt
+report: results/diffusion_gru_detpp_v47.yaml
+module:
+  loss:
+    _target_: hotpp.losses.HorizonDiffusionLossV47
+    n_inference_samples: 5

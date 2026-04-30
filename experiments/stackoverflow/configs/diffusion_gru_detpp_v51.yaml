@@ -1,0 +1,18 @@
+defaults:
+  - diffusion_gru_detpp_v48
+  - _self_
+
+name: diffusion_gru_detpp_v51
+
+# V48 with diffusion target broadened to delta in [0, 30) — i.e.
+# diffusion supervises ALL events within a 30-step window, including
+# near-future ones that DeTPP's matching also targets.
+# Compared to V48, this:
+#   - reduces the share of absent slots (mask collapse) drastically
+#   - re-aligns diffusion target with DeTPP target (no more orthogonality)
+# Acts as the "near + far" baseline for the V48 long-range hypothesis.
+module:
+  loss:
+    _target_: hotpp.losses.HorizonDiffusionLossV48
+    diffusion_target_min_delta: 0.0
+    diffusion_target_max_delta: 30.0

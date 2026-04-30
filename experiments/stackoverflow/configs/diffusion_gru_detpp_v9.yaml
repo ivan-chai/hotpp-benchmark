@@ -1,0 +1,16 @@
+defaults:
+  - diffusion_gru_detpp_v5
+  - _self_
+
+name: diffusion_gru_detpp_v9
+
+# V5 without the shallow head between GRU and ConditionalHead.
+# Hypothesis: the default head_partial = Head(hidden_dims=[64], use_batch_norm=true)
+# between RNN and the loss's ConditionalHead adds BN+hidden_layer that may
+# distort the representation DeTPP relies on. Using a thin Linear(64 -> 64)
+# should keep V5's base pipeline closer to pure DeTPP's architecture.
+head:
+  _target_: hotpp.nn.Head
+  _partial_: true
+  hidden_dims: []
+  use_batch_norm: false

@@ -1,0 +1,78 @@
+defaults:
+  - default
+  - _self_
+
+name: diffusion_gru_detpp_v4
+
+diffusion_steps: 15
+detection_k: 48
+
+module:
+  _target_: hotpp.modules.NextKModule
+  seq_encoder:
+    embedder:
+      categorical_noise: 0.1
+    rnn_partial:
+      _target_: hotpp.nn.GRU
+      _partial_: true
+      hidden_size: ${rnn_hidden_size}
+    max_inference_context: ${rnn_inference_context}
+    inference_context_step: ${rnn_inference_context_step}
+  head_partial: ${head}
+  loss:
+    _target_: hotpp.losses.HorizonDiffusionLossV4
+    k: ${detection_k}
+    horizon: ${metric.horizon}
+    diffusion_loss_weight: 1.0
+    decoder_loss_weight: 2.0
+    embedder_regularizer: 1.0
+    alpha: 0.5
+    detach_embeddings_from_step: 1
+    detach_decoder: false
+    use_detection_calibration_threshold: true
+    presence_threshold_bias: 0
+    presence_selection: calibrated
+    topk_target_length: null
+    min_presence_count: null
+    attention_d_model: 64
+    attention_layers: 2
+    attention_heads: 4
+    attention_ff_dim: 128
+    attention_dropout: 0.1
+    next_item_loss:
+      _target_: hotpp.losses.DetectionLoss
+      k: ${detection_k}
+      horizon: ${metric.horizon}
+      loss_subset: 1.0
+      prefetch_factor: 1.0
+      next_item_adapter: head
+      next_item_loss_weight: 4
+      next_item_loss:
+        _target_: hotpp.losses.NextItemLoss
+        losses:
+          _presence:
+            _target_: hotpp.losses.BinaryCrossEntropyLoss
+          timestamps:
+            _target_: hotpp.losses.TimeMAELoss
+            delta: start
+            max_delta: ${max_duration}
+            smoothing: ${time_smoothing}
+          labels:
+            _target_: hotpp.losses.CrossEntropyLoss
+            num_classes: ${num_classes}
+    embedder: ${module.seq_encoder.embedder}
+    denoiser_partial:
+      _target_: hotpp.nn.GRUDenoiser
+      _partial_: true
+      hidden_size: ${rnn_hidden_size}
+      generation_steps: ${diffusion_steps}
+      num_layers: 1
+    decoder_partial:
+      _target_: hotpp.nn.Head
+      _partial_: true
+      hidden_dims: [128, 256]
+      use_batch_norm: true
+    max_time_delta: ${max_time_delta}
+    loss_step: 1
+    generation_steps: ${diffusion_steps}
+  max_predictions: ${detection_k}

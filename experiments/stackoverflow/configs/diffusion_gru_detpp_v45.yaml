@@ -1,0 +1,11 @@
+defaults:
+  - diffusion_gru_detpp_v44
+  - _self_
+
+name: diffusion_gru_detpp_v45
+
+# V44 + warm-start from detection_hybrid.ckpt:
+#   - seq_encoder weights initialized from DeTPP
+#   - DetectionLoss inner state copied
+#   - decoder queries (K, 64) initialized from DeTPP's ConditionalHead queries
+init_from_checkpoint: checkpoints/v45_warmstart.ckpt

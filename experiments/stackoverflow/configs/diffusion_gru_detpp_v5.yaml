@@ -1,0 +1,9 @@
+# Backwards-compat alias.
+# Renamed to diffusion_gru_detpp_base_plus_residual.yaml. Kept as a thin
+# Hydra-defaults stub so legacy configs (V6, V7, V9, V12, V13 chain) and
+# scripts that reference `diffusion_gru_detpp_v5` keep working.
+defaults:
+  - diffusion_gru_detpp_base_plus_residual
+  - _self_
+
+name: diffusion_gru_detpp_v5

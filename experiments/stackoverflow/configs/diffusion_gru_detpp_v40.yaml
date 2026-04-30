@@ -1,0 +1,18 @@
+defaults:
+  - diffusion_gru_detpp_v3
+  - _self_
+
+name: diffusion_gru_detpp_v40
+
+# V3 with K learnable per-slot mask embeddings. Forensic showed V3's
+# single shared _mask_embedding caused 37/48 slots to collapse to identical
+# decoded predictions, starving Hungarian matching of distinct candidates.
+# V40 gives each absent slot its own learnable D-dim "mask token", so K
+# denoised latents remain diverse and the decoder produces K distinct
+# predictions (mirroring DeTPP's K query diversity).
+module:
+  loss:
+    _target_: hotpp.losses.HorizonDiffusionLossV40
+    diffusion_loss_weight: 1.5
+    decoder_loss_weight: 1.0
+    mask_embedding_init_scale: 0.02

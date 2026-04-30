@@ -1,0 +1,14 @@
+defaults:
+  - diffusion_gru_detpp_v3
+  - _self_
+
+name: diffusion_gru_detpp_v42
+
+# Pure diffusion supervision (positional, no horizon mask) + DetectionLoss
+# Hungarian matching with presence head. Horizon filtering happens at the
+# matching cost stage, not at the supervision stage.
+module:
+  loss:
+    _target_: hotpp.losses.HorizonDiffusionLossV42
+    diffusion_loss_weight: 1.5
+    decoder_loss_weight: 1.0

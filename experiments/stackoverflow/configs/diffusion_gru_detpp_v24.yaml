@@ -1,0 +1,13 @@
+defaults:
+  - diffusion_gru_detpp_v9
+  - _self_
+
+name: diffusion_gru_detpp_v24
+
+# V9 with much lower diffusion_loss_weight (1.5 -> 0.3) to reduce the
+# backbone distortion caused by diffusion gradient. If this recovers
+# DeTPP-level performance, we confirm diffusion gradient magnitude is
+# the main culprit.
+module:
+  loss:
+    diffusion_loss_weight: 0.3

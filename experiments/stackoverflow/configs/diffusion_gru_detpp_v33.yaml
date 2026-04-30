@@ -1,0 +1,12 @@
+defaults:
+  - diffusion_gru_detpp_v14
+  - _self_
+
+name: diffusion_gru_detpp_v33
+
+# V14 with deterministic=false (matches detection_hybrid's setting).
+# Default is deterministic=true which forces CUDA reproducibility but can
+# change numerical behavior of BN/attention. DeTPP explicitly turns this off.
+# Maybe V9/V14 get stuck in a worse local minimum due to deterministic mode.
+trainer:
+  deterministic: false

@@ -1,0 +1,15 @@
+defaults:
+  - diffusion_gru_detpp_v14
+  - _self_
+
+name: diffusion_gru_detpp_v25
+
+# V14 (warm-start from DeTPP) + detach backbone from diffusion.
+# Hypothesis: V14 loses DeTPP performance (0.2302 -> 0.2254) because
+# diffusion gradient pulls the warm-started backbone away from the DeTPP
+# optimum during training. Detaching the diffusion path from the backbone
+# should let the base path stay near DeTPP's minimum while the diffusion
+# head trains independently on a frozen condition vector.
+module:
+  loss:
+    detach_backbone_from_diffusion: true

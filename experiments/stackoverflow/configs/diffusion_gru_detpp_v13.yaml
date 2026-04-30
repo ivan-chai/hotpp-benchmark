@@ -1,0 +1,14 @@
+defaults:
+  - diffusion_gru_detpp_v5
+  - _self_
+
+name: diffusion_gru_detpp_v13
+
+# V5 with detach_backbone_from_diffusion=True. Hypothesis: diffusion MSE
+# loss's gradient flowing through the shared backbone distorts the
+# representation that ConditionalHead needs, making V5 base worse than
+# pure DeTPP. Detaching keeps the backbone purely task-driven and lets
+# diffusion operate on a frozen condition vector.
+module:
+  loss:
+    detach_backbone_from_diffusion: true

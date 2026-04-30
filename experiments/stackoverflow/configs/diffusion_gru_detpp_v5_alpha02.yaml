@@ -1,0 +1,9 @@
+defaults:
+  - diffusion_gru_detpp_v5
+  - _self_
+
+name: diffusion_gru_detpp_v5_alpha02
+
+module:
+  loss:
+    residual_alpha: 0.2
