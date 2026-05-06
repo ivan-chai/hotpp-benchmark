@@ -9,6 +9,7 @@ data_module:
 
 trainer:
   accumulate_grad_batches: 2
+  precision: 32
 
 module:
   _target_: hotpp.modules.NextItemModule
