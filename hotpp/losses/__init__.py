@@ -34,3 +34,5 @@ from .horizon_diffusion_detpp_all_comps_in_decoder_far_target import HorizonDiff
 from .horizon_diffusion_v48 import HorizonDiffusionLossV48  # backwards-compat alias
 from .horizon_diffusion_v49 import HorizonDiffusionLossV49
 from .horizon_diffusion_v50 import HorizonDiffusionLossV50
+from .horizon_diffusion_matching_padding import HorizonDiffusionLossMatchingPadding
+from .horizon_diffusion_detpp_matching_padding import HorizonDiffusionLossDetppMatchingPadding

@@ -1,0 +1,22 @@
+defaults:
+  - diffusion_gru_fixed_perslot_decoder
+  - _self_
+
+name: diffusion_gru_matching_padding
+
+# V3 + Hungarian-aligned padding insertion.
+# Each training step:
+#   1. predict via diffusion (full reverse, no_grad)
+#   2. classical Hungarian matching (как в DetectionLoss)
+#   3. realign target windows: matched slots get real events,
+#      unmatched slots get mask_embedding (presence=0)
+#   4. standard noise/denoise/update on aligned targets
+#
+# warmup_steps: до этого шага модель учится с позиционным паддингом
+# (как V3) — нужно, чтобы denoiser не учился на случайном шуме.
+# 1000 шагов ≈ 50 батчей × 20 эпох или ~5 батчей × 200 эпох.
+
+module:
+  loss:
+    _target_: hotpp.losses.HorizonDiffusionLossMatchingPadding
+    warmup_steps: 100

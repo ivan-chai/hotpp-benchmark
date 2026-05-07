@@ -1,0 +1,23 @@
+defaults:
+  - diffusion_gru_detpp_all_comps_in_decoder
+  - _self_
+
+name: diffusion_gru_detpp_matching_padding
+
+# V44 (DeTPP all-comps in decoder) + Hungarian-aligned padding insertion.
+# Каждый training step:
+#   1. predict через диффузию (full reverse, no_grad), используя
+#      ContextQueryAugmentedHead с context;
+#   2. classical Hungarian matching;
+#   3. realign таргетов: matched slots → real events,
+#      unmatched → mask_embedding (presence=0);
+#   4. standard noise/denoise/update.
+#
+# В отличие от V3 + matching, здесь у каждого слота есть свой
+# query-вектор (per-slot identity), поэтому Hungarian-перестановка
+# таргетов реально может приводить к слот-специализации.
+
+module:
+  loss:
+    _target_: hotpp.losses.HorizonDiffusionLossDetppMatchingPadding
+    warmup_steps: 100
