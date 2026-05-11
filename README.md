@@ -176,3 +176,24 @@ If you incorporate ideas from [DeTPP](https://arxiv.org/pdf/2408.13131), use it 
   url ={https://arxiv.org/abs/2408.13131}
 }
 ```
+
+The repository is closely related to the pretraining tasks from [PreTPP](https://github.com/ivan-chai/pretpp). The corresponding papers include [HT-Transformer](https://arxiv.org/pdf/2508.01474v1) (Accepted to IJCAI-28 AI4Tech track):
+```
+@article{karpukhin2025httransformer,
+  title={HT-Transformer: Event Sequences Classification by Accumulating Prefix Information with History Tokens},
+  author={Karpukhin, Ivan and Savchenko, Andrey},
+  journal={arXiv preprint arXiv:2508.01474v1},
+  year={2025},
+  url ={https://arxiv.org/abs/2508.01474v1}
+}
+```
+and [GraP](https://arxiv.org/abs/2605.07756):
+```
+@article{karpukhin2026grap,
+  title={When Losses Align: Gradient-Based Composite Loss Weighting for Efficient Pretraining},
+  author={Karpukhin, Ivan and Savchenko, Andrey},
+  journal={arXiv preprint arXiv:2605.07756},
+  year={2026},
+  url ={https://arxiv.org/abs/2605.07756}
+}
+```
