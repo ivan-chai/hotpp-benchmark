@@ -23,28 +23,6 @@ class RMSNorm(nn.Module):
 
 
 class StructuralMambaMixer(nn.Module):
-    """
-    Mamba SSM with configurable time integration.
-    
-    Args:
-        time_mode: How to incorporate time into dt:
-            - None: HF-compatible mode, dt computed from input only (for equivalence tests)
-            - "structural": dt = time_delta * softplus(scale) (time-only approach)
-            - "structural_channel": same but with per-channel scale
-            - "additive": dt = softplus(dt_proj(x) + time_scale * time_delta)
-            - "multiplicative": dt = softplus(dt_proj(x)) * (1 + tanh(scale) * time_delta)
-            - "gated": dt = softplus(dt_proj(x)) * sigmoid(time_gate(time_delta))
-            - "concat": dt = softplus(dt_proj(concat(x, time_emb)))
-            
-            NEW MODES:
-            - "bc_time": B and C parameters modulated by time (B' = B + time_proj_B(dt), C' = C + time_proj_C(dt))
-            - "bc_time_gate": B and C gated by time (B' = B * sigmoid(gate_B(dt)), similar for C)
-            - "selective_time": selectivity depends on time (selection = f(x, time_delta))
-            - "exp_decay": exponential time decay dt = exp(time_delta * scale) - 1 instead of linear
-            - "full_time": combines additive dt + bc_time for maximum time awareness
-            
-        time_scale_init: Initial value for time scaling parameters (default 0.1)
-    """
     def __init__(
         self,
         d_model: int,
@@ -70,17 +48,38 @@ class StructuralMambaMixer(nn.Module):
         self.activation = nn.SiLU()
         self.in_proj = nn.Linear(d_model, self.d_inner * 2, bias=False)
 
-        # Structural modes: dt comes purely from time_delta, per-d_state scale (S2P2-style)
-        if time_mode in ("structural", "structural_channel"):
+        # Structural modes: dt comes purely from time_delta (no dt_proj on x).
+        # Generalized to dt = f(t) * alpha, where f ∈ {t, log(1+t), (t+eps)^p} and alpha
+        # has configurable shape {(d_state,), (d_inner, d_state), (1,), (d_inner,)}.
+        _pure_time_modes = (
+            "structural", "structural_channel",
+            "lin_scalar", "lin_channel",
+            "log_scalar", "log_channel",
+            "power_scalar", "power_channel",
+        )
+        if time_mode in _pure_time_modes:
             self.x_proj = nn.Linear(self.d_inner, self.d_state * 2, bias=False)
-            if time_mode == "structural_channel":
-                self.log_step = nn.Parameter(
-                    torch.linspace(math.log(1e-4), math.log(0.1), self.d_state)[None, :].expand(self.d_inner, -1).clone()
-                )  # (d_inner, d_state)
-            else:
+
+            if time_mode == "structural":
                 self.log_step = nn.Parameter(
                     torch.linspace(math.log(1e-4), math.log(0.1), self.d_state)
                 )  # (d_state,)
+            elif time_mode == "structural_channel":
+                self.log_step = nn.Parameter(
+                    torch.linspace(math.log(1e-4), math.log(0.1), self.d_state)[None, :].expand(self.d_inner, -1).clone()
+                )  # (d_inner, d_state)
+            elif time_mode in ("lin_scalar", "log_scalar", "power_scalar"):
+                # Single alpha per layer — geometric mean of original init range.
+                self.log_step = nn.Parameter(torch.tensor([math.log(1e-2)]))  # (1,)
+            elif time_mode in ("lin_channel", "log_channel", "power_channel"):
+                # Per-channel alpha, spanning same 4 orders of magnitude as original.
+                self.log_step = nn.Parameter(
+                    torch.linspace(math.log(1e-4), math.log(0.1), self.d_inner)
+                )  # (d_inner,)
+
+            if time_mode in ("power_scalar", "power_channel"):
+                # p = 2 * sigmoid(raw), init raw=0 -> p=1 (identity case).
+                self.p_raw = nn.Parameter(torch.zeros(1))
         elif time_mode == "exp_decay":
             # Exponential decay mode: dt = exp(time_delta * scale) - 1
             self.dt_rank = math.ceil(d_model / 16)
@@ -196,18 +195,25 @@ class StructuralMambaMixer(nn.Module):
 
     def apply_hf_initialization(self):
         """Apply HF-style initialization. Called by parent after all blocks created."""
+        _pure_time_modes = (
+            "structural", "structural_channel",
+            "lin_scalar", "lin_channel",
+            "log_scalar", "log_channel",
+            "power_scalar", "power_channel",
+        )
+
         nn.init.normal_(self.in_proj.weight, std=0.1)
         nn.init.normal_(self.x_proj.weight, std=0.1)
-        
-        # dt_proj exists for all modes except structural/structural_channel
-        if self.time_mode not in ("structural", "structural_channel"):
+
+        # dt_proj exists only for modes that use data-driven dt
+        if self.time_mode not in _pure_time_modes:
             nn.init.normal_(self.dt_proj.weight, std=0.1)
             nn.init.zeros_(self.dt_proj.bias)
-        
+
         nn.init.normal_(self.out_proj.weight, std=0.1)
-        
-        # MambaMixer-specific init
-        if self.time_mode not in ("structural", "structural_channel"):
+
+        # MambaMixer-specific init for data-driven dt
+        if self.time_mode not in _pure_time_modes:
             dt_init_std = self.dt_rank ** -0.5
             nn.init.uniform_(self.dt_proj.weight, -dt_init_std, dt_init_std)
             
@@ -282,10 +288,17 @@ class StructuralMambaMixer(nn.Module):
         time_deltas = torch.clamp(time_deltas, min=0.0, max=100.0)
 
         # Compute dt based on time_mode
-        if self.time_mode in ("structural", "structural_channel"):
-            # S2P2-style: dt per d_state, computed in SSM loop
+        _pure_time_modes = (
+            "structural", "structural_channel",
+            "lin_scalar", "lin_channel",
+            "log_scalar", "log_channel",
+            "power_scalar", "power_channel",
+        )
+        if self.time_mode in _pure_time_modes:
+            # Pure-time dt = f(t) * alpha, computed in SSM loop.
+            # No data-driven dt_proj; x_proj only outputs B, C.
             B_param, C_param = self.x_proj(x_conv_t).split(self.d_state, dim=-1)
-            step = torch.exp(self.log_step)  # (d_state,) or (d_inner, d_state)
+            step = torch.exp(self.log_step)  # shape varies by mode
             discrete_time_step = None
 
         elif self.time_mode == "additive":
@@ -398,7 +411,7 @@ class StructuralMambaMixer(nn.Module):
         ssm_state = hidden_states.new_zeros(B, self.d_inner, self.d_state)
         outputs = []
         ssm_state_list = [] if save_ssm_state else None
-        is_structural = self.time_mode in ("structural", "structural_channel")
+        is_structural = self.time_mode in _pure_time_modes
 
         if self.jump and self.jump_mode in ("e_shared", "e_channel", "e_both", "e_gate"):
             with torch.amp.autocast('cuda', enabled=False):
@@ -408,10 +421,33 @@ class StructuralMambaMixer(nn.Module):
                     gate = torch.sigmoid(self.E_gate(hidden_states.float()))  # (B, L, d_state)
                 jump_e = gate * jump_e
 
+        # Pre-compute p for power modes (scalar per layer)
+        if self.time_mode in ("power_scalar", "power_channel"):
+            p_exp = 2.0 * torch.sigmoid(self.p_raw)  # (1,), in (0, 2)
+
         for t in range(L):
             if is_structural:
-                # Per-d_state dt: time_delta * exp(log_step)
-                dt_t = time_deltas[:, t].view(-1, 1, 1) * step  # (B, 1, d_state) or (B, d_inner, d_state)
+                t_val = time_deltas[:, t]  # (B,)
+                # Apply f(t)
+                if self.time_mode in ("log_scalar", "log_channel"):
+                    f_t = torch.log1p(t_val)
+                elif self.time_mode in ("power_scalar", "power_channel"):
+                    f_t = (t_val + 1e-4).pow(p_exp)
+                else:
+                    # structural, structural_channel, lin_scalar, lin_channel
+                    f_t = t_val
+                # dt = f(t) * alpha, reshaped so SSM loop gets (B, ?, d_state) compatible broadcast.
+                # Required dt_t shape before broadcast with A (d_inner, d_state):
+                #   (d_state,)         -> dt_t (B, 1,       d_state)
+                #   (d_inner, d_state) -> dt_t (B, d_inner, d_state)
+                #   (1,)               -> dt_t (B, 1,       1)
+                #   (d_inner,)         -> dt_t (B, d_inner, 1)
+                if self.time_mode in ("lin_channel", "log_channel", "power_channel"):
+                    dt_t = f_t.view(-1, 1, 1) * step.view(1, -1, 1)       # (B, d_inner, 1)
+                elif self.time_mode in ("lin_scalar", "log_scalar", "power_scalar"):
+                    dt_t = f_t.view(-1, 1, 1) * step.view(1, 1, 1)        # (B, 1, 1)
+                else:
+                    dt_t = f_t.view(-1, 1, 1) * step                       # (B, 1, d_state) or (B, d_inner, d_state)
             else:
                 dt_t = discrete_time_step[:, :, t].unsqueeze(-1)  # (B, d_inner, 1)
             x_conv_t_col = x_conv[:, :, t].unsqueeze(-1).float()  # (B, d_inner, 1)
