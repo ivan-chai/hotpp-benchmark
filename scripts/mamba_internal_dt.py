@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import os
@@ -27,7 +26,7 @@ DATASETS = [
      f"{ROOT}/experiments/mimiciv/checkpoints/next_item_mamba.ckpt"),
 ]
 
-MAX_BATCHES = 6  # limit per dataset to avoid gigantic arrays
+MAX_BATCHES = 6
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 
@@ -53,7 +52,6 @@ def collect_mamba_dt(config_dir, ckpt_path):
 
     def make_hook(layer_idx):
         def _hook(mod, inp, out):
-            # out: pre-softplus dt, shape (B, L, intermediate_size)
             dt = F.softplus(out).detach().float().cpu()
             captured.append((layer_idx, dt))
         return _hook
@@ -107,13 +105,6 @@ def main():
         delta = delta[delta > 0]
         real = real[real > 0]
 
-        print(
-            f"{name}: Δ(layer0): mean={delta.mean():.4g} median={np.median(delta):.4g} "
-            f"q01={np.quantile(delta, 0.01):.4g} q99={np.quantile(delta, 0.99):.4g} | "
-            f"real dt: mean={real.mean():.4g} median={np.median(real):.4g} "
-            f"q01={np.quantile(real, 0.01):.4g} q99={np.quantile(real, 0.99):.4g}"
-        )
-
         lo = min(np.quantile(delta, 0.001), np.quantile(real, 0.001))
         hi = max(np.quantile(delta, 0.999), np.quantile(real, 0.999))
         bins = np.logspace(np.log10(lo), np.log10(hi), 80)
@@ -136,7 +127,6 @@ def main():
     plt.tight_layout()
     out = f"{ROOT}/scripts/all_mamba_internal_dt.png"
     plt.savefig(out, dpi=130)
-    print(f"Saved: {out}")
 
 
 if __name__ == "__main__":

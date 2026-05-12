@@ -1,8 +1,5 @@
-
 from __future__ import annotations
 
-import glob
-import os
 import re
 from pathlib import Path
 
@@ -11,7 +8,6 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import yaml
 
-import torch
 from transformers import MambaConfig, MambaModel
 
 
@@ -21,12 +17,12 @@ DATASETS = ["amazon", "retweet", "stackoverflow", "mimiciv"]
 PAT = re.compile(r"d(?P<d>\d+)_L(?P<l>\d+)\.yaml$")
 
 
-def load_vocab(dataset: str) -> int:
+def load_vocab(dataset):
     with open(ROOT / "experiments" / dataset / "configs" / "default.yaml") as f:
         return int(yaml.safe_load(f)["num_classes"])
 
 
-def count_params(hidden: int, layers: int, vocab: int) -> int:
+def count_params(hidden, layers, vocab):
     cfg = MambaConfig(
         hidden_size=hidden,
         num_hidden_layers=layers,
@@ -38,7 +34,7 @@ def count_params(hidden: int, layers: int, vocab: int) -> int:
     return n
 
 
-def collect(dataset: str) -> list[dict]:
+def collect(dataset):
     results_dir = ROOT / "experiments" / dataset / "results" / "mamba_sizes"
     if not results_dir.is_dir():
         return []
@@ -70,7 +66,6 @@ def main():
     data = {k: v for k, v in data.items() if v}
     n = len(data)
     if n == 0:
-        print("no results found")
         return
 
     cols = 2
@@ -116,18 +111,6 @@ def main():
     plt.tight_layout()
     out = ROOT / "scripts" / "size_sweep_tmap.png"
     plt.savefig(out, dpi=130)
-    print(f"saved: {out}")
-
-    for ds, recs in data.items():
-        print(f"\n=== {ds} ===")
-        recs = sorted(recs, key=lambda r: r["n_params"])
-        print(f"{'tag':<10} {'#params':>10} {'test/T-mAP':>12} {'val/T-mAP':>12}")
-        for r in recs:
-            t = r["test_tmap"]
-            v = r["val_tmap"]
-            print(f"{r['tag']:<10} {r['n_params']:>10,d} "
-                  f"{(f'{t:.4f}' if t is not None else '   n/a'):>12} "
-                  f"{(f'{v:.4f}' if v is not None else '   n/a'):>12}")
 
 
 if __name__ == "__main__":

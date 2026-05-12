@@ -1,10 +1,5 @@
 #!/usr/bin/env bash
-# Usage: bash scripts/run_size_sweep.sh <dataset> [--force]
-#   dataset: amazon | retweet | stackoverflow | mimiciv
-# Runs plain-Mamba training for a fixed diagonal of (D, L) pairs.
-# Idempotent: skips pairs whose results YAML already exists unless --force.
-
-set -uo pipefail  # no -e: a single failed run should not abort the whole sweep
+set -uo pipefail
 
 DS="${1:?usage: $0 <dataset> [--force]}"
 FORCE="${2:-}"

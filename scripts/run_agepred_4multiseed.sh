@@ -1,17 +1,4 @@
 #!/usr/bin/env bash
-# Run all four AGEPRED multiseed configs sequentially:
-#   1) next_item_mamba                     (MAMBA native, HF MambaModel)
-#   2) next_item_mamba_structural_channel  (MAMBA + structural time)
-#   3) next_item_mamba_jump                (MAMBA + structural time + jump)
-#   4) s2p2                                (NHP-style S2P2)
-#
-# Pre-creates checkpoint subdirs (multiseed writes seed_*.ckpt inside them),
-# uses offline W&B, never aborts on a single-run failure, logs everything
-# to logs/agepred_4multiseed_<ts>.log via tee.
-#
-# Usage:  bash scripts/run_agepred_4multiseed.sh
-# Background: nohup bash scripts/run_agepred_4multiseed.sh > /dev/null 2>&1 &
-
 set -uo pipefail
 
 ROOT="/root/.nv/hotpp-benchmark"
@@ -34,7 +21,6 @@ CONFIGS=(
     "s2p2"
 )
 
-# Pre-create everything multiseed needs so it never crashes on missing dirs.
 mkdir -p outputs/multiseed
 mkdir -p results
 for name in "${CONFIGS[@]}"; do
