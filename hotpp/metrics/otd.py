@@ -1,6 +1,6 @@
 import torch
 from torchmetrics import Metric
-from torchmetrics.utilities import dim_zero_cat
+from torchmetrics.utilities.data import dim_zero_cat
 from torch_linear_assignment import batch_linear_assignment
 
 
