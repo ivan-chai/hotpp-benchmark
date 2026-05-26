@@ -155,26 +155,39 @@ class BaseModule(pl.LightningModule):
         full_mask = indices + k < inputs.seq_lens[:, None]
         return PaddedBatch({"index": indices, "full_mask": full_mask}, lengths)
 
-    def compute_loss(self, x, outputs, states, loss_indices=None):
+    def compute_loss(self, x, outputs, states, loss_indices=None, calibration_outputs=None):
         """Compute loss for the batch.
 
         Args:
             x: Input batch.
             outputs: Head output.
             states: Sequential model hidden states.
+            calibration_outputs: Full-sequence head output used for threshold calibration.
+                When loss_indices selects a subset, the subset outputs are biased and
+                cannot be used for calibration. Pass full-sequence outputs here instead.
 
         Returns:
             A dict of losses and a dict of metrics.
         """
-        losses, metrics = self._loss(x, outputs, states, loss_indices=loss_indices)
+        losses, metrics = self._loss(x, outputs, states, loss_indices=loss_indices,
+                                     calibration_outputs=calibration_outputs)
         return losses, metrics
 
     def training_step(self, batch, batch_idx):
         x, _ = batch # x - (B, L) (64, 90)
         loss_indices = self.get_loss_indices(x) # (B, I)
-        # outputs - (B, I, K*P), states - (1, B, I, D)
-        outputs, states = self(x, return_states="full" if self._need_states else False, loss_indices=loss_indices)  # (B, L, D), (N, B, L, D).
-        losses, metrics = self.compute_loss(x, outputs, states, loss_indices=loss_indices)
+        hiddens, states = self._seq_encoder(x, return_states="full" if self._need_states else False)
+        outputs = self._head(hiddens, indices=loss_indices)  # (B, I, K*P) with gradient.
+        # Calibration requires full-sequence head outputs: the subset (I positions) has
+        # seq_lens < prefetch_k, making (seq_lens - prefetch_k).clip(0) = 0 positions for
+        # calibration, so _matching_thresholds would never update.
+        if loss_indices is not None:
+            with torch.no_grad():
+                calibration_outputs = self._head(hiddens, indices=None)  # (B, L, K*P), no grad.
+        else:
+            calibration_outputs = None
+        losses, metrics = self.compute_loss(x, outputs, states, loss_indices=loss_indices,
+                                            calibration_outputs=calibration_outputs)
         loss = sum(losses.values())
 
         # Log statistics.

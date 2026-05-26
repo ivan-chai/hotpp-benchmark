@@ -91,6 +91,7 @@ class TransformerDecoderHead(nn.Module):
 
         # K learnable query vectors — one slot per predicted future event.
         self.queries = nn.Parameter(torch.randn(k, query_size))
+        nn.init.normal_(self.queries, mean=0, std=0.02)
 
         # Project encoder hidden dim → query_size when they differ.
         self.input_proj = (

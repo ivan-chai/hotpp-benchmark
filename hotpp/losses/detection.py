@@ -139,42 +139,43 @@ class DetectionLoss(NextKLoss):
     def input_size(self):
         return self._k * self._next_item.input_size  # One for the presence score.
 
-    def forward(self, inputs, outputs, states, loss_indices=None, **kwargs):
+    def forward(self, inputs, outputs, states, loss_indices=None, calibration_outputs=None, **kwargs):
         """Extract targets and compute loss between predictions and targets.
 
         Args:
             inputs: Input features with shape (B, L).
-            outputs: Predicted values with shape (B, L, K*P) after head.
+            outputs: Predicted values with shape (B, I, K*P) after head (subset or full).
             states: Hidden model states with shape (N, B, L, D), where N is the number of layers.
-            loss_subset: positions to evaluate loss.
-  
+            loss_indices: Subset positions to evaluate loss at.
+            calibration_outputs: Full-sequence head output (B, L, K*P) for threshold calibration.
+                When None, outputs is used (correct when loss_indices is None).
+
         Returns:
             Losses dict and metrics dict.
         """
-        # inputs/x - (B, L), outputs - (B, I, K*P), states - (1, B, I, D), loss_indices - (B, I)
         indices, matching, losses, matching_metrics = self.get_subset_matching(inputs, outputs, loss_indices=loss_indices)
-        # (B, I), (B, I, K), (B, I, K, T), dict.
 
-        # Update statistics.
+        # Update calibration statistics using full-sequence outputs to avoid bias.
         if self.training:
             with torch.no_grad():
-                b, l = outputs.shape
-                reshaped_outputs = PaddedBatch(outputs.payload.reshape(-1, self._k, self._next_item.input_size),
-                                               torch.full([b * l], self._k, dtype=torch.long, device=outputs.device))  # (BL, K, P).
+                calib = calibration_outputs if calibration_outputs is not None else outputs
+                b, l = calib.shape
+                reshaped_calib = PaddedBatch(calib.payload.reshape(-1, self._k, self._next_item.input_size),
+                                             torch.full([b * l], self._k, dtype=torch.long, device=calib.device))  # (BL, K, P).
                 reshaped_states = states.flatten(1, 2).unsqueeze(2) if states is not None else None  # (N, BL, 1, D).
                 with module_mode(self, training=False):
                     presence_logits = self._next_item.predict_next(
-                        reshaped_outputs, reshaped_states,
+                        reshaped_calib, reshaped_states,
                         fields=set(),
                         logits_fields_mapping={PRESENCE: "_presence_logits"}
                     ).payload["_presence_logits"]  # (BL, K, 1).
                 presence_logits = presence_logits.reshape(b, l, self._k)  # (B, L, K).
                 if self._drop_partial_windows in {True, "calibration"}:
                     full_matching = PaddedBatch(matching.payload, indices.payload["full_mask"].sum(1))
-                    presence_logits = PaddedBatch(presence_logits, (outputs.seq_lens - self._prefetch_k).clip(min=0))
+                    presence_logits = PaddedBatch(presence_logits, (calib.seq_lens - self._prefetch_k).clip(min=0))
                 else:
                     full_matching = matching
-                    presence_logits = PaddedBatch(presence_logits, outputs.seq_lens)
+                    presence_logits = PaddedBatch(presence_logits, calib.seq_lens)
                 self.update_calibration_statistics(full_matching, presence_logits)
 
         # Compute matching losses.
