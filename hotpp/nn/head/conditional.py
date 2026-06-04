@@ -45,7 +45,7 @@ class ConditionalHead(torch.nn.Sequential):
         x = super().forward(x)  # (BK, O).
         return x.reshape(b, self.output_size)  # (B, KO).
 
-    def forward(self, x, indices=None):
+    def forward(self, x, indices=None, timestamps=None):
         if indices is None:
             # val/test
             x, lengths, mask = x.payload, x.seq_lens, x.seq_len_mask.bool()

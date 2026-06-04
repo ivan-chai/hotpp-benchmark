@@ -108,7 +108,8 @@ class BaseModule(pl.LightningModule):
     def forward(self, x, return_states=False, loss_indices=None):
         """Extract hidden activations and states."""
         hiddens, states = self._seq_encoder(x, return_states=return_states)  # (B, L, D), (N, B, L, D).
-        outputs = self._head(hiddens, indices=loss_indices)  # (B, L, K*P).
+        outputs = self._head(hiddens, indices=loss_indices,
+                             timestamps=x.payload[self._timestamps_field])  # (B, L, K*P).
         return outputs, states
 
     def embed(self, x):
@@ -177,13 +178,16 @@ class BaseModule(pl.LightningModule):
         x, _ = batch # x - (B, L) (64, 90)
         loss_indices = self.get_loss_indices(x) # (B, I)
         hiddens, states = self._seq_encoder(x, return_states="full" if self._need_states else False)
-        outputs = self._head(hiddens, indices=loss_indices)  # (B, I, K*P) with gradient.
+        timestamps = x.payload[self._timestamps_field]
+        outputs = self._head(hiddens, indices=loss_indices,
+                             timestamps=timestamps)  # (B, I, K*P) with gradient.
         # Calibration requires full-sequence head outputs: the subset (I positions) has
         # seq_lens < prefetch_k, making (seq_lens - prefetch_k).clip(0) = 0 positions for
         # calibration, so _matching_thresholds would never update.
         if loss_indices is not None:
             with torch.no_grad():
-                calibration_outputs = self._head(hiddens, indices=None)  # (B, L, K*P), no grad.
+                calibration_outputs = self._head(hiddens, indices=None,
+                                                 timestamps=timestamps)  # (B, L, K*P), no grad.
         else:
             calibration_outputs = None
         losses, metrics = self.compute_loss(x, outputs, states, loss_indices=loss_indices,

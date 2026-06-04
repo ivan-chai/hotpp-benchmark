@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from hotpp.data import PaddedBatch
+from ..encoder.transformer.simple import PositionalEncoding
 
 
 class _CrossOnlyDecoderLayer(nn.Module):
@@ -78,7 +79,9 @@ class TransformerDecoderHead(nn.Module):
     def __init__(self, input_size, output_size, k,
                  query_size=None, n_heads=4, n_layers=2,
                  dim_feedforward=None, dropout=0.0,
-                 use_self_attention=True):
+                 use_self_attention=True,
+                 memory_pe_type=None, memory_pe_n_positions=None,
+                 max_duration=None, memory_pe_dropout=0.0):
         super().__init__()
         if output_size % k != 0:
             raise ValueError("output_size must be divisible by k.")
@@ -100,6 +103,21 @@ class TransformerDecoderHead(nn.Module):
             else None
         )
 
+        # Optional PE re-applied to memory keys before cross-attention.
+        # Applied after input_proj so dimension matches query_size.
+        if memory_pe_type is not None:
+            if memory_pe_n_positions is None:
+                raise ValueError("memory_pe_n_positions must be provided when memory_pe_type is set.")
+            self.memory_pe = PositionalEncoding(
+                n_embd=query_size,
+                n_positions=memory_pe_n_positions,
+                pos_type=memory_pe_type,
+                max_duration=max_duration,
+                dropout=memory_pe_dropout,
+            )
+        else:
+            self.memory_pe = None
+
         if use_self_attention:
             # Full decoder: self-attn(queries) → cross-attn(queries, memory) → FFN
             decoder_layer = nn.TransformerDecoderLayer(
@@ -119,13 +137,14 @@ class TransformerDecoderHead(nn.Module):
         # Per-query projection to event parameter space.
         self.output_proj = nn.Linear(query_size, output_size // k)
 
-    def forward_impl(self, memory, key_padding_mask=None):
+    def forward_impl(self, memory, key_padding_mask=None, timestamps=None):
         """Run the decoder for a batch of memory sequences.
 
         Args:
             memory: Encoder hidden states, shape (N, S, D).
             key_padding_mask: Boolean mask (N, S). True where memory is padding
                 and should be ignored by attention.
+            timestamps: Optional timestamps (N, S) for memory PE.
 
         Returns:
             Predictions of shape (N, K*P).
@@ -134,6 +153,10 @@ class TransformerDecoderHead(nn.Module):
 
         if self.input_proj is not None:
             memory = self.input_proj(memory)  # (N, S, D_q)
+
+        # PE is applied after input_proj so dimensions match query_size.
+        if self.memory_pe is not None and timestamps is not None:
+            memory = self.memory_pe(memory, timestamps)  # (N, S, D_q)
 
         queries = self.queries.unsqueeze(0).expand(N, -1, -1)  # (N, K, D_q)
 
@@ -146,7 +169,7 @@ class TransformerDecoderHead(nn.Module):
         output = self.output_proj(output)  # (N, K, P)
         return output.flatten(1)           # (N, K*P)
 
-    def forward(self, x, indices=None):
+    def forward(self, x, indices=None, timestamps=None):
         """Predict K future events for each sequence position.
 
         Uses the "fake-batch" trick: every (batch_item, position) pair is
@@ -156,6 +179,7 @@ class TransformerDecoderHead(nn.Module):
             x: PaddedBatch with payload (B, L, D) — encoder hidden states.
             indices: Optional PaddedBatch with payload["index"] (B, I) —
                 positions selected for loss computation during training.
+            timestamps: Optional (B, L) tensor of event timestamps for memory PE.
 
         Returns:
             PaddedBatch with payload (B, L, K*P) or (B, I, K*P).
@@ -181,8 +205,13 @@ class TransformerDecoderHead(nn.Module):
             # memory: same payload repeated for each of the L positions.
             memory = payload.unsqueeze(1).expand(-1, L, -1, -1).reshape(B * L, L, D)
 
-            output = self.forward_impl(memory, key_padding_mask)  # (B*L, K*P)
-            output = output.reshape(B, L, self.output_size)        # (B, L, K*P)
+            # timestamps: (B, L) → (B*L, L), same timestamps for every position t in seq b.
+            ts_expanded = None
+            if timestamps is not None:
+                ts_expanded = timestamps.unsqueeze(1).expand(B, L, L).reshape(B * L, L)
+
+            output = self.forward_impl(memory, key_padding_mask, ts_expanded)  # (B*L, K*P)
+            output = output.reshape(B, L, self.output_size)                     # (B, L, K*P)
             return PaddedBatch(output, seq_lens)
 
         else:
@@ -201,6 +230,11 @@ class TransformerDecoderHead(nn.Module):
 
             memory = payload.unsqueeze(1).expand(-1, I, -1, -1).reshape(B * I, L, D)
 
-            output = self.forward_impl(memory, key_padding_mask)  # (B*I, K*P)
-            output = output.reshape(B, I, self.output_size)        # (B, I, K*P)
+            # timestamps: (B, L) → (B*I, L), same timestamps for every selected position i in seq b.
+            ts_expanded = None
+            if timestamps is not None:
+                ts_expanded = timestamps.unsqueeze(1).expand(B, I, L).reshape(B * I, L)
+
+            output = self.forward_impl(memory, key_padding_mask, ts_expanded)  # (B*I, K*P)
+            output = output.reshape(B, I, self.output_size)                     # (B, I, K*P)
             return PaddedBatch(output, out_lengths)

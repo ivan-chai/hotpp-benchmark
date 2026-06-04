@@ -13,6 +13,12 @@ def make_batch(B=4, L=10, D=64, seq_lens=None):
     return PaddedBatch(payload, seq_lens)
 
 
+def make_timestamps(B=4, L=10, max_time=10.0):
+    """Create monotonically increasing timestamps for each sequence."""
+    steps = torch.rand(B, L).abs() + 0.1
+    return steps.cumsum(dim=1) * (max_time / steps.sum(dim=1, keepdim=True))
+
+
 def make_indices(B=4, L=10, positions=None, seq_lens=None):
     """Create a PaddedBatch of indices as used during training."""
     if positions is None:
@@ -202,6 +208,191 @@ class TestGradientFlow(TestCase):
 
     def test_gradients_train_path(self):
         self._check_gradients(use_indices=True)
+
+
+def make_pe_head(use_self_attention=True, query_size=None, input_size=16, K=4, P=6, L=10):
+    """Helper: build TransformerDecoderHead with memory PE enabled."""
+    return TransformerDecoderHead(
+        input_size=input_size,
+        output_size=K * P,
+        k=K,
+        query_size=query_size,
+        n_heads=2,
+        n_layers=1,
+        use_self_attention=use_self_attention,
+        memory_pe_type=["time-angular-rel"],
+        memory_pe_n_positions=L,
+        max_duration=10.0,
+        memory_pe_dropout=0.0,
+    )
+
+
+class TestMemoryPEOutputShape(TestCase):
+    """With memory PE enabled, output shapes must remain unchanged."""
+
+    def _check_shapes(self, use_self_attention, query_size=None):
+        B, L, D, K, P = 4, 10, 16, 4, 6
+        head = make_pe_head(use_self_attention=use_self_attention,
+                            query_size=query_size, input_size=D, K=K, P=P, L=L)
+        x = make_batch(B, L, D)
+        ts = make_timestamps(B, L)
+
+        out = head(x, timestamps=ts)
+        self.assertEqual(out.payload.shape, (B, L, K * P))
+        self.assertTrue(out.seq_lens.equal(x.seq_lens))
+
+        indices = make_indices(B, L, positions=[2, 4, 6])
+        out_train = head(x, indices=indices, timestamps=ts)
+        self.assertEqual(out_train.payload.shape, (B, 3, K * P))
+        self.assertTrue(out_train.seq_lens.equal(indices.seq_lens))
+
+    def test_shape_self_attention(self):
+        self._check_shapes(use_self_attention=True)
+
+    def test_shape_cross_only(self):
+        self._check_shapes(use_self_attention=False)
+
+    def test_shape_with_input_proj(self):
+        # query_size != input_size → input_proj active; PE must be applied after proj
+        self._check_shapes(use_self_attention=True, query_size=8)
+
+
+class TestMemoryPEAffectsOutput(TestCase):
+    """Different timestamps must produce different outputs when PE is enabled."""
+
+    def test_different_timestamps_give_different_output(self):
+        B, L, D, K, P = 2, 8, 16, 4, 6
+        head = make_pe_head(input_size=D, K=K, P=P, L=L)
+        head.eval()
+
+        x = make_batch(B, L, D, seq_lens=torch.tensor([8, 8]))
+        ts1 = make_timestamps(B, L, max_time=1.0)
+        ts2 = make_timestamps(B, L, max_time=10.0)
+
+        out1 = head(x, timestamps=ts1).payload
+        out2 = head(x, timestamps=ts2).payload
+
+        self.assertFalse(
+            out1.allclose(out2, atol=1e-5),
+            "Expected different outputs for different timestamps, but got the same"
+        )
+
+
+class TestNoPEIgnoresTimestamps(TestCase):
+    """Without memory PE (default), different timestamps must not affect output."""
+
+    def test_timestamps_ignored_without_pe(self):
+        B, L, D, K, P = 2, 8, 16, 4, 6
+        head = TransformerDecoderHead(
+            input_size=D, output_size=K * P, k=K,
+            n_heads=2, n_layers=1,
+        )
+        head.eval()
+
+        x = make_batch(B, L, D, seq_lens=torch.tensor([8, 8]))
+        ts1 = make_timestamps(B, L, max_time=1.0)
+        ts2 = make_timestamps(B, L, max_time=10.0)
+
+        out1 = head(x, timestamps=ts1).payload
+        out2 = head(x, timestamps=ts2).payload
+
+        self.assertTrue(
+            out1.allclose(out2, atol=1e-5),
+            "Without PE, timestamps should be ignored but output changed"
+        )
+
+
+class TestCausalityWithMemoryPE(TestCase):
+    """Memory PE must not break causal masking: output at t must not depend on j > t."""
+
+    def _check_causality(self, use_self_attention):
+        B, L, D, K, P = 2, 8, 16, 4, 6
+        head = make_pe_head(use_self_attention=use_self_attention,
+                            input_size=D, K=K, P=P, L=L)
+        head.eval()
+
+        seq_lens = torch.tensor([8, 8])
+        payload = torch.randn(B, L, D)
+        ts = make_timestamps(B, L)
+
+        x = PaddedBatch(payload.clone(), seq_lens)
+        out_orig = head(x, timestamps=ts).payload
+
+        t = 3
+        payload_corrupted = payload.clone()
+        payload_corrupted[:, t + 1:, :] = torch.randn(B, L - t - 1, D) * 100
+        x_corrupted = PaddedBatch(payload_corrupted, seq_lens)
+        out_corrupted = head(x_corrupted, timestamps=ts).payload
+
+        self.assertTrue(
+            out_orig[:, :t + 1, :].allclose(out_corrupted[:, :t + 1, :], atol=1e-5),
+            "Causality broken: output at t changed after corrupting future memory positions"
+        )
+
+    def test_causality_self_attention(self):
+        self._check_causality(use_self_attention=True)
+
+    def test_causality_cross_only(self):
+        self._check_causality(use_self_attention=False)
+
+
+class TestTrainValConsistencyWithPE(TestCase):
+    """Train and val paths must agree when memory PE is enabled."""
+
+    def test_consistency_with_pe(self):
+        B, L, D, K, P = 4, 10, 16, 4, 6
+        head = make_pe_head(input_size=D, K=K, P=P, L=L)
+        head.eval()
+
+        seq_lens = torch.tensor([10, 9, 8, 7])
+        payload = torch.randn(B, L, D)
+        x = PaddedBatch(payload, seq_lens)
+        ts = make_timestamps(B, L)
+
+        out_val = head(x, timestamps=ts).payload
+
+        positions = [1, 3, 5]
+        indices = make_indices(B, L, positions=positions)
+        out_train = head(x, indices=indices, timestamps=ts).payload
+
+        for i, t in enumerate(positions):
+            self.assertTrue(
+                out_val[:, t, :].allclose(out_train[:, i, :], atol=1e-5),
+                f"Train/val mismatch at position t={t} with memory PE"
+            )
+
+
+class TestPaddingInvarianceWithPE(TestCase):
+    """Corrupting padding region (including timestamps) must not affect valid positions."""
+
+    def test_padding_invariance_with_pe(self):
+        B, L, D, K, P = 3, 10, 16, 4, 6
+        head = make_pe_head(input_size=D, K=K, P=P, L=L)
+        head.eval()
+
+        seq_lens = torch.tensor([5, 7, 3])
+        payload = torch.randn(B, L, D)
+        ts = make_timestamps(B, L)
+
+        x1 = PaddedBatch(payload.clone(), seq_lens)
+        out1 = head(x1, timestamps=ts.clone()).payload
+
+        payload_corrupted = payload.clone()
+        ts_corrupted = ts.clone()
+        for b in range(B):
+            sl = seq_lens[b].item()
+            payload_corrupted[b, sl:, :] = torch.randn(L - sl, D) * 100
+            ts_corrupted[b, sl:] = ts_corrupted[b, sl:] * 100  # corrupt padding timestamps
+
+        x2 = PaddedBatch(payload_corrupted, seq_lens)
+        out2 = head(x2, timestamps=ts_corrupted).payload
+
+        for b in range(B):
+            sl = seq_lens[b].item()
+            self.assertTrue(
+                out1[b, :sl, :].allclose(out2[b, :sl, :], atol=1e-5),
+                f"Batch item {b}: padding corruption (incl. timestamps) affected valid positions"
+            )
 
 
 if __name__ == "__main__":
