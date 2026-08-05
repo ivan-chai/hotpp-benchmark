@@ -11,25 +11,33 @@ class Head(torch.nn.Sequential):
         hidden_dims: Sizes of linear layers. If None, disable additional linear layers.
         activation_partial: A function used to construct an activation module.
         use_batch_norm: Whether to use BatchNorm.
+        batch_norm_affine: The affine flag for the BatchNorm.
+        skip_last_projection: Skip the projection from hidden to output. Raise for mismatched dimensions.
     """
     def __init__(self, input_size, output_size,
                  hidden_dims=None,
                  activation_partial=torch.nn.ReLU,
-                 use_batch_norm=False):
+                 use_batch_norm=False,
+                 batch_norm_affine=True,
+                 skip_last_projection=False):
         layers = []
 
         if use_batch_norm:
-            layers.append(torch.nn.BatchNorm1d(input_size))
+            layers.append(torch.nn.BatchNorm1d(input_size, affine=batch_norm_affine))
 
         last_dim = input_size
         for dim in hidden_dims or []:
             layers.append(torch.nn.Linear(last_dim, dim, bias=not use_batch_norm))
             if use_batch_norm:
-                layers.append(torch.nn.BatchNorm1d(dim))
+                layers.append(torch.nn.BatchNorm1d(dim, affine=batch_norm_affine))
             layers.append(activation_partial())
             last_dim = dim
 
-        layers.append(torch.nn.Linear(last_dim, output_size))
+        if skip_last_projection:
+            if last_dim != output_size:
+                raise ValueError("Hidden and output size must be equal when skipping final projection.")
+        else:
+            layers.append(torch.nn.Linear(last_dim, output_size))
         super().__init__(*layers)
         self.use_batch_norm = use_batch_norm
         self.output_size = output_size
