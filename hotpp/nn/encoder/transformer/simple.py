@@ -266,13 +266,14 @@ class SimpleTransformer(torch.nn.Module):
 
     Args:
         pos_type: Either `pos-embedding`, `pos-angular`, `time-angular[-train]-abs`, `time-angular[-train]-rel`, or a list of values (probably, empty).
+        input_dropout: Probability of the dropout applied to input embeddings. By default it is equal to dropout.
         max_duration: Must be provided if time encodings are used.
         min_time_step: The minimum time step (> 0). By default it is max_duration / n_positions.
         rope: Either "time[-train]", "none" or None.
         sos: Whether to use start token or not.
     """
     def __init__(self, input_size, n_positions=1024, n_embd=768, n_layer=12, n_head=12,
-                 n_inner=None, dropout=0.1, causal=False,
+                 n_inner=None, dropout=0.1, input_dropout=None, causal=False,
                  activation=torch.nn.functional.relu,
                  normalization=torch.nn.LayerNorm,
                  mlp="default", pos_type="pos-angular", rope=None, group_size=1, sos=True,
@@ -285,6 +286,7 @@ class SimpleTransformer(torch.nn.Module):
         self.n_head = n_head
         self.n_inner = n_inner
         self.dropout = dropout
+        self.input_dropout = input_dropout if input_dropout is not None else dropout
         self.causal = causal
 
         self.input_projection = torch.nn.Linear(input_size, n_embd)
@@ -298,7 +300,7 @@ class SimpleTransformer(torch.nn.Module):
                                                activation=activation,
                                                normalization=normalization,
                                                mlp=mlp,
-                                               dropout=dropout,
+                                               dropout=self.dropout,
                                                group_size=group_size,
                                                norm_first=True,
                                                batch_first=True)
@@ -309,7 +311,7 @@ class SimpleTransformer(torch.nn.Module):
                                              pos_type=pos_type,
                                              max_duration=max_duration,
                                              min_time_step=min_time_step,
-                                             dropout=dropout)
+                                             dropout=self.input_dropout)
         if rope in {"time", "time-train"}:
             self.rope = TimeRoPEEncoding(
                 head_dim=n_embd // n_head,
@@ -389,10 +391,10 @@ class SimpleTransformer(torch.nn.Module):
         with no_mha_fast_path():
             with extended_transformer(self.encoder, cache_hiddens=(return_states == "full")) as encoder:
                 outputs = encoder(embeddings.payload,
-                                mask=attention_mask,
-                                src_key_padding_mask=~embeddings.seq_len_mask.bool() if not self.causal else None,
-                                is_causal=causal_hint,
-                                rope=self.rope)  # (B, L, D).
+                                  mask=attention_mask,
+                                  src_key_padding_mask=~embeddings.seq_len_mask.bool() if not self.causal else None,
+                                  is_causal=causal_hint,
+                                  rope=self.rope)  # (B, L, D).
                 if return_states == "full":
                     states = encoder.activations
                 else:
