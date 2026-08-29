@@ -19,3 +19,9 @@ python3 -m hotpp.embed --config-dir configs --config-name detection +embeddings_
 
 # Downstream evaluation
 Under development.
+
+**Note:** When generating the dataset, Spark may run out of space if its temporary files are created on a disk with limited capacity.
+To avoid this, set a custom temp directory using:
+```python
+SparkSession.builder.config("spark.local.dir", "/path/to/spark-temp")
+```
