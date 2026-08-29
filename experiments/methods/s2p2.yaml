@@ -1,0 +1,48 @@
+# S2P2 method config - EasyTPP best settings
+defaults:
+  - default
+  - _self_
+
+name: s2p2
+
+head:
+  use_batch_norm: false  # Cont-time models are worse with BN.
+
+module:
+  _target_: hotpp.modules.NextItemModule
+  seq_encoder:
+    rnn_partial:
+      _target_: hotpp.nn.S2P2Encoder
+      _partial_: true
+      # EasyTPP best config settings
+      hidden_size: 128
+      state_dim: 16  # P in EasyTPP
+      num_layers: 4
+      num_event_types: ${num_classes}
+      dt_init_min: 0.0001
+      dt_init_max: 0.1
+      act_func: gelu
+      dropout_rate: 0.1
+      for_loop: true
+      pre_norm: false
+      post_norm: true
+      simple_mark: true
+      relative_time: true
+      complex_values: true
+      int_forward_variant: false
+      int_backward_variant: true
+    max_inference_context: ${rnn_inference_context}
+    inference_context_step: ${rnn_inference_context_step}
+  head_partial: ${head}
+  loss:
+    _target_: hotpp.losses.NHPLoss
+    num_classes: ${num_classes}
+    time_smoothing: ${time_smoothing}
+    max_intensity: ${max_intensity}
+    likelihood_sample_size: 10  # loss_integral_num_sample_per_step
+    thinning_params: ${thinning_params}
+  autoreg_max_steps: ${max_predictions}
+
+trainer:
+  precision: 32  # Prevent explosion
+  max_epochs: 170

@@ -49,7 +49,11 @@ def train_multiseed(conf):
             continue
         multiseed_metrics[k] = float(np.mean(vs))
         multiseed_metrics[k + "-std"] = float(np.std(vs))
-    with open(conf.multiseed_report, "w") as fp:
+    report_path = conf.multiseed_report
+    report_dir = os.path.dirname(report_path)
+    if report_dir:
+        os.makedirs(report_dir, exist_ok=True)
+    with open(report_path, "w") as fp:
         dump_report(multiseed_metrics, fp)
 
 
