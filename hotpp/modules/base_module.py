@@ -48,6 +48,7 @@ class BaseModule(pl.LightningModule):
         amounts_field (optional): The name of the amount field for some metrics.
         head_partial: FC head model class which accepts input and output dimensions.
         aggregator: Embeddings aggregator.
+        loss_subset: Fraction of positions to compute loss (for ex. 25% in amazon dataset)
         optimizer_partial:
             optimizer init partial. Network parameters are missed.
         lr_scheduler_partial:
@@ -61,15 +62,18 @@ class BaseModule(pl.LightningModule):
                  amounts_field=None,
                  head_partial=None,
                  aggregator=None,
+                 loss_subset=1.0,
                  optimizer_partial=None,
                  lr_scheduler_partial=None,
                  val_metric=None,
-                 test_metric=None):
+                 test_metric=None,
+                 **kwargs):
 
         super().__init__()
         self._timestamps_field = timestamps_field
         self._labels_field = labels_field
         self._amounts_field = amounts_field
+        self._loss_subset = loss_subset
 
         self._loss = loss
         self._seq_encoder = seq_encoder
@@ -101,10 +105,11 @@ class BaseModule(pl.LightningModule):
             results.payload[self._timestamps_field] += inputs.payload[self._timestamps_field]
         return results
 
-    def forward(self, x, return_states=False):
+    def forward(self, x, return_states=False, loss_indices=None):
         """Extract hidden activations and states."""
         hiddens, states = self._seq_encoder(x, return_states=return_states)  # (B, L, D), (N, B, L, D).
-        outputs = self._head(hiddens)  # (B, L, D).
+        outputs = self._head(hiddens, indices=loss_indices,
+                             timestamps=x.payload[self._timestamps_field])  # (B, L, K*P).
         return outputs, states
 
     def embed(self, x):
@@ -128,24 +133,65 @@ class BaseModule(pl.LightningModule):
         """
         pass
 
-    def compute_loss(self, x, outputs, states):
+    def get_loss_indices(self, inputs): #переношу сюда из detectionLoss
+        """Get positions to evaluate loss at.
+
+        Args:
+        inputs: Input features with shape (B, L).
+
+        Returns:
+        indices: Batch of indices with shape (B, I) or None if loss must be evaluated at each step.
+        """
+        if self._loss_subset >= 1.0:
+            return None
+        k = getattr(self._loss, "prefetch_k", None)
+        if k is None:
+            return None
+        b, l = inputs.shape # inputs - (64, 90)
+        n_indices = min(max(int(round(l * self._loss_subset)), 1), l)
+        mask = torch.arange(l, device=inputs.device)[None] + k < inputs.seq_lens[:, None]  # (B, L).
+        weights = torch.rand(b, l, device=inputs.device) * mask
+        indices = weights.topk(n_indices, dim=1)[1].sort(dim=1)[0]  # (B, I).
+        lengths = (indices < inputs.seq_lens[:, None]).sum(1)
+        full_mask = indices + k < inputs.seq_lens[:, None]
+        return PaddedBatch({"index": indices, "full_mask": full_mask}, lengths)
+
+    def compute_loss(self, x, outputs, states, loss_indices=None, calibration_outputs=None):
         """Compute loss for the batch.
 
         Args:
             x: Input batch.
             outputs: Head output.
             states: Sequential model hidden states.
+            calibration_outputs: Full-sequence head output used for threshold calibration.
+                When loss_indices selects a subset, the subset outputs are biased and
+                cannot be used for calibration. Pass full-sequence outputs here instead.
 
         Returns:
             A dict of losses and a dict of metrics.
         """
-        losses, metrics = self._loss(x, outputs, states)
+        losses, metrics = self._loss(x, outputs, states, loss_indices=loss_indices,
+                                     calibration_outputs=calibration_outputs)
         return losses, metrics
 
     def training_step(self, batch, batch_idx):
-        x, _ = batch
-        outputs, states = self(x, return_states="full" if self._need_states else False)  # (B, L, D), (N, B, L, D).
-        losses, metrics = self.compute_loss(x, outputs, states)
+        x, _ = batch # x - (B, L) (64, 90)
+        loss_indices = self.get_loss_indices(x) # (B, I)
+        hiddens, states = self._seq_encoder(x, return_states="full" if self._need_states else False)
+        timestamps = x.payload[self._timestamps_field]
+        outputs = self._head(hiddens, indices=loss_indices,
+                             timestamps=timestamps)  # (B, I, K*P) with gradient.
+        # Calibration requires full-sequence head outputs: the subset (I positions) has
+        # seq_lens < prefetch_k, making (seq_lens - prefetch_k).clip(0) = 0 positions for
+        # calibration, so _matching_thresholds would never update.
+        if loss_indices is not None:
+            with torch.no_grad():
+                calibration_outputs = self._head(hiddens, indices=None,
+                                                 timestamps=timestamps)  # (B, L, K*P), no grad.
+        else:
+            calibration_outputs = None
+        losses, metrics = self.compute_loss(x, outputs, states, loss_indices=loss_indices,
+                                            calibration_outputs=calibration_outputs)
         loss = sum(losses.values())
 
         # Log statistics.

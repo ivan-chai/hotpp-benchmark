@@ -18,6 +18,7 @@ class NextKModule(BaseModule):
         seq_encoder: Backbone model, which includes input encoder and sequential encoder.
         loss: Training loss.
         max_predicitions: Limit the maximum number of predictions.
+        loss_subset: Fraction of positions to compute loss.
     """
     def __init__(self, seq_encoder, loss,
                  max_predictions=None,

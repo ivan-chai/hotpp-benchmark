@@ -1,0 +1,69 @@
+defaults:
+  - default
+  - _self_
+
+name: detection_transformer_simple_hybrid
+
+detection_k: 32
+
+transformer_decoder_head:
+  _target_: hotpp.nn.TransformerDecoderHead
+  _partial_: true
+  k: ${detection_k}
+  query_size: 64        # = transformer_hidden_size. n_heads: 64 / 4 = 16 — ok.
+  n_heads: 4
+  n_layers: 2
+  dim_feedforward: 256  # = 4 * query_size.
+  dropout: 0.1
+  use_self_attention: true
+
+module:
+  _target_: hotpp.modules.NextKModule
+  loss_subset: 1
+  seq_encoder:
+    _target_: hotpp.nn.Encoder
+    model_partial:
+      _target_: hotpp.nn.SimpleTransformer
+      _partial_: true
+      n_positions: ${transformer_positions}
+      n_embd: ${transformer_hidden_size}
+      n_layer: ${transformer_layers}
+      n_head: ${transformer_heads}
+      max_duration: ${max_duration}
+      pos_type:
+        - time-angular-rel
+      activation:
+        _partial_: True
+        _target_: torch.nn.functional.gelu
+      causal: True
+      sos: false
+    max_context: ${transformer_context}
+  head_partial: ${transformer_decoder_head}
+  loss:
+    _target_: hotpp.losses.DetectionLoss
+    k: ${detection_k}
+    horizon: ${metric.horizon}
+    prefetch_factor: 1
+    drop_partial_windows: false
+    match_weights:
+      _presence: 4
+      timestamps: 0.4
+      labels: 0.8
+    next_item_adapter: head
+    next_item_loss_weight: 4
+    next_item_loss:
+      _target_: hotpp.losses.NextItemLoss
+      losses:
+        _presence:
+          _target_: hotpp.losses.BinaryCrossEntropyLoss
+        timestamps:
+          _target_: hotpp.losses.TimeMAELoss
+          delta: start
+          max_delta: ${max_duration}
+          smoothing: ${time_smoothing}
+        labels:
+          _target_: hotpp.losses.CrossEntropyLoss
+          num_classes: ${num_classes}
+
+trainer:
+  deterministic: false

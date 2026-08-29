@@ -1,0 +1,64 @@
+defaults:
+  - default
+  - _self_
+
+name: detection_transformer_backbone_hybrid
+
+detection_k: 48
+
+transformer_decoder_head:
+  _target_: hotpp.nn.TransformerDecoderHead
+  _partial_: true
+  k: ${detection_k}
+  n_heads: 4
+  n_layers: 2
+  dropout: 0.1
+  use_self_attention: true
+
+module:
+  _target_: hotpp.modules.NextKModule
+  loss_subset: 0.5
+  seq_encoder:
+    _target_: hotpp.nn.Encoder
+    model_partial:
+      _target_: hotpp.nn.HuggingFaceTransformer
+      _partial_: true
+      model:
+        _target_: transformers.GPT2Model
+        config:
+          _target_: transformers.GPT2Config
+          n_positions: ${transformer_positions}
+          n_embd: ${transformer_hidden_size}
+          n_layer: ${transformer_layers}
+          n_head: ${transformer_heads}
+          output_hidden_states: True
+    max_context: ${transformer_context}
+  head_partial: ${transformer_decoder_head}
+  loss:
+    _target_: hotpp.losses.DetectionLoss
+    k: ${detection_k}
+    horizon: ${metric.horizon}
+    loss_subset: 0.5
+    prefetch_factor: 0.5
+    match_weights:
+      _presence: 4
+      timestamps: 2
+      labels: 1
+    next_item_adapter: head
+    next_item_loss_weight: 4
+    next_item_loss:
+      _target_: hotpp.losses.NextItemLoss
+      losses:
+        _presence:
+          _target_: hotpp.losses.BinaryCrossEntropyLoss
+        timestamps:
+          _target_: hotpp.losses.TimeMAELoss
+          delta: start
+          max_delta: ${max_duration}
+          smoothing: ${time_smoothing}
+        labels:
+          _target_: hotpp.losses.CrossEntropyLoss
+          num_classes: ${num_classes}
+
+trainer:
+  deterministic: false
