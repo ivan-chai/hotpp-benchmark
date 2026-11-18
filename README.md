@@ -157,34 +157,44 @@ OMP_NUM_THREADS=1 python3 -m hotpp.evaluate --config-dir configs --config-name <
 # Citation
 If you use [HoTPP](https://arxiv.org/pdf/2406.14341) in your project, please cite the following paper:
 ```
-@article{karpukhin2024hotppbenchmark,
-  title={HoTPP Benchmark: Are We Good at the Long Horizon Events Forecasting?},
+@article{karpukhin2026hotpp,
+  title={HoTPP benchmark: Are we good at the long horizon events forecasting?},
   author={Karpukhin, Ivan and Shipilov, Foma and Savchenko, Andrey},
-  journal={arXiv preprint arXiv:2406.14341},
-  year={2024},
-  url ={https://arxiv.org/abs/2406.14341}
+  journal={Neurocomputing},
+  pages={132771},
+  year={2026},
+  publisher={Elsevier}
 }
 ```
 
 If you incorporate ideas from [DeTPP](https://arxiv.org/pdf/2408.13131), use it for comparison, or reference it in a review, please cite the following paper:
 ```
-@article{karpukhin2024detpp,
-  title={DeTPP: Leveraging Object Detection for Robust Long-Horizon Event Prediction},
+@inproceedings{karpukhin2026detecting,
+  title={Detecting the future: All-at-Once event sequence forecasting with horizon matching},
   author={Karpukhin, Ivan and Savchenko, Andrey},
-  journal={arXiv preprint arXiv:2408.13131},
-  year={2024},
-  url ={https://arxiv.org/abs/2408.13131}
+  booktitle={Proceedings of the AAAI Conference on Artificial Intelligence},
+  volume={40},
+  number={27},
+  pages={22536--22544},
+  year={2026}
 }
 ```
 
 The repository is closely related to the pretraining tasks from [PreTPP](https://github.com/ivan-chai/pretpp). The corresponding papers include [HT-Transformer](https://arxiv.org/pdf/2508.01474v1) (Accepted to IJCAI-26 AI4Tech track):
 ```
-@article{karpukhin2025httransformer,
-  title={HT-Transformer: Event Sequences Classification by Accumulating Prefix Information with History Tokens},
-  author={Karpukhin, Ivan and Savchenko, Andrey},
-  journal={arXiv preprint arXiv:2508.01474v1},
-  year={2025},
-  url ={https://arxiv.org/abs/2508.01474v1}
+@inproceedings{ijcai2026p719,
+  title     = {HT-Transformer: Event Sequences Classification by Accumulating Prefix Information with History Tokens},
+  author    = {Karpukhin, Ivan and Polesskii, Maksim and Savchenko, Andrey},
+  booktitle = {Proceedings of the Thirty-Fifth International Joint Conference on
+               Artificial Intelligence, {IJCAI-26}},
+  publisher = {International Joint Conferences on Artificial Intelligence Organization},
+  editor    = {Diego Calvanese},
+  pages     = {6462--6470},
+  year      = {2026},
+  month     = {8},
+  note      = {AI4Tech: AI Enabling Technologies},
+  doi       = {10.24963/ijcai.2026/719},
+  url       = {https://doi.org/10.24963/ijcai.2026/719},
 }
 ```
 and [GraP](https://arxiv.org/abs/2605.07756):
