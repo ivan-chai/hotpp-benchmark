@@ -182,7 +182,7 @@ If you incorporate ideas from [DeTPP](https://arxiv.org/pdf/2408.13131), use it 
 
 The repository is closely related to the pretraining tasks from [PreTPP](https://github.com/ivan-chai/pretpp). The corresponding papers include [HT-Transformer](https://arxiv.org/pdf/2508.01474v1) (Accepted to IJCAI-26 AI4Tech track):
 ```
-@inproceedings{ijcai2026p719,
+@inproceedings{ijcai2026httransformer,
   title     = {HT-Transformer: Event Sequences Classification by Accumulating Prefix Information with History Tokens},
   author    = {Karpukhin, Ivan and Polesskii, Maksim and Savchenko, Andrey},
   booktitle = {Proceedings of the Thirty-Fifth International Joint Conference on
